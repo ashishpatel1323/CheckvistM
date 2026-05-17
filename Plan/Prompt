@@ -1,0 +1,208 @@
+# Prompt: Checkvist Responsive Web App (React)
+
+## Project Overview
+Build a responsive React web application that serves as a modern UI layer on top of the existing Checkvist REST API (https://checkvist.com/auth/api). The app must work seamlessly in desktop browsers and on Android/iOS mobile browsers (mobile-first responsive design, PWA-ready).
+
+This is **Phase 1**. Implement only the features described below. Architect the code so additional Checkvist features (notes/comments, tags, sub-tasks, bulk import, etc.) can be added later without rewriting core modules.
+
+## Tech Stack
+- **Framework:** React 18 with Vite
+- **Language:** TypeScript (strict mode)
+- **Styling:** Tailwind CSS
+- **State management:** React Query (TanStack Query) for server state + Zustand for local UI state
+- **Routing:** React Router v6
+- **HTTP client:** Axios with an interceptor that injects the Checkvist auth token and auto-refreshes it
+- **Date handling:** date-fns
+- **Form/validation:** react-hook-form + zod
+- **Icons:** lucide-react
+- **PWA:** vite-plugin-pwa so the app is installable on Android/iOS home screens
+
+## Authentication
+1. On first load, show a login screen that collects **email** and **Checkvist OpenAPI key** (the "Remote key" from the user's Checkvist profile).
+2. Call `POST https://checkvist.com/auth/login.json?version=2` with `username` (email) and `remote_key`. Store the returned `token` and `expires_at` securely in localStorage.
+3. Implement a transparent refresh flow that calls `POST /auth/refresh_token.json?version=2` before the token expires (token is valid for 1 day, refreshable for 90 days). If refresh fails, clear storage and bounce back to login.
+4. Every authenticated request must send the token via the `token` query parameter (or however Checkvist's docs specify — read the docs and implement correctly).
+5. Provide a "Sign out" action that clears the token and returns to the login screen.
+
+## Core Feature: Task List Sorted by Due Date
+
+### Data fetching
+- After login, call `GET /checklists.json` to get the user's checklists.
+- For Phase 1, show a top-bar **checklist switcher** (dropdown). Default to the first checklist returned.
+- For the active checklist, call `GET /checklists/{checklist_id}/tasks.json` and render the open tasks.
+- Use React Query with reasonable `staleTime` (e.g., 30s) and cache invalidation after mutations.
+
+### Sorting, hierarchy & display
+- Sort the **top-level rows** by **due date ascending** (nulls/no-due-date go to the bottom).
+- Group those top-level rows under collapsible date headers: **Overdue**, **Today**, **Tomorrow**, **This week**, **Later**, **No due date**.
+- Each task row shows: completion checkbox, task content, priority badge (1–10, color-coded — red for 1–3, amber for 4–6, green for 7–10), due date (humanized: "Tomorrow", "Fri 22 May", etc.), and a small "more" affordance for touch users.
+- Clicking the checkbox closes the task via `POST /checklists/{checklist_id}/tasks/{task_id}/close` with optimistic UI update.
+- Empty state: friendly illustration + "No tasks. Add one to get started."
+
+#### Hierarchical rendering
+Checkvist tasks form a tree via `parent_id`. The list view is fundamentally a **flat, due-date-sorted view** with hierarchy **layered on top** as an opt-in expansion. Specifically:
+
+- **Every task appears in its own date bucket as a top-level row.** Bucketing is based on that task's own `due_date` (or "No due date" if it has none). A task is **never hidden** just because one of its ancestors is also in the list. Example: if there's a chain `X → Y → Z` where only `Z` has a due date, all three appear — `X` and `Y` in "No due date", `Z` in its proper date bucket — and `Z` will also show again nested under `X → Y` when those parents are expanded. **Duplication is intentional and acceptable**; the top-level placement keeps the date sort honest, the nested placement preserves family context.
+- **Expand chevron.** Each task that has at least one direct child shows a leading **`+` / `−` chevron** (use `ChevronRight` rotated 90° when expanded, from lucide-react). The chevron sits to the left of the checkbox and is its own tap target. Tasks with no children show no chevron.
+- **Subtree on expand.** Expanding a row reveals its full descendant subtree (children, grandchildren, …) inline. Descendants render the same row controls as top-level rows. Within a parent, **children are ordered by Checkvist's `position` field**, not by due date — so manual ordering is preserved inside a family.
+- **Indent** by ~20 px per depth level, with a faint vertical guide line so the parent–child chain is obvious.
+- **Visual hint for duplicates** (optional polish): when a row that appears at the top level is *also* nested under an expanded ancestor, render the nested copy slightly de-emphasized (e.g., a tiny "↗ also in <bucket>" pill) so the user notices it's the same task they already saw above. Clicking the pill scrolls to the top-level instance. Skip this if it gets noisy — duplication itself is fine even without the hint.
+- **Counts**: if a parent has descendants that the current filter would hide (e.g., closed sub-tasks), show a muted suffix like `· 3 hidden` next to the parent's content. In Phase 1 nothing is filtered out, so this is a no-op for now — keep the affordance in code.
+- **Persistence**: remember each row's expanded/collapsed state in `localStorage` keyed by task id, so reloads don't snap everything shut.
+- **Build the tree client-side.** `GET /checklists/{checklist_id}/tasks.json` returns a flat array. Assemble the tree once in a memoized pure helper, `buildTaskTree(flatTasks)`, that returns both the rooted tree (for expansion lookup) and a flat list of every task tagged with its date bucket (for the top-level rendering). Unit-test this helper.
+- **Performance**: for large checklists, virtualize only the top-level rows (e.g., `@tanstack/react-virtual`). Expanded subtrees render inline within their parent row; if a single subtree gets very large, virtualize it too.
+
+### Quick date picker (tap the due date on any task row)
+
+When the user **taps or clicks the due-date area** of a task row (or a "+ Add date" affordance on tasks that don't yet have one), open a quick-date picker that looks like the reference screenshot: a rounded white card with a soft drop shadow containing a **3×3 grid of icon tiles**. Each tile shows an outlined orange icon stacked above a small muted-gray label. A footer line under the grid reads **"Long press to customize settings"**.
+
+The nine tiles, in this order (left-to-right, top-to-bottom):
+
+| # | Label | Icon (lucide-react) | Action |
+|---|-------|---------------------|--------|
+| 1 | **Today** | `CalendarDays` (with "17" or current date number) | Set due to today |
+| 2 | **Tomorrow** | `Sunrise` | Set due to today + 1 day |
+| 3 | **Postpone 1 week** | `History` / `RotateCw` over a clock | Add 7 days to the current due date (or today + 7 days if none) |
+| 4 | **This Saturday** | `Calendar` showing "Sa" | Set due to the upcoming Saturday; if today is Saturday or Sunday, label becomes **"Next Saturday"** |
+| 5 | **Pick Date** | `CalendarPlus` | Open a full date-picker modal — native `<input type="date">` on touch devices, a styled calendar on desktop |
+| 6 | **Clear** | `XSquare` | Clear the due date (`null`) |
+| 7 | **Today Morning** | `Sunrise` | Today at **09:00** local |
+| 8 | **Today Afternoon** | `Sun` | Today at **14:00** local |
+| 9 | **Today Night** | `MoonStar` | Today at **20:00** local |
+
+Visual / behaviour spec:
+- Card: white background, ~16 px corner radius, subtle drop shadow, a slight translucency over a dimmed backdrop. Use Checkvist's orange (≈ `#E8632A`) for all icons; labels in `text-gray-500`.
+- Tiles have no borders; the entire tile is tappable with a ≥ 56×56 px hit area. Hover state on desktop is a faint gray background; pressed state is a soft scale-down on mobile.
+- On screens ≥ `md` (desktop tablets), render as a popover anchored under the tapped date.
+- On screens < `md`, render as a bottom-sheet modal with the same 3×3 grid centered inside.
+- Dismiss on outside click, Escape key, swipe-down on mobile, or after any tile action completes.
+- Optimistic UI: update the row immediately, roll back with a toast on API failure.
+
+Footer ("Long press to customize settings"):
+- For **Phase 1**, render the hint and wire long-press on a tile to a placeholder sheet that says "Customization coming soon". Don't persist anything yet — leave the hook in place so customization can be added later.
+
+API call after any tile action (except Pick Date, which first opens the calendar):
+```
+PUT /checklists/{checklist_id}/tasks/{task_id}.json
+{ "task": { "due_date": "YYYY/MM/DD" } }
+```
+Verify the exact field name and date format against the live Checkvist docs (`due_date` with `YYYY/MM/DD` is the historical format). Checkvist's task model is **date-granular** — it doesn't store a time of day. For the Morning / Afternoon / Night tiles, send the date as usual and persist the time-of-day **client-side** (e.g., `localStorage` keyed by task id, or a small IndexedDB store). Surface the chosen time in the row's display (e.g., "Today · 14:00"). Architect this so it can move to a real backend field if Checkvist ever adds time support.
+
+### Context menu (right-click on desktop, long-press the row on mobile)
+
+A separate context menu opens on:
+- **Desktop:** `oncontextmenu` (right-click) anywhere on the task row — prevent the browser's default menu.
+- **Mobile / touch:** long-press (~500 ms) on the task row body. This is distinct from long-pressing a tile inside the date picker. On narrow viewports it appears as a bottom sheet.
+
+Menu items for Phase 1:
+1. **Set priority** → segmented control with values **1 through 10**. On select, call `PUT /checklists/{checklist_id}/tasks/{task_id}.json` with `{ "task": { "priority": N } }`. Optimistic update.
+2. **Change due date** → opens the same 3×3 quick date picker described above.
+
+Dismiss on outside click, Escape, or after an action completes.
+
+### Task detail view (click a task)
+
+Clicking (or tapping) the **content area** of any task row navigates to a dedicated task view at the route `/{checklist_id}/tasks/{task_id}`. The chevron, checkbox, due-date pill, and context-menu trigger remain in-place actions — only clicking the task's text/body opens the detail view. On desktop this is a right-side panel (slide-in) that does not unmount the list; on mobile (< `md`) it's a full-screen page with a back arrow that returns to the list.
+
+What the detail view shows:
+
+1. **Header**
+   - Back arrow (mobile) / close X (desktop panel).
+   - Task content as the page title (editable inline on focus — saves on blur via `PUT /checklists/{checklist_id}/tasks/{task_id}.json` with `{ "task": { "content": "…" } }`).
+   - Status pill (Open / Closed / Invalidated).
+   - Due-date pill (tapping it opens the same 3×3 quick date picker from the list).
+   - Priority badge (tapping it opens the same 1–10 picker).
+   - Breadcrumb of ancestors when the task has a parent: `Parent task › Grandparent task` (each segment links to that ancestor's detail view).
+
+2. **Body**
+   - The task's **`details`** / long-form content rendered as Markdown (Checkvist supports basic Markdown in tasks — render `**bold**`, `*italic*`, links, code, lists, and checkboxes). Sanitize the HTML output with DOMPurify before injecting.
+   - If the task has no body, show a muted "No description yet" placeholder.
+
+3. **Sub-tasks section** — **headline of this feature**
+   - Title: **"Sub-tasks"** with a count, e.g. `Sub-tasks (4)`.
+   - Render the **full subtree** of the current task as an indented, formatted outline (parent → children → grandchildren, recursing).
+   - **Honour the active list filter.** The detail view should accept the same filter context that drove the list (status filter, search term, etc., even if those filters are stubs in Phase 1). A descendant only appears here if it would have passed that filter. If a descendant is hidden but has visible grandchildren, show the descendant as a faint "passthrough" row so the chain isn't broken (e.g., italicized, no actions).
+   - Each sub-task row in this view shows: checkbox, content (clickable to drill deeper into that sub-task's detail view), priority badge, due date. Same interactions as the list (checkbox closes, context menu, date picker).
+   - Indentation: ~24 px per level. Add a faint vertical guide line.
+   - If the task has no children at all, omit this section entirely (don't show "0 sub-tasks").
+   - At the bottom of the sub-task section: an inline **"+ Add sub-task"** input that creates a new child via `POST /checklists/{checklist_id}/tasks.json` with `{ "task": { "content": "…", "parent_id": <currentTaskId> } }` (verify the exact param name in the Checkvist docs).
+
+4. **Footer / metadata** (small, muted)
+   - Created / updated timestamps (`formatDistanceToNow`).
+   - `Position` and `parent_id` shown only in a dev/debug toggle — not for end users.
+
+Data fetching for the detail view:
+- Use `GET /checklists/{checklist_id}/tasks/{task_id}.json` for the focal task.
+- For the sub-tasks section, **reuse** the checklist's flat tasks query from the list (the same React Query cache entry) and run the `buildTaskTree` helper, then walk down from the focal node. This avoids a second round-trip when the list is already loaded. If the detail view is opened via deep link without the list loaded, fetch the checklist's tasks on mount.
+- All mutations on this page (priority, due date, content, close, add sub-task) must invalidate or optimistically update the same query so the list view updates the moment the user navigates back.
+
+Deep-linking & history:
+- The route is canonical and shareable. Reload on `/{checklist_id}/tasks/{task_id}` lands directly on the detail view.
+- Browser back returns to the list with scroll position and expansion state restored.
+
+### Create a new task
+- Persistent **"+ New task"** input at the top of the list (and a floating action button on mobile).
+- Pressing Enter or tapping the FAB calls `POST /checklists/{checklist_id}/tasks.json` with `{ task: { content: "..." } }`.
+- Optional inline affordances next to the input to preset priority and due date before creating.
+- Optimistic insert; rollback and show a toast on failure.
+
+## Responsive & Mobile Requirements
+- Mobile-first layout. Test breakpoints at 360px, 768px, 1024px, 1440px.
+- Touch targets ≥ 44×44px. No hover-only interactions.
+- Right-click menu becomes a bottom-sheet on screens narrower than `md`.
+- Smooth keyboard handling on iOS Safari (no zoom-on-focus — set `font-size: 16px` on inputs).
+- Safe-area insets respected (`env(safe-area-inset-*)`) for iOS notch / Android gesture bar.
+- The PWA manifest should include a name, theme color, and icons so "Add to Home Screen" produces a clean install on both Android and iOS.
+
+## Project Structure (suggested)
+```
+src/
+  api/             # axios instance, endpoint wrappers, types
+  auth/            # login screen, token store, refresh logic
+  features/
+    checklists/    # checklist switcher, hooks
+    tasks/
+      list/        # task list, task row, hierarchy tree, virtualized container
+      detail/      # task detail panel/page, sub-task tree, markdown renderer
+      shared/      # context menu, quick date picker, priority picker, create-task input
+  components/      # generic UI (BottomSheet, Menu, DatePicker, Toast, Spinner)
+  lib/             # date utils, sorting/grouping helpers, buildTaskTree
+  app/             # routing, providers, layout
+```
+
+## Error Handling & UX Polish
+- Global toast system for success/error feedback.
+- Network errors: show a non-blocking banner with a retry button; React Query handles background retries.
+- 401 responses: trigger token refresh; if that fails, log the user out.
+- Loading skeletons for the task list (don't show a blank screen).
+- Keyboard shortcuts on desktop: `N` to focus the new-task input, `/` to focus search (search itself is out of scope for Phase 1 but reserve the shortcut).
+
+## Out of Scope for Phase 1 (do NOT build yet)
+- Notes/comments on tasks
+- Tags and tag-based filtering
+- **Reparenting** sub-tasks (drag-and-drop to move a task under a different parent). Hierarchy is **displayed and respected**, and new sub-tasks can be **created** from the detail view, but moving existing tasks between parents is out of scope.
+- Bulk import
+- Recurring tasks
+- Multi-checklist views, creating/deleting checklists
+- Sharing / collaborators
+Stub the code so these can be added cleanly later.
+
+## Acceptance Criteria
+1. I can log in with my Checkvist email and API key, and stay logged in across reloads.
+2. I see my tasks from the default checklist, grouped and sorted by due date.
+3. **Tasks render flat-by-due-date with hierarchy layered on top.** Every task appears as a top-level row in the bucket matching its own due date (or "No due date"). Parents that have children show a `+` / `−` chevron; expanding it reveals the full descendant subtree inline, ordered by Checkvist's `position`. A descendant that has its own due date therefore appears **twice** — once at the top in its date bucket, and once nested under its parent when the parent is expanded — and that is the intended behavior. Expanded/collapsed state survives a reload.
+4. Right-clicking a task on desktop and long-pressing on mobile both open the same context menu (rendered appropriately for the form factor).
+5. I can change a task's priority to any value from 1 to 10 from that menu, and the change persists after reload.
+6. Tapping the due date on a task row opens the 3×3 quick date picker; I can change a task's due date to any of the nine options or a custom date, and the change persists after reload.
+7. I can create a new task from the top of the list, and it appears immediately (optimistic) and persists after reload.
+8. **Clicking a task's content opens a detail view at `/{checklist_id}/tasks/{task_id}`.** It shows the task's content (editable inline), priority, due date, and a formatted indented sub-task tree of all its descendants that match the current filter. I can add a new sub-task from within the detail view. Deep-linking to that URL works on reload.
+9. The app is usable and looks good at 360px width, and installable as a PWA on Android and iOS.
+
+## Deliverables
+- The full source tree as described.
+- A `README.md` with setup instructions (env vars if any, `pnpm install`, `pnpm dev`, `pnpm build`).
+- No backend — this is a pure client that talks directly to `https://checkvist.com/`.
+
+---
+
+**Reference:** Checkvist Open API docs — https://checkvist.com/auth/api
