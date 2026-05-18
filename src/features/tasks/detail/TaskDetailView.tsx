@@ -150,14 +150,24 @@ export function TaskDetailView({ isMobile, onClose }: TaskDetailViewProps) {
     })
   }
 
-  // Fetch parent task directly so the breadcrumb doesn't depend on allTasks being loaded.
-  const parentId = task?.parent_id ?? null
-  const { data: parentTask } = useQuery({
-    queryKey: ['task', checklistId, parentId],
-    queryFn: () => fetchTask(checklistId, parentId!),
-    enabled: !!parentId && !!checklistId,
+  // parent_id = 0 means no parent in Checkvist; only positive ids are real parents.
+  const taskParentId = (task?.parent_id ?? 0) > 0 ? task!.parent_id! : null
+
+  // Check the already-loaded task list first to avoid an extra network call.
+  const parentFromList = useMemo(() => {
+    if (!taskParentId || !allTasks) return null
+    return allTasks.find((t) => t.id === taskParentId) ?? null
+  }, [allTasks, taskParentId])
+
+  // Fetch the parent if it's not in the list (e.g. it's a closed task).
+  const { data: fetchedParent } = useQuery({
+    queryKey: ['task', checklistId, taskParentId],
+    queryFn: () => fetchTask(checklistId, taskParentId!),
+    enabled: !!taskParentId && !parentFromList && !!checklistId,
     staleTime: 30 * 1000,
   })
+
+  const parentTask = parentFromList ?? fetchedParent ?? null
 
   const wrapperClass = isMobile
     ? 'fixed inset-0 z-30 bg-white flex flex-col'

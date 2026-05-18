@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { ChevronRight, Circle, CheckCircle, CornerUpRight } from 'lucide-react'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
 import { getExpandedState, setExpandedState } from '@/auth/tokenStore'
-import { priorityBadgeClass, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
+import { PriorityPicker, priorityBadgeClass, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
+import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { ContextMenu } from '@/features/tasks/shared/ContextMenu'
 import { classifyTask, GROUP_LABELS } from '@/lib/dateSort'
 import { useCloseTask, useUpdateTask } from './useTasksQuery'
@@ -36,6 +38,14 @@ export function TaskRow({
     open: boolean
     position: { x: number; y: number } | null
   }>({ open: false, position: null })
+
+  // Inline pickers
+  const [showPriorityPicker, setShowPriorityPicker] = useState(false)
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const [priorityPos, setPriorityPos] = useState<{ x: number; y: number } | null>(null)
+  const [datePos, setDatePos] = useState<{ x: number; y: number } | null>(null)
+  const priorityBtnRef = useRef<HTMLButtonElement>(null)
+  const dateBtnRef = useRef<HTMLButtonElement>(null)
 
   const { mutate: closeTask } = useCloseTask(checklistId)
   const { mutate: updateTask } = useUpdateTask(checklistId)
@@ -105,6 +115,22 @@ export function TaskRow({
     )
   }
 
+  const handlePriorityBadgeClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const rect = priorityBtnRef.current?.getBoundingClientRect()
+    if (rect) setPriorityPos({ x: rect.left, y: rect.bottom + 4 })
+    setShowPriorityPicker((v) => !v)
+    setShowDatePicker(false)
+  }
+
+  const handleDateBadgeClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const rect = dateBtnRef.current?.getBoundingClientRect()
+    if (rect) setDatePos({ x: rect.left, y: rect.bottom + 4 })
+    setShowDatePicker((v) => !v)
+    setShowPriorityPicker(false)
+  }
+
   // A nested copy that has its own due date also exists at the top level in its bucket.
   const showAlsoInBucketPill = isNestedCopy && task.due !== null && task.due !== undefined
   const bucketLabel = showAlsoInBucketPill ? GROUP_LABELS[classifyTask(task)] : null
@@ -133,6 +159,7 @@ export function TaskRow({
           }`}
           aria-label={expanded ? 'Collapse' : 'Expand'}
           aria-hidden={!hasChildren}
+          onKeyDown={(e) => e.stopPropagation()}
         >
           <ChevronRight
             className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -144,6 +171,7 @@ export function TaskRow({
           onClick={handleCheck}
           className="w-5 h-5 flex items-center justify-center shrink-0 text-gray-300 hover:text-green-500 transition-colors"
           aria-label="Complete task"
+          onKeyDown={(e) => e.stopPropagation()}
         >
           {task.status === 1 ? (
             <CheckCircle className="w-4 h-4 text-green-500" />
@@ -171,18 +199,28 @@ export function TaskRow({
           </span>
         )}
 
-        {/* Priority badge — always shown; P11 = no priority set */}
-        <span
-          className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${priorityBadgeClass(task.priority)}`}
+        {/* Priority badge — clickable */}
+        <button
+          ref={priorityBtnRef}
+          onClick={handlePriorityBadgeClick}
+          onKeyDown={(e) => e.stopPropagation()}
+          className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 hover:opacity-75 transition-opacity ${priorityBadgeClass(task.priority)}`}
+          title="Change priority"
         >
           {priorityDisplay(task.priority)}
-        </span>
+        </button>
 
-        {/* Due date */}
+        {/* Due date — clickable when present */}
         {task.due && (
-          <span className={`text-xs font-medium shrink-0 ${dueDateColorClass(task.due)}`}>
+          <button
+            ref={dateBtnRef}
+            onClick={handleDateBadgeClick}
+            onKeyDown={(e) => e.stopPropagation()}
+            className={`text-xs font-medium shrink-0 hover:opacity-75 transition-opacity rounded px-0.5 ${dueDateColorClass(task.due)}`}
+            title="Change due date"
+          >
             {humanizeDueDate(task.due)}
-          </span>
+          </button>
         )}
       </div>
 
@@ -213,6 +251,96 @@ export function TaskRow({
         onDateChange={handleDateChange}
         isMobile={isMobile}
       />
+
+      {/* Priority picker portal */}
+      {showPriorityPicker &&
+        !isMobile &&
+        priorityPos &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setShowPriorityPicker(false)}
+            />
+            <div
+              style={{ position: 'fixed', left: priorityPos.x, top: priorityPos.y, zIndex: 50 }}
+              className="bg-white rounded-xl shadow-xl border border-gray-100 p-2"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <PriorityPicker
+                value={task.priority}
+                onChange={(p) => {
+                  handlePriorityChange(p)
+                  setShowPriorityPicker(false)
+                }}
+              />
+            </div>
+          </>,
+          document.body
+        )}
+
+      {showPriorityPicker &&
+        isMobile &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/20"
+              onClick={() => setShowPriorityPicker(false)}
+            />
+            <div className="fixed inset-x-4 bottom-24 z-50 bg-white rounded-2xl shadow-2xl border border-gray-100 p-3">
+              <PriorityPicker
+                value={task.priority}
+                onChange={(p) => {
+                  handlePriorityChange(p)
+                  setShowPriorityPicker(false)
+                }}
+              />
+            </div>
+          </>,
+          document.body
+        )}
+
+      {/* Date picker portal */}
+      {showDatePicker &&
+        !isMobile &&
+        datePos &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setShowDatePicker(false)}
+            />
+            <div
+              style={{ position: 'fixed', left: datePos.x, top: datePos.y, zIndex: 50 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <QuickDatePicker
+                taskId={task.id}
+                onSelect={(date) => {
+                  handleDateChange(date)
+                  setShowDatePicker(false)
+                }}
+                onClose={() => setShowDatePicker(false)}
+              />
+            </div>
+          </>,
+          document.body
+        )}
+
+      {showDatePicker &&
+        isMobile &&
+        createPortal(
+          <QuickDatePicker
+            taskId={task.id}
+            onSelect={(date) => {
+              handleDateChange(date)
+              setShowDatePicker(false)
+            }}
+            onClose={() => setShowDatePicker(false)}
+            isMobile
+          />,
+          document.body
+        )}
     </>
   )
 }

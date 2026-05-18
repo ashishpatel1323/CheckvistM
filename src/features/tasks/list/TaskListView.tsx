@@ -7,6 +7,9 @@ import { groupTasksByDate } from '@/lib/dateSort'
 import { TaskSkeleton } from '@/components/TaskSkeleton'
 import { CreateTaskInput } from '@/features/tasks/shared/CreateTaskInput'
 import { VirtualTaskList } from './VirtualTaskList'
+import { FlatTaskList } from './FlatTaskList'
+import { MindMapView } from './MindMapView'
+import { useTaskView } from './useTaskView'
 import { useState } from 'react'
 
 interface TaskListViewProps {
@@ -17,6 +20,7 @@ export function TaskListView({ isMobile }: TaskListViewProps) {
   const { activeChecklistId } = useActiveChecklist()
   const { data: tasks, isLoading, isError } = useTasksQuery(activeChecklistId)
   const [showFabInput, setShowFabInput] = useState(false)
+  const { view } = useTaskView()
 
   const groups = useMemo(() => {
     if (!tasks) return []
@@ -32,10 +36,12 @@ export function TaskListView({ isMobile }: TaskListViewProps) {
     )
   }
 
+  const isEmpty = !isLoading && !isError && groups.length === 0
+
   return (
     <div className="flex flex-col h-full relative">
       {/* Create task input (desktop & top of mobile) */}
-      {!isMobile && (
+      {!isMobile && view !== 'mindmap' && (
         <CreateTaskInput checklistId={activeChecklistId} />
       )}
 
@@ -50,7 +56,7 @@ export function TaskListView({ isMobile }: TaskListViewProps) {
         </div>
       )}
 
-      {!isLoading && !isError && groups.length === 0 && (
+      {isEmpty && (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400">
           <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
             <Plus className="w-6 h-6" />
@@ -59,16 +65,33 @@ export function TaskListView({ isMobile }: TaskListViewProps) {
         </div>
       )}
 
-      {!isLoading && !isError && groups.length > 0 && (
-        <VirtualTaskList
-          groups={groups}
-          checklistId={activeChecklistId}
-          isMobile={isMobile}
-        />
+      {!isLoading && !isError && !isEmpty && tasks && (
+        <>
+          {view === 'date' && (
+            <VirtualTaskList
+              groups={groups}
+              checklistId={activeChecklistId}
+              isMobile={isMobile}
+            />
+          )}
+          {view === 'list' && (
+            <FlatTaskList
+              tasks={tasks}
+              checklistId={activeChecklistId}
+              isMobile={isMobile}
+            />
+          )}
+          {view === 'mindmap' && (
+            <MindMapView
+              tasks={tasks}
+              checklistId={activeChecklistId}
+            />
+          )}
+        </>
       )}
 
       {/* Mobile FAB */}
-      {isMobile && (
+      {isMobile && view !== 'mindmap' && (
         <>
           <button
             onClick={() => setShowFabInput(true)}
