@@ -11,6 +11,7 @@ import { ContextMenu } from '@/features/tasks/shared/ContextMenu'
 import { classifyTask, GROUP_LABELS } from '@/lib/dateSort'
 import { useCloseTask, useUpdateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
+import { InlineMarkdown } from '@/components/InlineMarkdown'
 
 interface TaskRowProps {
   task: TaskNode
@@ -182,7 +183,7 @@ export function TaskRow({
 
         {/* Content + meta */}
         <span className="flex-1 min-w-0 text-sm text-gray-800 truncate">
-          {task.content}
+          <InlineMarkdown content={task.content} />
           {hiddenDescendantCount > 0 && (
             <span className="ml-2 text-xs text-gray-400">· {hiddenDescendantCount} hidden</span>
           )}

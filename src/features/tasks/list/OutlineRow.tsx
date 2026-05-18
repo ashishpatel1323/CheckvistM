@@ -8,6 +8,7 @@ import { PriorityPicker, priorityBadgeClass, priorityDisplay } from '@/features/
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { useUpdateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
+import { InlineMarkdown } from '@/components/InlineMarkdown'
 
 interface OutlineRowProps {
   task: TaskNode
@@ -116,9 +117,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0 }: OutlineRo
         )}
 
         {/* Content */}
-        <span className={`flex-1 min-w-0 truncate leading-snug ${rowTextClass}`}>
-          {task.content}
-        </span>
+        <InlineMarkdown content={task.content} className={`flex-1 min-w-0 truncate leading-snug ${rowTextClass}`} />
 
         {/* Child count badge (collapsed only) */}
         {hasChildren && !expanded && (

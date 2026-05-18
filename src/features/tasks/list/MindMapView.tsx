@@ -5,6 +5,7 @@ import type { TaskNode } from '@/lib/taskTree'
 import { buildTaskTree } from '@/lib/taskTree'
 import { priorityBadgeClass, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
+import { stripMarkdown } from '@/components/InlineMarkdown'
 
 const NW = 180   // node width
 const NH = 36    // node height
@@ -241,9 +242,9 @@ export function MindMapView({ tasks, checklistId }: MindMapViewProps) {
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
             onClick={() => navigate(`/${checklistId}/tasks/${task.id}`)}
-            title={task.content}
+            title={stripMarkdown(task.content)}
           >
-            <span className="flex-1 truncate text-xs">{task.content}</span>
+            <span className="flex-1 truncate text-xs">{stripMarkdown(task.content)}</span>
             {task.due && (
               <span className={`text-[10px] font-medium shrink-0 ${dueDateColorClass(task.due)}`}>
                 {humanizeDueDate(task.due)}
