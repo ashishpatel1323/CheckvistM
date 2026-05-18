@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { CheckvistTask } from '@/api/types'
 import { buildTaskTree } from '@/lib/taskTree'
-import { TaskRow } from './TaskRow'
+import { OutlineRow } from './OutlineRow'
 
 interface FlatTaskListProps {
   tasks: CheckvistTask[]
@@ -13,9 +13,9 @@ export function FlatTaskList({ tasks, checklistId, isMobile }: FlatTaskListProps
   const { roots } = useMemo(() => buildTaskTree(tasks), [tasks])
 
   return (
-    <div className="overflow-y-auto flex-1 px-2 py-2">
+    <div className="overflow-y-auto flex-1 px-3 py-3 space-y-0.5">
       {roots.map((task) => (
-        <TaskRow
+        <OutlineRow
           key={task.id}
           task={task}
           checklistId={checklistId}
