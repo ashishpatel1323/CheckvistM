@@ -110,8 +110,8 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0 }: OutlineRo
             </span>
           </button>
         ) : (
-          <span className="w-5 h-5 flex items-center justify-center shrink-0 text-gray-400 text-[8px]">
-            •
+          <span className="w-5 h-5 flex items-center justify-center shrink-0 text-gray-400 text-[14px] leading-none">
+            ·
           </span>
         )}
 
@@ -123,7 +123,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0 }: OutlineRo
         {/* Child count badge (collapsed only) */}
         {hasChildren && !expanded && (
           <span className="text-[11px] text-gray-400 font-normal shrink-0 tabular-nums">
-            {task.children.length}
+            [{task.children.length}]
           </span>
         )}
 
