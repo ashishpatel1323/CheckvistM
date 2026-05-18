@@ -200,6 +200,18 @@ export function MindMapView({ tasks, checklistId }: MindMapViewProps) {
   // Auto-fit on first render / when task list changes
   useEffect(() => { fitMap() }, [tasks.length])  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // IDs of every node that has children
+  const allParentIds = useMemo(
+    () => new Set(allNodes.filter((n) => n.children.length > 0).map((n) => n.id)),
+    [allNodes]
+  )
+
+  const allFolded = allParentIds.size > 0 && allParentIds.size === collapsed.size
+
+  const toggleFoldAll = useCallback(() => {
+    setCollapsed((prev) => (prev.size === allParentIds.size ? new Set() : new Set(allParentIds)))
+  }, [allParentIds])
+
   // ── Collapse toggle ────────────────────────────────────────────────────────
   const toggleCollapse = useCallback((id: number) => {
     setCollapsed((prev) => {
@@ -376,6 +388,16 @@ export function MindMapView({ tasks, checklistId }: MindMapViewProps) {
         <div className="w-px h-5 bg-gray-200 mx-1" />
 
         <button onClick={fitMap} className="px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg">Fit</button>
+
+        <div className="w-px h-5 bg-gray-200 mx-1" />
+
+        <button
+          onClick={toggleFoldAll}
+          className="px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg whitespace-nowrap"
+          title={allFolded ? 'Unfold all branches' : 'Fold all branches'}
+        >
+          {allFolded ? '⊞ Unfold All' : '⊟ Fold All'}
+        </button>
       </div>
 
       {/* Close zoom menu on outside click */}
