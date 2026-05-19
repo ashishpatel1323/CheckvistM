@@ -5,9 +5,19 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     },
-    "types": ["nativewind/types"]
+    "types": [
+      "nativewind/types"
+    ]
   },
-  "include": ["app", "src", "*.config.js", "*.config.ts"]
+  "include": [
+    "app",
+    "src",
+    "*.config.js",
+    "*.config.ts",
+    "nativewind-env.d.ts"
+  ]
 }

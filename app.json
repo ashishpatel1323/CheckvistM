@@ -26,8 +26,6 @@
     },
     "web": {
       "bundler": "metro",
-      "output": "static",
-      "favicon": "./public/favicon.ico",
       "name": "Checkvist",
       "shortName": "Checkvist",
       "description": "Checkvist task manager",
@@ -45,7 +43,7 @@
       ]
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": false
     },
     "newArchEnabled": true
   }

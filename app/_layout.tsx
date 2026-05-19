@@ -4,7 +4,7 @@ import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { queryClient } from '@/app/queryClient'
+import { queryClient } from '@/queryClient'
 import { useAuth } from '@/auth/useAuth'
 import { ToastProvider } from '@/components/Toast'
 
