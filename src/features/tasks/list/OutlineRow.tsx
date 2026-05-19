@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { View, Text, Pressable } from 'react-native'
+import { View, Text, Pressable, Platform } from 'react-native'
 import { ChevronRight } from 'lucide-react-native'
 import { useRouter } from 'expo-router'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
-import { getExpandedState, setExpandedState } from '@/auth/tokenStore'
+import { useExpandedIds } from './useExpandedIds'
 import { PriorityPicker, priorityBadgeClass, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { useUpdateTask } from './useTasksQuery'
@@ -17,12 +17,14 @@ interface OutlineRowProps {
   checklistId: number
   isMobile: boolean
   depth?: number
+  focusedId?: number | null
 }
 
-export function OutlineRow({ task, checklistId, isMobile, depth = 0 }: OutlineRowProps) {
+export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }: OutlineRowProps) {
   const router = useRouter()
   const toast = useToast()
-  const [expanded, setExpanded] = useState(() => getExpandedState(task.id))
+  const expanded = useExpandedIds((s) => s.expanded.has(task.id))
+  const toggleExpanded = useExpandedIds((s) => s.toggle)
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
 
@@ -30,12 +32,9 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0 }: OutlineRo
 
   const hasChildren = task.children.length > 0
   const indent = depth * 24
+  const isFocused = focusedId === task.id
 
-  const handleExpand = () => {
-    const next = !expanded
-    setExpanded(next)
-    setExpandedState(task.id, next)
-  }
+  const handleExpand = () => { toggleExpanded(task.id) }
 
   const handlePriorityChange = (priority: number) => {
     updateTask(
@@ -57,12 +56,18 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0 }: OutlineRo
     )
   }
 
+  const webProps = Platform.OS === 'web' ? { 'data-task-id': task.id } : {}
+
   return (
     <>
       <Pressable
         onPress={() => router.push(`/${checklistId}/tasks/${task.id}`)}
         className="flex-row items-center gap-2 py-1.5 pr-3 rounded-lg active:bg-gray-50"
-        style={{ paddingLeft: indent + 4 }}
+        style={[
+          { paddingLeft: indent + 4 },
+          isFocused && { backgroundColor: '#fff7ed', borderLeftWidth: 2, borderLeftColor: '#E8632A', paddingLeft: indent + 2 },
+        ]}
+        {...webProps}
       >
         {hasChildren ? (
           <Pressable onPress={handleExpand} hitSlop={8} className="w-5 h-5 items-center justify-center">
@@ -116,6 +121,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0 }: OutlineRo
               checklistId={checklistId}
               isMobile={isMobile}
               depth={depth + 1}
+              focusedId={focusedId}
             />
           ))}
         </View>

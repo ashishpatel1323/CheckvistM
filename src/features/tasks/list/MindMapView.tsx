@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useCallback, useEffect } from 'react'
-import { View, Text, Pressable, ScrollView, useWindowDimensions } from 'react-native'
+import { View, Text, Pressable, ScrollView, useWindowDimensions, Platform } from 'react-native'
 import Svg, { Path, Rect, Text as SvgText, G } from 'react-native-svg'
 import { useRouter } from 'expo-router'
 import type { CheckvistTask } from '@/api/types'
@@ -121,9 +121,11 @@ function nodeStroke(node: PlacedNode): string {
 interface MindMapViewProps {
   tasks: CheckvistTask[]
   checklistId: number
+  focusedId: number | null
+  setFocusedId: (id: number | null) => void
 }
 
-export function MindMapView({ tasks, checklistId }: MindMapViewProps) {
+export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: MindMapViewProps) {
   const router = useRouter()
   const { width: screenW, height: screenH } = useWindowDimensions()
 
@@ -159,6 +161,50 @@ export function MindMapView({ tasks, checklistId }: MindMapViewProps) {
       return next
     })
   }, [])
+
+  // Keyboard navigation: Up/Down = move focus, Left/Right = zoom, Enter = open
+  useEffect(() => {
+    if (Platform.OS !== 'web') return
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+      // Sorted real nodes by y position for Up/Down navigation
+      const realNodes = nodes.filter((n) => n.id !== -1).sort((a, b) => a.y - b.y)
+      const orderedIds = realNodes.map((n) => n.id)
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        const idx = focusedId != null ? orderedIds.indexOf(focusedId) : -1
+        const next = orderedIds[idx + 1]
+        if (next != null) setFocusedId(next)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        const idx = focusedId != null ? orderedIds.indexOf(focusedId) : orderedIds.length
+        const next = orderedIds[idx - 1]
+        if (next != null) setFocusedId(next)
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        setScale((s) => {
+          const idx = ZOOM_PRESETS.indexOf(Math.round(s * 100))
+          const nextPct = idx > 0 ? ZOOM_PRESETS[idx - 1] : ZOOM_PRESETS[0]
+          return nextPct / 100
+        })
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        setScale((s) => {
+          const idx = ZOOM_PRESETS.indexOf(Math.round(s * 100))
+          const nextPct = idx >= 0 && idx < ZOOM_PRESETS.length - 1 ? ZOOM_PRESETS[idx + 1] : ZOOM_PRESETS[ZOOM_PRESETS.length - 1]
+          return nextPct / 100
+        })
+      } else if (e.key === 'Enter' && focusedId != null) {
+        e.preventDefault()
+        router.push(`/${checklistId}/tasks/${focusedId}`)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [nodes, focusedId, setFocusedId, checklistId, router])
 
   const zoomPct = Math.round(scale * 100)
 
@@ -243,6 +289,8 @@ export function MindMapView({ tasks, checklistId }: MindMapViewProps) {
             const isCollapsed = node.id !== -1 && collapsed.has(node.id)
             const rx = isVirtualRoot ? 12 : 8
 
+            const isNodeFocused = !isVirtualRoot && focusedId === node.id
+
             return (
               <G key={node.id}>
                 <Rect
@@ -251,9 +299,9 @@ export function MindMapView({ tasks, checklistId }: MindMapViewProps) {
                   width={node.w}
                   height={node.h}
                   rx={rx}
-                  fill={nodeFill(node)}
-                  stroke={nodeStroke(node)}
-                  strokeWidth={isVirtualRoot ? 0 : 1}
+                  fill={isNodeFocused ? '#fff7ed' : nodeFill(node)}
+                  stroke={isNodeFocused ? ORANGE : nodeStroke(node)}
+                  strokeWidth={isVirtualRoot ? 0 : isNodeFocused ? 2 : 1}
                   onPress={() => {
                     if (isVirtualRoot) return
                     router.push(`/${checklistId}/tasks/${node.id}`)

@@ -24,6 +24,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
   const isMobile = width < 768
   const { data: tasks, isLoading, isError } = useTasksQuery(checklistId)
   const [showFabInput, setShowFabInput] = useState(false)
+  const [focusedId, setFocusedId] = useState<number | null>(null)
   const { view, setView } = useTaskView()
   const logout = useAuth((s) => s.logout)
 
@@ -83,13 +84,13 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
       {!isLoading && !isError && !isEmpty && tasks && (
         <>
           {view === 'date' && (
-            <VirtualTaskList groups={groups} checklistId={checklistId} isMobile={isMobile} />
+            <VirtualTaskList groups={groups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} />
           )}
           {view === 'list' && (
-            <FlatTaskList tasks={tasks} checklistId={checklistId} isMobile={isMobile} />
+            <FlatTaskList tasks={tasks} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} />
           )}
           {view === 'mindmap' && (
-            <MindMapView tasks={tasks} checklistId={checklistId} />
+            <MindMapView tasks={tasks} checklistId={checklistId} focusedId={focusedId} setFocusedId={setFocusedId} />
           )}
         </>
       )}

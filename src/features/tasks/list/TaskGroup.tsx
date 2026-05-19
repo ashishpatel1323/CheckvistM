@@ -8,6 +8,7 @@ interface TaskGroupProps {
   group: GroupedTasks
   checklistId: number
   isMobile: boolean
+  focusedId?: number | null
 }
 
 const groupColors: Record<string, { text: string; bg: string }> = {
@@ -19,7 +20,7 @@ const groupColors: Record<string, { text: string; bg: string }> = {
   noDueDate:  { text: '#6b7280', bg: '#f9fafb' },
 }
 
-export function TaskGroup({ group, checklistId, isMobile }: TaskGroupProps) {
+export function TaskGroup({ group, checklistId, isMobile, focusedId }: TaskGroupProps) {
   const [collapsed, setCollapsed] = useState(false)
   const colors = groupColors[group.group] ?? { text: '#6b7280', bg: '#f9fafb' }
 
@@ -46,7 +47,7 @@ export function TaskGroup({ group, checklistId, isMobile }: TaskGroupProps) {
       {!collapsed && (
         <View>
           {group.tasks.map((task) => (
-            <TaskRow key={task.id} task={task} checklistId={checklistId} isMobile={isMobile} />
+            <TaskRow key={task.id} task={task} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} />
           ))}
         </View>
       )}

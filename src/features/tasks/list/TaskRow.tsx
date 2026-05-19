@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react'
-import { View, Text, Pressable } from 'react-native'
+import { View, Text, Pressable, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
+import { useExpandedIds } from './useExpandedIds'
 import { ChevronRight, Circle, CheckCircle, CornerUpRight } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
-import { getExpandedState, setExpandedState } from '@/auth/tokenStore'
 import { PriorityPicker, priorityBadgeClass, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { ContextMenu } from '@/features/tasks/shared/ContextMenu'
@@ -22,14 +22,17 @@ interface TaskRowProps {
   depth?: number
   isNestedCopy?: boolean
   hiddenDescendantCount?: number
+  focusedId?: number | null
 }
 
 export function TaskRow({
   task, checklistId, isMobile,
   depth = 0, isNestedCopy = false, hiddenDescendantCount = 0,
+  focusedId,
 }: TaskRowProps) {
   const router = useRouter()
-  const [expanded, setExpanded] = useState(() => getExpandedState(task.id))
+  const expanded = useExpandedIds((s) => s.expanded.has(task.id))
+  const toggleExpanded = useExpandedIds((s) => s.toggle)
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
@@ -50,11 +53,7 @@ export function TaskRow({
     })
   }
 
-  const handleExpand = () => {
-    const next = !expanded
-    setExpanded(next)
-    setExpandedState(task.id, next)
-  }
+  const handleExpand = () => { toggleExpanded(task.id) }
 
   const openDetail = () => {
     router.push(`/${checklistId}/tasks/${task.id}`)
@@ -88,8 +87,10 @@ export function TaskRow({
   const showAlsoInBucketPill = isNestedCopy && task.due !== null && task.due !== undefined
   const bucketLabel = showAlsoInBucketPill ? GROUP_LABELS[classifyTask(task)] : null
 
-  // Determine text color from dueDateColorClass (Tailwind class string → extract color)
   const dateColorClass = task.due ? dueDateColorClass(task.due) : ''
+  const isFocused = focusedId === task.id
+
+  const webProps = Platform.OS === 'web' ? { 'data-task-id': task.id } : {}
 
   return (
     <>
@@ -98,7 +99,11 @@ export function TaskRow({
         onLongPress={handleLongPress}
         delayLongPress={500}
         className={`flex-row items-center gap-2 py-2 pr-3 rounded-lg active:bg-gray-50 ${isNestedCopy ? 'opacity-80' : ''}`}
-        style={{ paddingLeft: indent + 8 }}
+        style={[
+          { paddingLeft: indent + 8 },
+          isFocused && { backgroundColor: '#fff7ed', borderLeftWidth: 2, borderLeftColor: '#E8632A', paddingLeft: indent + 6 },
+        ]}
+        {...webProps}
       >
         {/* Expand toggle */}
         <Pressable
@@ -175,6 +180,7 @@ export function TaskRow({
               isMobile={isMobile}
               depth={depth + 1}
               isNestedCopy
+              focusedId={focusedId}
             />
           ))}
         </View>
