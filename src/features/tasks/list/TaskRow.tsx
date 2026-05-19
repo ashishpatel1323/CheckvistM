@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
-import { ChevronRight, Circle, CheckCircle, CornerUpRight } from 'lucide-react'
+import { View, Text, Pressable } from 'react-native'
+import { useRouter } from 'expo-router'
+import { ChevronRight, Circle, CheckCircle, CornerUpRight } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
 import { getExpandedState, setExpandedState } from '@/auth/tokenStore'
@@ -12,88 +12,57 @@ import { classifyTask, GROUP_LABELS } from '@/lib/dateSort'
 import { useCloseTask, useUpdateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
 import { InlineMarkdown } from '@/components/InlineMarkdown'
+import { hapticMedium, hapticSuccess } from '@/platform/haptics'
+import { BottomSheet } from '@/components/BottomSheet'
 
 interface TaskRowProps {
   task: TaskNode
   checklistId: number
   isMobile: boolean
-  /** Indent level: 0 at the top of a bucket, +1 per nested level inside an expanded parent. */
   depth?: number
-  /** True when this row is rendered nested under an expanded ancestor (not in its own bucket). */
   isNestedCopy?: boolean
-  /** Number of descendants the current filter would hide. In Phase 1 always 0. */
   hiddenDescendantCount?: number
 }
 
 export function TaskRow({
-  task,
-  checklistId,
-  isMobile,
-  depth = 0,
-  isNestedCopy = false,
-  hiddenDescendantCount = 0,
+  task, checklistId, isMobile,
+  depth = 0, isNestedCopy = false, hiddenDescendantCount = 0,
 }: TaskRowProps) {
-  const navigate = useNavigate()
+  const router = useRouter()
   const [expanded, setExpanded] = useState(() => getExpandedState(task.id))
-  const [contextMenu, setContextMenu] = useState<{
-    open: boolean
-    position: { x: number; y: number } | null
-  }>({ open: false, position: null })
-
-  // Inline pickers
+  const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
-  const [priorityPos, setPriorityPos] = useState<{ x: number; y: number } | null>(null)
-  const [datePos, setDatePos] = useState<{ x: number; y: number } | null>(null)
-  const priorityBtnRef = useRef<HTMLButtonElement>(null)
-  const dateBtnRef = useRef<HTMLButtonElement>(null)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { mutate: closeTask } = useCloseTask(checklistId)
   const { mutate: updateTask } = useUpdateTask(checklistId)
   const toast = useToast()
 
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
   const hasChildren = task.children.length > 0
   const indent = depth * 20
 
-  const handleCheck = (e: React.MouseEvent) => {
-    e.stopPropagation()
+  const handleCheck = () => {
+    hapticSuccess()
     closeTask(task.id, {
       onSuccess: () => toast.success('Task completed'),
       onError: () => toast.error('Failed to close task'),
     })
   }
 
-  const handleExpand = (e: React.MouseEvent) => {
-    e.stopPropagation()
+  const handleExpand = () => {
     const next = !expanded
     setExpanded(next)
     setExpandedState(task.id, next)
   }
 
   const openDetail = () => {
-    navigate(`/${checklistId}/tasks/${task.id}`)
+    router.push(`/${checklistId}/tasks/${task.id}`)
   }
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    if (isMobile) return
-    e.preventDefault()
-    setContextMenu({ open: true, position: { x: e.clientX, y: e.clientY } })
-  }
-
-  const handleTouchStart = () => {
-    if (!isMobile) return
-    longPressTimer.current = setTimeout(() => {
-      setContextMenu({ open: true, position: null })
-    }, 500)
-  }
-
-  const handleTouchEnd = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
-    }
+  const handleLongPress = () => {
+    hapticMedium()
+    setContextMenuOpen(true)
   }
 
   const handlePriorityChange = (priority: number) => {
@@ -116,118 +85,88 @@ export function TaskRow({
     )
   }
 
-  const handlePriorityBadgeClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    const rect = priorityBtnRef.current?.getBoundingClientRect()
-    if (rect) setPriorityPos({ x: rect.left, y: rect.bottom + 4 })
-    setShowPriorityPicker((v) => !v)
-    setShowDatePicker(false)
-  }
-
-  const handleDateBadgeClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    const rect = dateBtnRef.current?.getBoundingClientRect()
-    if (rect) setDatePos({ x: rect.left, y: rect.bottom + 4 })
-    setShowDatePicker((v) => !v)
-    setShowPriorityPicker(false)
-  }
-
-  // A nested copy that has its own due date also exists at the top level in its bucket.
   const showAlsoInBucketPill = isNestedCopy && task.due !== null && task.due !== undefined
   const bucketLabel = showAlsoInBucketPill ? GROUP_LABELS[classifyTask(task)] : null
 
+  // Determine text color from dueDateColorClass (Tailwind class string → extract color)
+  const dateColorClass = task.due ? dueDateColorClass(task.due) : ''
+
   return (
     <>
-      <div
-        className={`group flex items-center gap-2 py-2 pr-3 hover:bg-gray-50 rounded-lg cursor-pointer select-none ${
-          isNestedCopy ? 'opacity-80' : ''
-        }`}
-        style={{ paddingLeft: `${indent + 8}px` }}
-        onClick={openDetail}
-        onContextMenu={handleContextMenu}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchEnd}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => e.key === 'Enter' && openDetail()}
+      <Pressable
+        onPress={openDetail}
+        onLongPress={handleLongPress}
+        delayLongPress={500}
+        className={`flex-row items-center gap-2 py-2 pr-3 rounded-lg active:bg-gray-50 ${isNestedCopy ? 'opacity-80' : ''}`}
+        style={{ paddingLeft: indent + 8 }}
       >
         {/* Expand toggle */}
-        <button
-          onClick={handleExpand}
-          className={`w-5 h-5 flex items-center justify-center shrink-0 text-gray-400 hover:text-gray-600 transition-colors ${
-            hasChildren ? 'visible' : 'invisible'
-          }`}
-          aria-label={expanded ? 'Collapse' : 'Expand'}
-          aria-hidden={!hasChildren}
-          onKeyDown={(e) => e.stopPropagation()}
+        <Pressable
+          onPress={handleExpand}
+          hitSlop={8}
+          className="w-5 h-5 items-center justify-center"
+          style={{ opacity: hasChildren ? 1 : 0 }}
+          disabled={!hasChildren}
         >
           <ChevronRight
-            className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
+            size={14}
+            color="#9ca3af"
+            style={{ transform: [{ rotate: expanded ? '90deg' : '0deg' }] }}
           />
-        </button>
+        </Pressable>
 
         {/* Check button */}
-        <button
-          onClick={handleCheck}
-          className="w-5 h-5 flex items-center justify-center shrink-0 text-gray-300 hover:text-green-500 transition-colors"
-          aria-label="Complete task"
-          onKeyDown={(e) => e.stopPropagation()}
-        >
+        <Pressable onPress={handleCheck} hitSlop={8} className="w-5 h-5 items-center justify-center">
           {task.status === 1 ? (
-            <CheckCircle className="w-4 h-4 text-green-500" />
+            <CheckCircle size={16} color="#22c55e" />
           ) : (
-            <Circle className="w-4 h-4" />
+            <Circle size={16} color="#d1d5db" />
           )}
-        </button>
+        </Pressable>
 
-        {/* Content + meta */}
-        <span className="flex-1 min-w-0 text-sm text-gray-800 truncate">
+        {/* Content */}
+        <Text className="flex-1 text-sm text-gray-800" numberOfLines={1}>
           <InlineMarkdown content={task.content} />
           {hiddenDescendantCount > 0 && (
-            <span className="ml-2 text-xs text-gray-400">· {hiddenDescendantCount} hidden</span>
+            <Text className="text-xs text-gray-400"> · {hiddenDescendantCount} hidden</Text>
           )}
-        </span>
+        </Text>
 
-        {/* "Also in <bucket>" pill — only on nested copies that also show at top level */}
+        {/* Also-in-bucket pill */}
         {showAlsoInBucketPill && bucketLabel && (
-          <span
-            className="hidden sm:inline-flex items-center gap-0.5 text-[10px] font-medium text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded shrink-0"
-            title={`Also shown under ${bucketLabel}`}
-          >
-            <CornerUpRight className="w-2.5 h-2.5" />
-            {bucketLabel}
-          </span>
+          <View className="flex-row items-center gap-0.5 bg-gray-50 px-1.5 py-0.5 rounded">
+            <CornerUpRight size={10} color="#9ca3af" />
+            <Text className="text-gray-400" style={{ fontSize: 10 }}>{bucketLabel}</Text>
+          </View>
         )}
 
-        {/* Priority badge — clickable */}
-        <button
-          ref={priorityBtnRef}
-          onClick={handlePriorityBadgeClick}
-          onKeyDown={(e) => e.stopPropagation()}
-          className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 hover:opacity-75 transition-opacity ${priorityBadgeClass(task.priority)}`}
-          title="Change priority"
+        {/* Priority badge */}
+        <Pressable
+          onPress={() => { setShowPriorityPicker(true); setShowDatePicker(false) }}
+          hitSlop={6}
+          className={`px-1.5 py-0.5 rounded ${priorityBadgeClass(task.priority)}`}
         >
-          {priorityDisplay(task.priority)}
-        </button>
+          <Text className={`text-xs font-bold ${priorityBadgeClass(task.priority)}`}>
+            {priorityDisplay(task.priority)}
+          </Text>
+        </Pressable>
 
-        {/* Due date — clickable when present */}
+        {/* Due date */}
         {task.due && (
-          <button
-            ref={dateBtnRef}
-            onClick={handleDateBadgeClick}
-            onKeyDown={(e) => e.stopPropagation()}
-            className={`text-xs font-medium shrink-0 hover:opacity-75 transition-opacity rounded px-0.5 ${dueDateColorClass(task.due)}`}
-            title="Change due date"
+          <Pressable
+            onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false) }}
+            hitSlop={6}
           >
-            {humanizeDueDate(task.due)}
-          </button>
+            <Text className={`text-xs font-medium rounded px-0.5 ${dateColorClass}`}>
+              {humanizeDueDate(task.due)}
+            </Text>
+          </Pressable>
         )}
-      </div>
+      </Pressable>
 
-      {/* Children (when expanded) — rendered as nested copies at depth+1 */}
+      {/* Children when expanded */}
       {hasChildren && expanded && (
-        <div>
+        <View>
           {task.children.map((child) => (
             <TaskRow
               key={child.id}
@@ -238,110 +177,35 @@ export function TaskRow({
               isNestedCopy
             />
           ))}
-        </div>
+        </View>
       )}
 
       {/* Context Menu */}
       <ContextMenu
         taskId={task.id}
         priority={task.priority}
-        open={contextMenu.open}
-        position={contextMenu.position}
-        onClose={() => setContextMenu({ open: false, position: null })}
+        open={contextMenuOpen}
+        position={null}
+        onClose={() => setContextMenuOpen(false)}
         onPriorityChange={handlePriorityChange}
         onDateChange={handleDateChange}
         isMobile={isMobile}
       />
 
-      {/* Priority picker portal */}
-      {showPriorityPicker &&
-        !isMobile &&
-        priorityPos &&
-        createPortal(
-          <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setShowPriorityPicker(false)}
-            />
-            <div
-              style={{ position: 'fixed', left: priorityPos.x, top: priorityPos.y, zIndex: 50 }}
-              className="bg-white rounded-xl shadow-xl border border-gray-100 p-2"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <PriorityPicker
-                value={task.priority}
-                onChange={(p) => {
-                  handlePriorityChange(p)
-                  setShowPriorityPicker(false)
-                }}
-              />
-            </div>
-          </>,
-          document.body
-        )}
+      {/* Priority picker bottom sheet */}
+      <BottomSheet open={showPriorityPicker} onClose={() => setShowPriorityPicker(false)} title="Set Priority">
+        <PriorityPicker value={task.priority} onChange={(p) => { handlePriorityChange(p); setShowPriorityPicker(false) }} />
+      </BottomSheet>
 
-      {showPriorityPicker &&
-        isMobile &&
-        createPortal(
-          <>
-            <div
-              className="fixed inset-0 z-40 bg-black/20"
-              onClick={() => setShowPriorityPicker(false)}
-            />
-            <div className="fixed inset-x-4 bottom-24 z-50 bg-white rounded-2xl shadow-2xl border border-gray-100 p-3">
-              <PriorityPicker
-                value={task.priority}
-                onChange={(p) => {
-                  handlePriorityChange(p)
-                  setShowPriorityPicker(false)
-                }}
-              />
-            </div>
-          </>,
-          document.body
-        )}
-
-      {/* Date picker portal */}
-      {showDatePicker &&
-        !isMobile &&
-        datePos &&
-        createPortal(
-          <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setShowDatePicker(false)}
-            />
-            <div
-              style={{ position: 'fixed', left: datePos.x, top: datePos.y, zIndex: 50 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <QuickDatePicker
-                taskId={task.id}
-                onSelect={(date) => {
-                  handleDateChange(date)
-                  setShowDatePicker(false)
-                }}
-                onClose={() => setShowDatePicker(false)}
-              />
-            </div>
-          </>,
-          document.body
-        )}
-
-      {showDatePicker &&
-        isMobile &&
-        createPortal(
-          <QuickDatePicker
-            taskId={task.id}
-            onSelect={(date) => {
-              handleDateChange(date)
-              setShowDatePicker(false)
-            }}
-            onClose={() => setShowDatePicker(false)}
-            isMobile
-          />,
-          document.body
-        )}
+      {/* Date picker bottom sheet */}
+      {showDatePicker && (
+        <QuickDatePicker
+          taskId={task.id}
+          onSelect={(date) => { handleDateChange(date); setShowDatePicker(false) }}
+          onClose={() => setShowDatePicker(false)}
+          isMobile
+        />
+      )}
     </>
   )
 }

@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
-import { X } from 'lucide-react'
+import { useEffect } from 'react'
+import { Modal, View, Text, Pressable, ScrollView, Platform } from 'react-native'
+import { X } from 'lucide-react-native'
 
 interface BottomSheetProps {
   open: boolean
@@ -9,65 +10,48 @@ interface BottomSheetProps {
 }
 
 export function BottomSheet({ open, onClose, title, children }: BottomSheetProps) {
-  const sheetRef = useRef<HTMLDivElement>(null)
-
-  // Close on Escape
+  // Web: handle Escape key
   useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
+    if (Platform.OS !== 'web' || !open) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [open, onClose])
 
-  // Prevent body scroll when open
-  useEffect(() => {
-    if (open) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [open])
-
-  if (!open) return null
-
   return (
-    <div className="fixed inset-0 z-40 flex flex-col justify-end">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40"
-        onClick={onClose}
-      />
-      {/* Sheet */}
-      <div
-        ref={sheetRef}
-        className="relative z-10 bg-white rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col"
-      >
-        {/* Handle */}
-        <div className="flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 bg-gray-300 rounded-full" />
-        </div>
+    <Modal
+      visible={open}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View className="flex-1 justify-end">
+        {/* Backdrop */}
+        <Pressable className="absolute inset-0 bg-black/40" onPress={onClose} />
 
-        {/* Header */}
-        {title && (
-          <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-800">{title}</h3>
-            <button
-              onClick={onClose}
-              className="p-1 rounded-lg hover:bg-gray-100 text-gray-400"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        )}
+        {/* Sheet */}
+        <View className="relative bg-white rounded-t-2xl max-h-[85%]"
+          style={{ shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 20 }}
+        >
+          {/* Handle */}
+          <View className="items-center pt-3 pb-1">
+            <View className="w-10 h-1 bg-gray-300 rounded-full" />
+          </View>
 
-        {/* Content */}
-        <div className="overflow-y-auto flex-1 p-4">{children}</div>
-      </div>
-    </div>
+          {/* Header */}
+          {title && (
+            <View className="flex-row items-center justify-between px-4 py-2 border-b border-gray-100">
+              <Text className="font-semibold text-gray-800">{title}</Text>
+              <Pressable onPress={onClose} className="p-1 rounded-lg active:bg-gray-100">
+                <X size={20} color="#9ca3af" />
+              </Pressable>
+            </View>
+          )}
+
+          {/* Content */}
+          <ScrollView className="flex-1 p-4">{children}</ScrollView>
+        </View>
+      </View>
+    </Modal>
   )
 }

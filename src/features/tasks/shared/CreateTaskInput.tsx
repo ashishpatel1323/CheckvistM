@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react'
-import { Plus } from 'lucide-react'
+import { View, TextInput, Pressable, Platform } from 'react-native'
+import { Plus } from 'lucide-react-native'
 import { useCreateTask } from '@/features/tasks/list/useTasksQuery'
 import { useToast } from '@/components/Toast'
 
@@ -19,7 +20,7 @@ export function CreateTaskInput({
   autoFocus = false,
 }: CreateTaskInputProps) {
   const [value, setValue] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<TextInput>(null)
   const { mutate: create, isPending } = useCreateTask(checklistId)
   const toast = useToast()
 
@@ -27,15 +28,12 @@ export function CreateTaskInput({
     if (autoFocus) inputRef.current?.focus()
   }, [autoFocus])
 
-  // Global keyboard shortcut: N to focus
+  // Web-only: 'N' key shortcut to focus top-level input
   useEffect(() => {
-    if (parentId !== null) return // only for top-level input
+    if (Platform.OS !== 'web' || parentId !== null) return
     const handler = (e: KeyboardEvent) => {
       if (
-        e.key === 'n' &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey &&
+        e.key === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey &&
         document.activeElement?.tagName !== 'INPUT' &&
         document.activeElement?.tagName !== 'TEXTAREA' &&
         !(document.activeElement as HTMLElement)?.isContentEditable
@@ -59,39 +57,33 @@ export function CreateTaskInput({
           toast.success('Task created')
           onCreated?.()
         },
-        onError: () => {
-          toast.error('Failed to create task')
-        },
+        onError: () => toast.error('Failed to create task'),
       }
     )
   }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
-      <button
-        onClick={submit}
+    <View className="flex-row items-center gap-2 px-3 py-2 border-b border-gray-100">
+      <Pressable
+        onPress={submit}
         disabled={isPending || !value.trim()}
-        className="w-6 h-6 rounded-full bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 flex items-center justify-center shrink-0 transition-colors"
-        aria-label="Create task"
+        className="w-6 h-6 rounded-full bg-orange-500 active:bg-orange-600 items-center justify-center"
+        style={({ pressed }) => [{ opacity: isPending || !value.trim() ? 0.4 : pressed ? 0.8 : 1 }]}
       >
-        <Plus className="w-3.5 h-3.5 text-white" />
-      </button>
-      <input
+        <Plus size={14} color="white" />
+      </Pressable>
+      <TextInput
         ref={inputRef}
-        type="text"
         value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') submit()
-          if (e.key === 'Escape') {
-            setValue('')
-            inputRef.current?.blur()
-          }
-        }}
+        onChangeText={setValue}
+        onSubmitEditing={submit}
         placeholder={placeholder}
-        disabled={isPending}
-        className="flex-1 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
+        placeholderTextColor="#9ca3af"
+        editable={!isPending}
+        returnKeyType="done"
+        className="flex-1 text-sm text-gray-700"
+        style={{ fontSize: 14 }}
       />
-    </div>
+    </View>
   )
 }

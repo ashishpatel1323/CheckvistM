@@ -1,19 +1,8 @@
+import { View, Text, Pressable } from 'react-native'
+
 interface PriorityPickerProps {
   value: number
   onChange: (priority: number) => void
-}
-
-function priorityLabel(p: number): string {
-  if (p === 1) return 'P1'
-  if (p <= 3) return `P${p}`
-  if (p <= 6) return `P${p}`
-  return `P${p}`
-}
-
-function priorityColor(p: number): string {
-  if (p <= 3) return 'bg-red-100 text-red-700 ring-red-300'
-  if (p <= 6) return 'bg-amber-100 text-amber-700 ring-amber-300'
-  return 'bg-green-100 text-green-700 ring-green-300'
 }
 
 export function priorityBadgeClass(priority: number): string {
@@ -23,27 +12,43 @@ export function priorityBadgeClass(priority: number): string {
   return 'text-green-600 bg-green-100'
 }
 
-/** Returns the display label: P1–P10 for set priorities, P11 for none (priority 0). */
 export function priorityDisplay(priority: number): string {
   return priority > 0 ? `P${priority}` : 'P11'
 }
 
+function priorityBgColor(p: number): string {
+  if (p <= 3) return '#fee2e2'
+  if (p <= 6) return '#fef3c7'
+  return '#dcfce7'
+}
+
+function priorityTextColor(p: number): string {
+  if (p <= 3) return '#b91c1c'
+  if (p <= 6) return '#b45309'
+  return '#15803d'
+}
+
 export function PriorityPicker({ value, onChange }: PriorityPickerProps) {
   return (
-    <div className="flex flex-wrap gap-1.5 p-2">
+    <View className="flex-row flex-wrap gap-1.5 p-2">
       {Array.from({ length: 10 }, (_, i) => i + 1).map((p) => (
-        <button
+        <Pressable
           key={p}
-          onClick={() => onChange(p)}
-          className={`w-9 h-9 rounded-lg text-xs font-bold transition-all ${priorityColor(p)} ${
-            value === p ? 'ring-2 scale-110' : 'hover:scale-105'
-          }`}
-          aria-label={`Priority ${p}`}
-          aria-pressed={value === p}
+          onPress={() => onChange(p)}
+          style={{
+            width: 36, height: 36, borderRadius: 8,
+            backgroundColor: priorityBgColor(p),
+            alignItems: 'center', justifyContent: 'center',
+            borderWidth: value === p ? 2 : 0,
+            borderColor: priorityTextColor(p),
+            transform: [{ scale: value === p ? 1.1 : 1 }],
+          }}
         >
-          {priorityLabel(p)}
-        </button>
+          <Text style={{ color: priorityTextColor(p), fontSize: 11, fontWeight: 'bold' }}>
+            P{p}
+          </Text>
+        </Pressable>
       ))}
-    </div>
+    </View>
   )
 }

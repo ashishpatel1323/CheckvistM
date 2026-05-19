@@ -1,3 +1,10 @@
+import { Platform } from 'react-native'
+
+// IndexedDB is web-only. On native, taskCache.ts uses AsyncStorage instead.
+if (Platform.OS !== 'web') {
+  console.warn('db.ts: IndexedDB is not available on native. Use taskCache.ts AsyncStorage path.')
+}
+
 const DB_NAME = 'checkvist-app'
 const DB_VERSION = 1
 

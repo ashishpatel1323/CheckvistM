@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "Checkvist",
+    "slug": "checkvist-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./public/icons/icon-512.png",
+    "userInterfaceStyle": "light",
+    "scheme": "checkvist",
+    "splash": {
+      "backgroundColor": "#E8632A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ashishpatel.checkvist",
+      "deploymentTarget": "16.0"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./public/icons/icon-192.png",
+        "backgroundColor": "#E8632A"
+      },
+      "package": "com.ashishpatel.checkvist",
+      "minSdkVersion": 24,
+      "targetSdkVersion": 35
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./public/favicon.ico",
+      "name": "Checkvist",
+      "shortName": "Checkvist",
+      "description": "Checkvist task manager",
+      "themeColor": "#E8632A",
+      "backgroundColor": "#ffffff"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#E8632A"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "newArchEnabled": true
+  }
+}

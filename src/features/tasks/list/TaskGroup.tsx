@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { View, Text, Pressable } from 'react-native'
+import { ChevronDown } from 'lucide-react-native'
 import type { GroupedTasks } from '@/lib/dateSort'
 import { TaskRow } from './TaskRow'
 
@@ -9,46 +10,46 @@ interface TaskGroupProps {
   isMobile: boolean
 }
 
-const groupColorClass: Record<string, string> = {
-  overdue: 'text-red-600 bg-red-50',
-  today: 'text-orange-600 bg-orange-50',
-  tomorrow: 'text-yellow-600 bg-yellow-50',
-  thisWeek: 'text-blue-600 bg-blue-50',
-  later: 'text-indigo-600 bg-indigo-50',
-  noDueDate: 'text-gray-500 bg-gray-50',
+const groupColors: Record<string, { text: string; bg: string }> = {
+  overdue:    { text: '#dc2626', bg: '#fef2f2' },
+  today:      { text: '#ea580c', bg: '#fff7ed' },
+  tomorrow:   { text: '#ca8a04', bg: '#fefce8' },
+  thisWeek:   { text: '#2563eb', bg: '#eff6ff' },
+  later:      { text: '#4f46e5', bg: '#eef2ff' },
+  noDueDate:  { text: '#6b7280', bg: '#f9fafb' },
 }
 
 export function TaskGroup({ group, checklistId, isMobile }: TaskGroupProps) {
   const [collapsed, setCollapsed] = useState(false)
-  const colorClass = groupColorClass[group.group] ?? 'text-gray-500 bg-gray-50'
+  const colors = groupColors[group.group] ?? { text: '#6b7280', bg: '#f9fafb' }
 
   return (
-    <div className="mb-2">
-      {/* Group header */}
-      <button
-        onClick={() => setCollapsed((v) => !v)}
-        className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg mb-1 ${colorClass} hover:opacity-90 transition-opacity`}
+    <View className="mb-2">
+      <Pressable
+        onPress={() => setCollapsed((v) => !v)}
+        className="flex-row items-center gap-2 px-3 py-1.5 rounded-lg mb-1"
+        style={{ backgroundColor: colors.bg }}
       >
         <ChevronDown
-          className={`w-3.5 h-3.5 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+          size={14}
+          color={colors.text}
+          style={{ transform: [{ rotate: collapsed ? '-90deg' : '0deg' }] }}
         />
-        <span className="text-xs font-semibold uppercase tracking-wider">{group.label}</span>
-        <span className="ml-auto text-xs opacity-60">{group.tasks.length}</span>
-      </button>
+        <Text className="text-xs font-semibold uppercase tracking-wider" style={{ color: colors.text }}>
+          {group.label}
+        </Text>
+        <Text className="ml-auto text-xs" style={{ color: colors.text, opacity: 0.6 }}>
+          {group.tasks.length}
+        </Text>
+      </Pressable>
 
-      {/* Tasks */}
       {!collapsed && (
-        <div>
+        <View>
           {group.tasks.map((task) => (
-            <TaskRow
-              key={task.id}
-              task={task}
-              checklistId={checklistId}
-              isMobile={isMobile}
-            />
+            <TaskRow key={task.id} task={task} checklistId={checklistId} isMobile={isMobile} />
           ))}
-        </div>
+        </View>
       )}
-    </div>
+    </View>
   )
 }

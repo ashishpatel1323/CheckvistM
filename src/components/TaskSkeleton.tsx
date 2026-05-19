@@ -1,19 +1,18 @@
+import { View } from 'react-native'
+
 export function TaskSkeleton({ count = 5 }: { count?: number }) {
   return (
-    <div className="space-y-2 p-4">
+    <View className="p-4 gap-2">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 py-2 animate-pulse">
-          <div className="w-4 h-4 rounded-full bg-gray-200 shrink-0" />
-          <div className="flex-1 space-y-1.5">
-            <div
-              className="h-3.5 bg-gray-200 rounded"
-              style={{ width: `${60 + (i % 3) * 15}%` }}
-            />
-            {i % 2 === 0 && <div className="h-3 bg-gray-100 rounded w-1/3" />}
-          </div>
-          {i % 3 === 0 && <div className="w-12 h-4 bg-gray-100 rounded-full" />}
-        </div>
+        <View key={i} className="flex-row items-center gap-3 py-2">
+          <View className="w-4 h-4 rounded-full bg-gray-200" />
+          <View className="flex-1 gap-1.5">
+            <View className="h-3.5 bg-gray-200 rounded" style={{ width: `${60 + (i % 3) * 15}%` }} />
+            {i % 2 === 0 && <View className="h-3 bg-gray-100 rounded w-1/3" />}
+          </View>
+          {i % 3 === 0 && <View className="w-12 h-4 bg-gray-100 rounded-full" />}
+        </View>
       ))}
-    </div>
+    </View>
   )
 }

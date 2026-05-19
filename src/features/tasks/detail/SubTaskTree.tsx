@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, Circle, CheckCircle } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { View, Text, Pressable } from 'react-native'
+import { ChevronRight, Circle, CheckCircle } from 'lucide-react-native'
+import { useRouter } from 'expo-router'
 import type { TaskNode } from '@/lib/taskTree'
 import { useCloseTask } from '@/features/tasks/list/useTasksQuery'
 import { useToast } from '@/components/Toast'
@@ -15,7 +16,7 @@ interface SubTaskNodeProps {
 
 function SubTaskNode({ task, checklistId, depth = 0 }: SubTaskNodeProps) {
   const [expanded, setExpanded] = useState(false)
-  const navigate = useNavigate()
+  const router = useRouter()
   const { mutate: closeTask } = useCloseTask(checklistId)
   const toast = useToast()
   const hasChildren = task.children.length > 0
@@ -23,62 +24,52 @@ function SubTaskNode({ task, checklistId, depth = 0 }: SubTaskNodeProps) {
 
   return (
     <>
-      <div
-        className="flex items-center gap-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer"
-        style={{ paddingLeft: `${indent + 8}px` }}
-        onClick={() => navigate(`/${checklistId}/tasks/${task.id}`)}
+      <Pressable
+        onPress={() => router.push(`/${checklistId}/tasks/${task.id}`)}
+        className="flex-row items-center gap-2 py-1.5 rounded-lg active:bg-gray-50"
+        style={{ paddingLeft: indent + 8 }}
       >
-        {/* Expand toggle */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            setExpanded((v) => !v)
-          }}
-          className={`w-4 h-4 flex items-center justify-center text-gray-300 hover:text-gray-500 ${hasChildren ? '' : 'invisible'}`}
+        <Pressable
+          onPress={() => setExpanded((v) => !v)}
+          hitSlop={8}
+          className="w-4 h-4 items-center justify-center"
+          style={{ opacity: hasChildren ? 1 : 0 }}
+          disabled={!hasChildren}
         >
-          {expanded ? (
-            <ChevronDown className="w-3 h-3" />
-          ) : (
-            <ChevronRight className="w-3 h-3" />
-          )}
-        </button>
+          <ChevronRight
+            size={12}
+            color="#9ca3af"
+            style={{ transform: [{ rotate: expanded ? '90deg' : '0deg' }] }}
+          />
+        </Pressable>
 
-        {/* Check */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            closeTask(task.id, {
-              onSuccess: () => toast.success('Subtask completed'),
-              onError: () => toast.error('Failed to complete subtask'),
-            })
-          }}
-          className="w-4 h-4 flex items-center justify-center text-gray-300 hover:text-green-500 transition-colors shrink-0"
+        <Pressable
+          onPress={() => closeTask(task.id, {
+            onSuccess: () => toast.success('Subtask completed'),
+            onError: () => toast.error('Failed to complete subtask'),
+          })}
+          hitSlop={8}
+          className="w-4 h-4 items-center justify-center"
         >
           {task.status === 1 ? (
-            <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+            <CheckCircle size={14} color="#22c55e" />
           ) : (
-            <Circle className="w-3.5 h-3.5" />
+            <Circle size={14} color="#d1d5db" />
           )}
-        </button>
+        </Pressable>
 
-        <span className="flex-1 text-sm text-gray-700">{task.content}</span>
-
-        <span className={`text-xs font-bold px-1 py-0.5 rounded ${priorityBadgeClass(task.priority)}`}>
+        <Text className="flex-1 text-sm text-gray-700" numberOfLines={1}>{task.content}</Text>
+        <Text className={`text-xs font-bold px-1 py-0.5 rounded ${priorityBadgeClass(task.priority)}`}>
           {priorityDisplay(task.priority)}
-        </span>
-      </div>
+        </Text>
+      </Pressable>
 
       {hasChildren && expanded && (
-        <div>
+        <View>
           {task.children.map((child) => (
-            <SubTaskNode
-              key={child.id}
-              task={child}
-              checklistId={checklistId}
-              depth={depth + 1}
-            />
+            <SubTaskNode key={child.id} task={child} checklistId={checklistId} depth={depth + 1} />
           ))}
-        </div>
+        </View>
       )}
     </>
   )
@@ -93,21 +84,21 @@ export function SubTaskTree({ parentTask, checklistId }: SubTaskTreeProps) {
   const [showAdd, setShowAdd] = useState(false)
 
   return (
-    <div className="mt-4">
-      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+    <View className="mt-4">
+      <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
         Sub-tasks ({parentTask.children.length})
-      </h3>
+      </Text>
 
       {parentTask.children.length > 0 && (
-        <div className="space-y-0.5 mb-3">
+        <View className="mb-3">
           {parentTask.children.map((child) => (
             <SubTaskNode key={child.id} task={child} checklistId={checklistId} />
           ))}
-        </div>
+        </View>
       )}
 
       {showAdd ? (
-        <div className="border border-gray-200 rounded-xl overflow-hidden">
+        <View className="border border-gray-200 rounded-xl overflow-hidden">
           <CreateTaskInput
             checklistId={checklistId}
             parentId={parentTask.id}
@@ -115,21 +106,15 @@ export function SubTaskTree({ parentTask, checklistId }: SubTaskTreeProps) {
             autoFocus
             onCreated={() => setShowAdd(false)}
           />
-          <button
-            onClick={() => setShowAdd(false)}
-            className="w-full py-1.5 text-xs text-gray-400 hover:text-gray-600"
-          >
-            Cancel
-          </button>
-        </div>
+          <Pressable onPress={() => setShowAdd(false)} className="py-1.5 items-center">
+            <Text className="text-xs text-gray-400">Cancel</Text>
+          </Pressable>
+        </View>
       ) : (
-        <button
-          onClick={() => setShowAdd(true)}
-          className="text-sm text-orange-500 hover:text-orange-600 font-medium"
-        >
-          + Add sub-task
-        </button>
+        <Pressable onPress={() => setShowAdd(true)}>
+          <Text className="text-sm text-orange-500 font-medium">+ Add sub-task</Text>
+        </Pressable>
       )}
-    </div>
+    </View>
   )
 }

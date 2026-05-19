@@ -1,5 +1,4 @@
-import { useRef } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { ScrollView } from 'react-native'
 import type { GroupedTasks } from '@/lib/dateSort'
 import { TaskGroup } from './TaskGroup'
 
@@ -9,52 +8,15 @@ interface VirtualTaskListProps {
   isMobile: boolean
 }
 
+// On native, FlashList handles virtualization. On web, a simple ScrollView is used.
+// True virtualization via @tanstack/react-virtual can be restored for web if needed for
+// very large lists — for now ScrollView is sufficient for typical checklist sizes.
 export function VirtualTaskList({ groups, checklistId, isMobile }: VirtualTaskListProps) {
-  const parentRef = useRef<HTMLDivElement>(null)
-
-  const virtualizer = useVirtualizer({
-    count: groups.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: (index) => {
-      // Estimate: header (~36px) + tasks (~40px each)
-      const group = groups[index]
-      return 36 + group.tasks.length * 40
-    },
-    overscan: 3,
-  })
-
   return (
-    <div ref={parentRef} className="overflow-y-auto flex-1">
-      <div
-        style={{
-          height: `${virtualizer.getTotalSize()}px`,
-          position: 'relative',
-        }}
-      >
-        {virtualizer.getVirtualItems().map((virtualItem) => {
-          const group = groups[virtualItem.index]
-          return (
-            <div
-              key={virtualItem.key}
-              data-index={virtualItem.index}
-              ref={virtualizer.measureElement}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                transform: `translateY(${virtualItem.start}px)`,
-              }}
-            >
-              <TaskGroup
-                group={group}
-                checklistId={checklistId}
-                isMobile={isMobile}
-              />
-            </div>
-          )
-        })}
-      </div>
-    </div>
+    <ScrollView className="flex-1" contentContainerClassName="px-2 py-2">
+      {groups.map((group) => (
+        <TaskGroup key={group.group} group={group} checklistId={checklistId} isMobile={isMobile} />
+      ))}
+    </ScrollView>
   )
 }

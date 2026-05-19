@@ -1,26 +1,52 @@
+import {
+  storageGetSync,
+  storageSetSync,
+  storageRemoveSync,
+  storageGet,
+  storageSet,
+  storageRemove,
+} from '@/platform/storage'
+
 const TOKEN_KEY = 'cv_token'
 const EXPIRES_KEY = 'cv_expires_at'
 
-const TOKEN_TTL_MS = 24 * 60 * 60 * 1000 // 1 day
-const REFRESH_TTL_MS = 90 * 24 * 60 * 60 * 1000 // 90 days
+const TOKEN_TTL_MS = 24 * 60 * 60 * 1000
+const REFRESH_TTL_MS = 90 * 24 * 60 * 60 * 1000
 
+// Synchronous accessors (web only; native callers must use async variants)
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY)
+  return storageGetSync(TOKEN_KEY)
 }
 
 export function getExpiresAt(): string | null {
-  return localStorage.getItem(EXPIRES_KEY)
+  return storageGetSync(EXPIRES_KEY)
 }
 
 export function setToken(token: string): void {
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString()
-  localStorage.setItem(TOKEN_KEY, token)
-  localStorage.setItem(EXPIRES_KEY, expiresAt)
+  storageSetSync(TOKEN_KEY, token)
+  storageSetSync(EXPIRES_KEY, expiresAt)
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem(EXPIRES_KEY)
+  storageRemoveSync(TOKEN_KEY)
+  storageRemoveSync(EXPIRES_KEY)
+}
+
+// Async variants for native
+export async function getTokenAsync(): Promise<string | null> {
+  return storageGet(TOKEN_KEY)
+}
+
+export async function setTokenAsync(token: string): Promise<void> {
+  const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString()
+  await storageSet(TOKEN_KEY, token)
+  await storageSet(EXPIRES_KEY, expiresAt)
+}
+
+export async function clearTokenAsync(): Promise<void> {
+  await storageRemove(TOKEN_KEY)
+  await storageRemove(EXPIRES_KEY)
 }
 
 export function isTokenExpired(): boolean {
@@ -30,10 +56,6 @@ export function isTokenExpired(): boolean {
 }
 
 export function isRefreshable(): boolean {
-  // We can refresh up to 90 days from when the token was last set.
-  // We approximate by checking if the stored expires_at minus 1 day plus 90 days
-  // is still in the future. Since we store expires_at = now + 1 day at setToken time,
-  // we add REFRESH_TTL_MS - TOKEN_TTL_MS to get the 90-day window start.
   const expiresAt = getExpiresAt()
   if (!expiresAt) return false
   const tokenSetAt = new Date(expiresAt).getTime() - TOKEN_TTL_MS
@@ -42,21 +64,21 @@ export function isRefreshable(): boolean {
 }
 
 export function getTaskTime(taskId: number): string | null {
-  return localStorage.getItem(`tasktime_${taskId}`)
+  return storageGetSync(`tasktime_${taskId}`)
 }
 
 export function setTaskTime(taskId: number, time: string): void {
-  localStorage.setItem(`tasktime_${taskId}`, time)
+  storageSetSync(`tasktime_${taskId}`, time)
 }
 
 export function clearTaskTime(taskId: number): void {
-  localStorage.removeItem(`tasktime_${taskId}`)
+  storageRemoveSync(`tasktime_${taskId}`)
 }
 
 export function getExpandedState(taskId: number): boolean {
-  return localStorage.getItem(`cv_expanded_${taskId}`) === 'true'
+  return storageGetSync(`cv_expanded_${taskId}`) === 'true'
 }
 
 export function setExpandedState(taskId: number, expanded: boolean): void {
-  localStorage.setItem(`cv_expanded_${taskId}`, expanded ? 'true' : 'false')
+  storageSetSync(`cv_expanded_${taskId}`, expanded ? 'true' : 'false')
 }

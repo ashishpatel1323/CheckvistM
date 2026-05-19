@@ -1,3 +1,4 @@
+import { View } from 'react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { TaskRow } from './TaskRow'
 
@@ -9,15 +10,10 @@ interface TaskTreeProps {
 
 export function TaskTree({ tasks, checklistId, isMobile }: TaskTreeProps) {
   return (
-    <div>
+    <View>
       {tasks.map((task) => (
-        <TaskRow
-          key={task.id}
-          task={task}
-          checklistId={checklistId}
-          isMobile={isMobile}
-        />
+        <TaskRow key={task.id} task={task} checklistId={checklistId} isMobile={isMobile} />
       ))}
-    </div>
+    </View>
   )
 }
