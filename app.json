@@ -12,17 +12,14 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ashishpatel.checkvist",
-      "deploymentTarget": "16.0"
+      "bundleIdentifier": "com.ashishpatel.checkvist"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./public/icons/icon-192.png",
         "backgroundColor": "#E8632A"
       },
-      "package": "com.ashishpatel.checkvist",
-      "minSdkVersion": 24,
-      "targetSdkVersion": 35
+      "package": "com.ashishpatel.checkvist"
     },
     "web": {
       "bundler": "metro",
@@ -40,11 +37,20 @@
         {
           "backgroundColor": "#E8632A"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": false
     },
-    "newArchEnabled": true
+    "newArchEnabled": true,
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "f0c7beb2-284a-4eea-b8ca-0f04229e0bb9"
+      }
+    }
   }
 }
