@@ -8,6 +8,8 @@
     "userInterfaceStyle": "light",
     "scheme": "checkvist",
     "splash": {
+      "image": "./public/icons/icon-512.png",
+      "resizeMode": "contain",
       "backgroundColor": "#E8632A"
     },
     "ios": {
@@ -35,6 +37,8 @@
       [
         "expo-splash-screen",
         {
+          "image": "./public/icons/icon-512.png",
+          "resizeMode": "contain",
           "backgroundColor": "#E8632A"
         }
       ],
