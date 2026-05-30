@@ -22,7 +22,10 @@ const RG = 28
 const PAD = 48
 const TOGGLE_R = 10
 
-const ZOOM_PRESETS = [500, 400, 300, 200, 150, 120, 100, 80, 50, 20, 10]
+// On Android, SVG renders to a bitmap of width×height — large scale = OOM. Cap at 100%.
+const ZOOM_PRESETS = Platform.OS === 'web'
+  ? [500, 400, 300, 200, 150, 120, 100, 80, 50, 20, 10]
+  : [100, 80, 50, 20, 10]
 const ORANGE = '#E8632A'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -135,9 +138,14 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
 
   const [scale, setScale] = useState(1)
   const [showZoomMenu, setShowZoomMenu] = useState(false)
-  const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
 
+  // Build tree first so we can initialise collapsed to all parents (avoids large initial bitmap on Android)
   const { allNodes, roots } = useMemo(() => buildTaskTree(tasks), [tasks])
+
+  const [collapsed, setCollapsed] = useState<Set<number>>(() => {
+    const tree = buildTaskTree(tasks)
+    return new Set(tree.allNodes.filter((n) => n.children.length > 0).map((n) => n.id))
+  })
 
   const { nodes, edges, canvasW, canvasH } = useMemo(
     () => computeLayout(roots, collapsed, checklistName),
@@ -162,48 +170,46 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
     })
   }, [])
 
-  // Keyboard navigation: Up/Down = move focus, Left/Right = zoom, Enter = open
+  // Keyboard navigation: Up/Down = move focus, Left/Right = zoom, Enter = open.
+  // Use capture phase so SVG elements' internal stopPropagation doesn't block us.
   useEffect(() => {
     if (Platform.OS !== 'web') return
     const handler = (e: KeyboardEvent) => {
+      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) return
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
 
-      // Sorted real nodes by y position for Up/Down navigation
+      e.preventDefault()
+      e.stopPropagation()
+
       const realNodes = nodes.filter((n) => n.id !== -1).sort((a, b) => a.y - b.y)
       const orderedIds = realNodes.map((n) => n.id)
 
       if (e.key === 'ArrowDown') {
-        e.preventDefault()
         const idx = focusedId != null ? orderedIds.indexOf(focusedId) : -1
-        const next = orderedIds[idx + 1]
+        const next = orderedIds[Math.min(idx + 1, orderedIds.length - 1)]
         if (next != null) setFocusedId(next)
       } else if (e.key === 'ArrowUp') {
-        e.preventDefault()
         const idx = focusedId != null ? orderedIds.indexOf(focusedId) : orderedIds.length
-        const next = orderedIds[idx - 1]
+        const next = orderedIds[Math.max(idx - 1, 0)]
         if (next != null) setFocusedId(next)
       } else if (e.key === 'ArrowRight') {
-        e.preventDefault()
         setScale((s) => {
-          const idx = ZOOM_PRESETS.indexOf(Math.round(s * 100))
-          const nextPct = idx > 0 ? ZOOM_PRESETS[idx - 1] : ZOOM_PRESETS[0]
-          return nextPct / 100
+          const i = ZOOM_PRESETS.findIndex((p) => p <= Math.round(s * 100))
+          return (ZOOM_PRESETS[Math.max(i - 1, 0)] ?? ZOOM_PRESETS[0]) / 100
         })
       } else if (e.key === 'ArrowLeft') {
-        e.preventDefault()
         setScale((s) => {
-          const idx = ZOOM_PRESETS.indexOf(Math.round(s * 100))
-          const nextPct = idx >= 0 && idx < ZOOM_PRESETS.length - 1 ? ZOOM_PRESETS[idx + 1] : ZOOM_PRESETS[ZOOM_PRESETS.length - 1]
-          return nextPct / 100
+          const i = ZOOM_PRESETS.findIndex((p) => p <= Math.round(s * 100))
+          return (ZOOM_PRESETS[Math.min(i + 1, ZOOM_PRESETS.length - 1)] ?? ZOOM_PRESETS[ZOOM_PRESETS.length - 1]) / 100
         })
       } else if (e.key === 'Enter' && focusedId != null) {
-        e.preventDefault()
         router.push(`/${checklistId}/tasks/${focusedId}`)
       }
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    // capture: true — fires before SVG elements see the event
+    window.addEventListener('keydown', handler, { capture: true })
+    return () => window.removeEventListener('keydown', handler, { capture: true })
   }, [nodes, focusedId, setFocusedId, checklistId, router])
 
   const zoomPct = Math.round(scale * 100)
@@ -326,7 +332,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
 
                 {/* Collapse toggle */}
                 {node.hasRealChildren && !isVirtualRoot && (
-                  <G onPress={() => toggleCollapse(node.id)}>
+                  <G>
                     <Rect
                       x={node.x + node.w - TOGGLE_R * 2}
                       y={node.y + node.h / 2 - TOGGLE_R}
@@ -334,6 +340,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
                       height={TOGGLE_R * 2}
                       rx={TOGGLE_R}
                       fill={isCollapsed ? ORANGE : '#e2e8f0'}
+                      onPress={() => toggleCollapse(node.id)}
                     />
                     <SvgText
                       x={node.x + node.w - TOGGLE_R}
@@ -342,6 +349,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
                       fontSize={12}
                       fontWeight="bold"
                       fill={isCollapsed ? 'white' : '#64748b'}
+                      onPress={() => toggleCollapse(node.id)}
                     >
                       {isCollapsed ? '+' : '−'}
                     </SvgText>

@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Task lists grouped by due date (Overdue, Today, Tomorrow, This Week, Later, No Due Date)
 - Hierarchical task tree with inline expansion
 - Quick date picker, priority setter, and context menu
-- Task detail view with Markdown support and sub-task management
+- Task detail vi shortcut on the mindmap view is not working. ew with Markdown support and sub-task management
 - Installable PWA for Android/iOS
 
 This is **Phase 1 implementation** with Phase 2 features stubbed (notes, tags, drag-and-drop, recurring tasks, search, etc.).

@@ -9,6 +9,7 @@ import { CreateTaskInput } from '@/features/tasks/shared/CreateTaskInput'
 import { VirtualTaskList } from './VirtualTaskList'
 import { FlatTaskList } from './FlatTaskList'
 import { MindMapView } from './MindMapView'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useTaskView } from './useTaskView'
 import { ChecklistSwitcher } from '@/features/checklists/ChecklistSwitcher'
 import { useAuth } from '@/auth/useAuth'
@@ -90,7 +91,9 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
             <FlatTaskList tasks={tasks} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} />
           )}
           {view === 'mindmap' && (
-            <MindMapView tasks={tasks} checklistId={checklistId} focusedId={focusedId} setFocusedId={setFocusedId} />
+            <ErrorBoundary>
+              <MindMapView tasks={tasks} checklistId={checklistId} focusedId={focusedId} setFocusedId={setFocusedId} />
+            </ErrorBoundary>
           )}
         </>
       )}

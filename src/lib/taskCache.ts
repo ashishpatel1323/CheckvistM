@@ -1,11 +1,11 @@
 import { Platform } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { CheckvistTask, CheckvistChecklist } from '@/api/types'
 
 // Web: IndexedDB via db.ts
 // Native: AsyncStorage (JSON-serialized)
 
-async function getNativeStorage() {
-  const { default: AsyncStorage } = await import('@react-native-async-storage/async-storage')
+function getNativeStorage() {
   return AsyncStorage
 }
 

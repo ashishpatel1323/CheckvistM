@@ -49,7 +49,7 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
           )}
 
           {/* Content */}
-          <ScrollView className="flex-1 p-4">{children}</ScrollView>
+          <ScrollView contentContainerStyle={{ padding: 16 }}>{children}</ScrollView>
         </View>
       </View>
     </Modal>

@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "expo start",
     "web": "expo start --web",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "build:web": "expo export --platform web",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
@@ -23,6 +23,7 @@
     "date-fns": "^4.1.0",
     "dompurify": "^3.4.3",
     "expo": "~52.0.0",
+    "expo-asset": "~11.0.5",
     "expo-constants": "~17.0.8",
     "expo-font": "~13.0.4",
     "expo-haptics": "~14.0.1",
@@ -31,6 +32,7 @@
     "expo-secure-store": "~14.0.1",
     "expo-splash-screen": "~0.29.21",
     "expo-status-bar": "~2.0.1",
+    "expo-modules-core": "~2.2.3",
     "expo-updates": "~0.27.5",
     "lucide-react-native": "^0.475.0",
     "marked": "^18.0.3",

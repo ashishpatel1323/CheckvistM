@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { InternalAxiosRequestConfig, AxiosResponse } from 'axios'
-import { getToken, setToken, clearToken } from '@/auth/tokenStore'
+import { router } from 'expo-router'
+import { getTokenAsync, setTokenAsync, clearTokenAsync } from '@/auth/tokenStore'
 
 const AUTH_SKIP_PATHS = ['/auth/login.json', '/auth/refresh_token.json']
 
@@ -12,11 +13,11 @@ export const apiClient = axios.create({
 })
 
 // Request interceptor: append token query param
-apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const url = config.url ?? ''
   const skip = AUTH_SKIP_PATHS.some((path) => url.includes(path))
   if (!skip) {
-    const token = getToken()
+    const token = await getTokenAsync()
     if (token) {
       config.params = { ...config.params, token }
     }
@@ -43,10 +44,10 @@ apiClient.interceptors.response.use(
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
 
     if (error.response?.status === 401 && !originalRequest._retry) {
-      const currentToken = getToken()
+      const currentToken = await getTokenAsync()
       if (!currentToken) {
-        clearToken()
-        window.location.href = '/login'
+        await clearTokenAsync()
+        router.replace('/login')
         return Promise.reject(error)
       }
 
@@ -78,7 +79,7 @@ apiClient.interceptors.response.use(
         )
 
         const newToken = response.data.token
-        setToken(newToken)
+        await setTokenAsync(newToken)
         isRefreshing = false
         onRefreshed(newToken)
 
@@ -92,8 +93,8 @@ apiClient.interceptors.response.use(
       } catch {
         isRefreshing = false
         refreshSubscribers = []
-        clearToken()
-        window.location.href = '/login'
+        await clearTokenAsync()
+        router.replace('/login')
         return Promise.reject(error)
       }
     }

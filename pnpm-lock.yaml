@@ -38,6 +38,9 @@ importers:
       expo:
         specifier: ~52.0.0
         version: 52.0.49(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@expo/metro-runtime@4.0.1(react-native@0.76.9(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1)))(react-native@0.76.9(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)
+      expo-asset:
+        specifier: ~11.0.5
+        version: 11.0.5(expo@52.0.49(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@expo/metro-runtime@4.0.1(react-native@0.76.9(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1)))(react-native@0.76.9(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1))(react-native@0.76.9(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)
       expo-constants:
         specifier: ~17.0.8
         version: 17.0.8(expo@52.0.49(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@expo/metro-runtime@4.0.1(react-native@0.76.9(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1)))(react-native@0.76.9(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1))(react-native@0.76.9(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))
@@ -50,6 +53,9 @@ importers:
       expo-linking:
         specifier: ~7.0.5
         version: 7.0.5(expo@52.0.49(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@expo/metro-runtime@4.0.1(react-native@0.76.9(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1)))(react-native@0.76.9(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1))(react-native@0.76.9(@babel/core@7.29.0)(@babel/preset-env@7.29.5(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)
+      expo-modules-core:
+        specifier: ~2.2.3
+        version: 2.2.3
       expo-router:
         specifier: ~4.0.0
         version: 4.0.22(ef0197952ca1234bbf571bcc2100c098)
@@ -989,6 +995,10 @@ packages:
 
   '@expo/spawn-async@1.7.2':
     resolution: {integrity: sha512-QdWi16+CHB9JYP7gma19OVVg0BFkvU8zNj9GjWorYI8Iv8FUxjOCcYRuAmX4s/h91e4e7BPsskc8cSrZYho9Ew==}
+    engines: {node: '>=12'}
+
+  '@expo/spawn-async@1.8.0':
+    resolution: {integrity: sha512-eb9xxd/LbuEGSdua4NumCu/McVB9EM+F/JxB9pWgnERw4HQ9XyTNH1KapG6oqLWR8TuRK2LQfzJlmNi94CVobw==}
     engines: {node: '>=12'}
 
   '@expo/sudo-prompt@9.3.2':
@@ -5364,7 +5374,7 @@ snapshots:
 
   '@expo/image-utils@0.6.5':
     dependencies:
-      '@expo/spawn-async': 1.7.2
+      '@expo/spawn-async': 1.8.0
       chalk: 4.1.2
       fs-extra: 9.0.0
       getenv: 1.0.0
@@ -5477,6 +5487,10 @@ snapshots:
       - supports-color
 
   '@expo/spawn-async@1.7.2':
+    dependencies:
+      cross-spawn: 7.0.6
+
+  '@expo/spawn-async@1.8.0':
     dependencies:
       cross-spawn: 7.0.6
 

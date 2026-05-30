@@ -94,8 +94,8 @@ export function VirtualTaskList({ groups, checklistId, isMobile, focusedId, setF
 
   useEffect(() => {
     if (Platform.OS !== 'web') return
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
+    window.addEventListener('keydown', handleKey, { capture: true })
+    return () => window.removeEventListener('keydown', handleKey, { capture: true })
   }, [handleKey])
 
   return (
