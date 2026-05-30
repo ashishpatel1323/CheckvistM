@@ -1,30 +1,44 @@
-import { useMemo, useState, useCallback, useEffect } from 'react'
-import { View, Text, Pressable, ScrollView, useWindowDimensions, Platform } from 'react-native'
-import Svg, { Path, Rect, Text as SvgText, G } from 'react-native-svg'
-import { useRouter } from 'expo-router'
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
+import { View, Text, Pressable, ScrollView, TextInput, useWindowDimensions, Platform, Modal } from 'react-native'
+import Svg, { Path, Rect, Text as SvgText } from 'react-native-svg'
 import type { CheckvistTask } from '@/api/types'
 import type { TaskNode } from '@/lib/taskTree'
 import { buildTaskTree } from '@/lib/taskTree'
 import { stripMarkdown } from '@/components/InlineMarkdown'
 import { useChecklists } from '@/features/checklists/useChecklists'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
+import { useCreateTask } from '@/features/tasks/list/useTasksQuery'
+import { Maximize2, Minimize2, ChevronRight, ChevronLeft, ZoomIn, ZoomOut } from 'lucide-react-native'
 
-// ─── Layout constants ────────────────────────────────────────────────────────
-const RW = 220
-const RH = 60
-const NW = 180
-const NH = 36
-const HG = 72
-const VG = 12
-const RG = 28
-const PAD = 48
-const TOGGLE_R = 10
+// ─── Layout ──────────────────────────────────────────────────────────────────
+const RW = 200   // virtual root width
+const RH = 56    // virtual root height
+const NW = 190   // node width
+const NH = 40    // node height
+const HG = 60    // horizontal gap between levels
+const VG = 10    // vertical gap between siblings
+const RG = 20    // extra gap between root groups
+const PAD = 32
+const INDICATOR_W = 24 // width of the >/< indicator tab
 
-// On Android, SVG renders to a bitmap of width×height — large scale = OOM. Cap at 100%.
+// ─── Depth colour palette (NotebookLM-style) ─────────────────────────────────
+const DEPTH_PALETTE = [
+  { bg: '#c4b5fd', stroke: '#7c3aed', text: '#3b0764' }, // 0: purple  (virtual root)
+  { bg: '#bfdbfe', stroke: '#3b82f6', text: '#1e3a8a' }, // 1: blue
+  { bg: '#99f6e4', stroke: '#14b8a6', text: '#134e4a' }, // 2: teal
+  { bg: '#bbf7d0', stroke: '#22c55e', text: '#14532d' }, // 3: green
+  { bg: '#fde68a', stroke: '#f59e0b', text: '#78350f' }, // 4: amber
+  { bg: '#fecaca', stroke: '#ef4444', text: '#7f1d1d' }, // 5+: red
+]
+
+function depthColor(depth: number) {
+  return DEPTH_PALETTE[Math.min(depth, DEPTH_PALETTE.length - 1)]
+}
+
+// On Android SVG renders to a bitmap — cap zoom to avoid OOM
 const ZOOM_PRESETS = Platform.OS === 'web'
-  ? [500, 400, 300, 200, 150, 120, 100, 80, 50, 20, 10]
-  : [100, 80, 50, 20, 10]
-const ORANGE = '#E8632A'
+  ? [200, 150, 120, 100, 80, 60, 40]
+  : [100, 80, 60, 40]
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface PlacedNode {
@@ -33,11 +47,12 @@ interface PlacedNode {
   label: string
   x: number; y: number; w: number; h: number
   depth: number
-  hasRealChildren: boolean
+  hasChildren: boolean
+  isExpanded: boolean
 }
-interface PlacedEdge { x1: number; y1: number; x2: number; y2: number }
+interface PlacedEdge { x1: number; y1: number; x2: number; y2: number; depth: number }
 
-// ─── Layout ──────────────────────────────────────────────────────────────────
+// ─── Layout engine ───────────────────────────────────────────────────────────
 function computeLayout(
   visibleRoots: TaskNode[],
   collapsed: Set<number>,
@@ -50,23 +65,24 @@ function computeLayout(
   function place(task: TaskNode, depth: number): number {
     const x = PAD + RW + HG + (depth - 1) * (NW + HG)
     const isCollapsed = collapsed.has(task.id)
-    const hasRealChildren = task.children.length > 0
+    const hasChildren = task.children.length > 0
+    const isExpanded = hasChildren && !isCollapsed
 
-    if (hasRealChildren && !isCollapsed) {
+    if (isExpanded) {
       const childMids: number[] = []
       for (const child of task.children) childMids.push(place(child, depth + 1))
       const myMid = (childMids[0] + childMids[childMids.length - 1]) / 2
       const y = myMid - NH / 2
-      nodes.push({ task, id: task.id, label: stripMarkdown(task.content), x, y, w: NW, h: NH, depth, hasRealChildren })
+      nodes.push({ task, id: task.id, label: stripMarkdown(task.content), x, y, w: NW, h: NH, depth, hasChildren, isExpanded })
       for (const child of task.children) {
         const cn = nodes.find((n) => n.id === child.id)!
-        edges.push({ x1: x + NW, y1: myMid, x2: cn.x, y2: cn.y + NH / 2 })
+        edges.push({ x1: x + NW, y1: myMid, x2: cn.x, y2: cn.y + NH / 2, depth })
       }
       return myMid
     } else {
       const y = nextLeafY
       nextLeafY += NH + VG
-      nodes.push({ task, id: task.id, label: stripMarkdown(task.content), x, y, w: NW, h: NH, depth, hasRealChildren })
+      nodes.push({ task, id: task.id, label: stripMarkdown(task.content), x, y, w: NW, h: NH, depth, hasChildren, isExpanded })
       return y + NH / 2
     }
   }
@@ -80,16 +96,17 @@ function computeLayout(
   const centerY = rootMids.length > 0
     ? (rootMids[0] + rootMids[rootMids.length - 1]) / 2
     : PAD + RH / 2
-  const vrX = PAD
-  const vrY = centerY - RH / 2
-  nodes.push({ task: null, id: -1, label: rootLabel, x: vrX, y: vrY, w: RW, h: RH, depth: 0, hasRealChildren: visibleRoots.length > 0 })
-
+  nodes.push({
+    task: null, id: -1, label: rootLabel,
+    x: PAD, y: centerY - RH / 2, w: RW, h: RH,
+    depth: 0, hasChildren: visibleRoots.length > 0, isExpanded: true,
+  })
   for (const root of visibleRoots) {
     const rn = nodes.find((n) => n.id === root.id)!
-    edges.push({ x1: vrX + RW, y1: centerY, x2: rn.x, y2: rn.y + NH / 2 })
+    edges.push({ x1: PAD + RW, y1: centerY, x2: rn.x, y2: rn.y + NH / 2, depth: 0 })
   }
 
-  const canvasW = nodes.length > 0 ? Math.max(...nodes.map((n) => n.x + n.w)) + PAD : PAD * 2
+  const canvasW = nodes.length > 0 ? Math.max(...nodes.map((n) => n.x + n.w + INDICATOR_W)) + PAD : PAD * 2
   const canvasH = nodes.length > 0 ? Math.max(...nodes.map((n) => n.y + n.h)) + PAD : PAD * 2
   return { nodes, edges, canvasW, canvasH }
 }
@@ -99,22 +116,27 @@ function bezierPath({ x1, y1, x2, y2 }: PlacedEdge): string {
   return `M ${x1} ${y1} C ${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`
 }
 
-function nodeFill(node: PlacedNode): string {
-  if (!node.task) return ORANGE
-  const p = node.task.priority
-  if (p <= 0) return '#f8fafc'
-  if (p <= 3) return '#fef2f2'
-  if (p <= 6) return '#fffbeb'
-  return '#f0fdf4'
-}
-
-function nodeStroke(node: PlacedNode): string {
-  if (!node.task) return ORANGE
-  const p = node.task.priority
-  if (p <= 0) return '#e2e8f0'
-  if (p <= 3) return '#fca5a5'
-  if (p <= 6) return '#fcd34d'
-  return '#86efac'
+// ─── Toolbar button ───────────────────────────────────────────────────────────
+function ToolbarBtn({
+  label, onPress, disabled, active, icon,
+}: {
+  label: string
+  onPress: () => void
+  disabled?: boolean
+  active?: boolean
+  icon?: React.ReactNode
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={{ opacity: disabled ? 0.35 : 1 }}
+      className={`flex-row items-center gap-1 px-3 py-1.5 rounded-lg ${active ? 'bg-violet-100 border border-violet-300' : 'bg-gray-100 active:bg-gray-200'}`}
+    >
+      {icon}
+      <Text className={`text-xs font-medium ${active ? 'text-violet-700' : 'text-gray-700'}`}>{label}</Text>
+    </Pressable>
+  )
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -126,44 +148,40 @@ interface MindMapViewProps {
 }
 
 export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: MindMapViewProps) {
-  const router = useRouter()
   const { width: screenW, height: screenH } = useWindowDimensions()
-
   const { activeChecklistId } = useActiveChecklist()
   const { data: checklists } = useChecklists()
   const checklistName = checklists?.find((c) => c.id === activeChecklistId)?.name ?? 'Tasks'
 
   const [scale, setScale] = useState(1)
   const [showZoomMenu, setShowZoomMenu] = useState(false)
-
-  // drillPath: stack of node IDs we've drilled into (F5 pushes, F6 pops)
+  const [fullScreen, setFullScreen] = useState(false)
   const [drillPath, setDrillPath] = useState<number[]>([])
+
+  const [newChildParentId, setNewChildParentId] = useState<number | null>(null)
+  const [newChildText, setNewChildText] = useState('')
+  const newChildInputRef = useRef<TextInput>(null)
+  const { mutateAsync: createTask } = useCreateTask(checklistId)
 
   const { allNodes, roots } = useMemo(() => buildTaskTree(tasks), [tasks])
 
-  // Build a flat id→node map for O(1) lookup
   const nodeMap = useMemo(() => {
     const m = new Map<number, TaskNode>()
     allNodes.forEach((n) => m.set(n.id, n))
     return m
   }, [allNodes])
 
-  // Start all parents collapsed to keep initial SVG bitmap small (avoids Android OOM)
   const [collapsed, setCollapsed] = useState<Set<number>>(() => {
     const tree = buildTaskTree(tasks)
     return new Set(tree.allNodes.filter((n) => n.children.length > 0).map((n) => n.id))
   })
 
-  // Resolve visible roots based on drill stack
   const { visibleRoots, rootLabel } = useMemo(() => {
     if (drillPath.length === 0) return { visibleRoots: roots, rootLabel: checklistName }
     const drillId = drillPath[drillPath.length - 1]
     const drillNode = nodeMap.get(drillId)
     if (!drillNode) return { visibleRoots: roots, rootLabel: checklistName }
-    return {
-      visibleRoots: drillNode.children,
-      rootLabel: stripMarkdown(drillNode.content),
-    }
+    return { visibleRoots: drillNode.children, rootLabel: stripMarkdown(drillNode.content) }
   }, [drillPath, roots, nodeMap, checklistName])
 
   const { nodes, edges, canvasW, canvasH } = useMemo(
@@ -175,11 +193,6 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
     () => new Set(allNodes.filter((n) => n.children.length > 0).map((n) => n.id)),
     [allNodes]
   )
-  const allFolded = allParentIds.size > 0 && collapsed.size === allParentIds.size
-
-  const toggleFoldAll = useCallback(() => {
-    setCollapsed((prev) => prev.size === allParentIds.size ? new Set() : new Set(allParentIds))
-  }, [allParentIds])
 
   const toggleCollapse = useCallback((id: number) => {
     setCollapsed((prev) => {
@@ -192,12 +205,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
   const drillIn = useCallback((id: number) => {
     const node = nodeMap.get(id)
     if (!node || node.children.length === 0) return
-    // Ensure the node is expanded so its children are visible after drill
-    setCollapsed((prev) => {
-      const next = new Set(prev)
-      next.delete(id)
-      return next
-    })
+    setCollapsed((prev) => { const n = new Set(prev); n.delete(id); return n })
     setDrillPath((p) => [...p, id])
     setFocusedId(null)
   }, [nodeMap, setFocusedId])
@@ -205,24 +213,23 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
   const drillOut = useCallback(() => {
     setDrillPath((p) => {
       if (p.length === 0) return p
-      const newPath = p.slice(0, -1)
-      // Restore focus to the node we just drilled out of
       setFocusedId(p[p.length - 1])
-      return newPath
+      return p.slice(0, -1)
     })
   }, [setFocusedId])
 
-  // ─── Keyboard navigation (web only) ─────────────────────────────────────────
-  // ArrowUp/Down  — move focus among visible nodes (by vertical position)
-  // ArrowRight    — expand collapsed node, or focus first child
-  // ArrowLeft     — collapse expanded node, or focus parent
-  // F5            — drill into focused node (XMind classic behaviour)
-  // F6            — drill out one level
-  // Enter         — open task detail
-  // +/-           — zoom in/out
+  const submitNewChild = useCallback(async () => {
+    if (!newChildParentId || !newChildText.trim()) { setNewChildParentId(null); return }
+    setCollapsed((prev) => { const n = new Set(prev); n.delete(newChildParentId); return n })
+    await createTask({ content: newChildText.trim(), parent_id: newChildParentId })
+    setFocusedId(newChildParentId)
+    setNewChildParentId(null)
+    setNewChildText('')
+  }, [newChildParentId, newChildText, createTask, setFocusedId])
+
+  // ─── Keyboard navigation (web only) ──────────────────────────────────────
   useEffect(() => {
     if (Platform.OS !== 'web') return
-
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
@@ -235,50 +242,40 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
         e.preventDefault(); e.stopPropagation()
         const next = orderedIds[Math.min(currentIdx + 1, orderedIds.length - 1)]
         if (next != null) setFocusedId(next)
-
       } else if (e.key === 'ArrowUp') {
         e.preventDefault(); e.stopPropagation()
         const next = orderedIds[Math.max(currentIdx - 1, 0)]
         if (next != null) setFocusedId(next)
-
       } else if (e.key === 'ArrowRight' && focusedId != null) {
         e.preventDefault(); e.stopPropagation()
         const node = nodeMap.get(focusedId)
         if (!node) return
         if (node.children.length > 0 && collapsed.has(focusedId)) {
-          // Expand collapsed node
           setCollapsed((prev) => { const n = new Set(prev); n.delete(focusedId); return n })
         } else if (node.children.length > 0) {
-          // Already expanded — move focus to first child if visible
           const firstChild = orderedIds.find((id) => node.children.some((c) => c.id === id))
           if (firstChild != null) setFocusedId(firstChild)
         }
-
       } else if (e.key === 'ArrowLeft' && focusedId != null) {
         e.preventDefault(); e.stopPropagation()
         const node = nodeMap.get(focusedId)
         if (!node) return
         if (node.children.length > 0 && !collapsed.has(focusedId)) {
-          // Collapse expanded node
-          setCollapsed((prev) => new Set(prev).add(focusedId))
+          setCollapsed((prev) => new Set([...prev, focusedId]))
         } else if (node.parent_id != null) {
-          // Move focus to parent
-          const parentNode = nodeMap.get(node.parent_id)
-          if (parentNode) setFocusedId(parentNode.id)
+          setFocusedId(node.parent_id)
         }
-
       } else if (e.key === 'F5') {
         e.preventDefault(); e.stopPropagation()
         if (focusedId != null) drillIn(focusedId)
-
       } else if (e.key === 'F6') {
         e.preventDefault(); e.stopPropagation()
         drillOut()
-
-      } else if (e.key === 'Enter' && focusedId != null) {
+      } else if (e.key === 'Tab' && focusedId != null) {
         e.preventDefault(); e.stopPropagation()
-        router.push(`/${checklistId}/tasks/${focusedId}`)
-
+        setNewChildParentId(focusedId)
+        setNewChildText('')
+        setTimeout(() => newChildInputRef.current?.focus(), 50)
       } else if ((e.key === '+' || e.key === '=') && !e.metaKey && !e.ctrlKey) {
         e.preventDefault()
         setScale((s) => {
@@ -291,12 +288,13 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
           const i = ZOOM_PRESETS.findIndex((p) => p <= Math.round(s * 100))
           return (ZOOM_PRESETS[Math.min(i + 1, ZOOM_PRESETS.length - 1)] ?? ZOOM_PRESETS[ZOOM_PRESETS.length - 1]) / 100
         })
+      } else if (e.key === 'Escape') {
+        if (fullScreen) setFullScreen(false)
       }
     }
-
     window.addEventListener('keydown', handler, { capture: true })
     return () => window.removeEventListener('keydown', handler, { capture: true })
-  }, [nodes, focusedId, setFocusedId, collapsed, nodeMap, drillIn, drillOut, checklistId, router])
+  }, [nodes, focusedId, setFocusedId, collapsed, nodeMap, drillIn, drillOut, newChildInputRef, fullScreen])
 
   const zoomPct = Math.round(scale * 100)
   const scaledW = canvasW * scale
@@ -310,163 +308,213 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
     )
   }
 
-  return (
-    <View className="flex-1">
-      {/* Toolbar */}
-      <View className="flex-row items-center gap-2 px-3 py-1.5 border-b border-gray-100 bg-white">
-        {/* Drill breadcrumb / fold all */}
-        {drillPath.length > 0 ? (
-          <Pressable
-            onPress={drillOut}
-            className="flex-row items-center gap-1.5 px-3 py-1.5 bg-orange-50 active:bg-orange-100 rounded-lg border border-orange-200"
-          >
-            <Text className="text-sm text-orange-700 font-medium">← Drill Out</Text>
-            {drillPath.length > 1 && (
-              <Text className="text-xs text-orange-400">({drillPath.length} levels)</Text>
-            )}
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={toggleFoldAll}
-            className="flex-row items-center gap-1.5 px-3 py-1.5 bg-gray-100 active:bg-gray-200 rounded-lg"
-          >
-            <Text className="text-sm text-gray-700 font-medium">
-              {allFolded ? 'Unfold All' : 'Fold All'}
-            </Text>
-          </Pressable>
+  const content = (
+    <View className="flex-1 bg-white" style={fullScreen && Platform.OS === 'web' ? { position: 'fixed' as never, inset: 0, zIndex: 999 } : undefined}>
+      {/* ── Toolbar ─────────────────────────────────────────────────── */}
+      <View className="flex-row items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-white flex-wrap">
+
+        {/* Fold / Unfold */}
+        <ToolbarBtn label="Fold All"   onPress={() => setCollapsed(new Set(allParentIds))} />
+        <ToolbarBtn label="Unfold All" onPress={() => setCollapsed(new Set())} />
+
+        <View style={{ width: 1, height: 20, backgroundColor: '#e5e7eb', marginHorizontal: 4 }} />
+
+        {/* Drill In / Out */}
+        <ToolbarBtn
+          label="Drill In"
+          onPress={() => focusedId != null && drillIn(focusedId)}
+          disabled={focusedId == null || !nodeMap.get(focusedId ?? -1)?.children.length}
+          active={false}
+          icon={<ChevronRight size={13} color={focusedId != null ? '#6d28d9' : '#9ca3af'} />}
+        />
+        <ToolbarBtn
+          label="Drill Out"
+          onPress={drillOut}
+          disabled={drillPath.length === 0}
+          active={drillPath.length > 0}
+          icon={<ChevronLeft size={13} color={drillPath.length > 0 ? '#6d28d9' : '#9ca3af'} />}
+        />
+        {drillPath.length > 0 && (
+          <Text className="text-xs text-violet-500 font-medium">{drillPath.length} level{drillPath.length > 1 ? 's' : ''} deep</Text>
         )}
 
         <View className="flex-1" />
 
-        {/* Keyboard hint (web only) */}
-        {Platform.OS === 'web' && (
-          <Text className="text-xs text-gray-400 hidden md:flex">
-            F5 drill in · F6 drill out · ↑↓ navigate · ←→ expand/collapse
-          </Text>
-        )}
-
         {/* Zoom */}
-        <View className="relative">
-          <Pressable
-            onPress={() => setShowZoomMenu((v) => !v)}
-            className="flex-row items-center gap-1 px-3 py-1.5 bg-gray-100 active:bg-gray-200 rounded-lg"
-          >
-            <Text className="text-sm text-gray-700 font-medium">{zoomPct}%</Text>
-          </Pressable>
-          {showZoomMenu && (
-            <View className="absolute right-0 top-8 bg-white border border-gray-100 rounded-xl py-1 z-50"
-              style={{ shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, elevation: 8, minWidth: 80 }}
-            >
-              {ZOOM_PRESETS.map((pct) => (
-                <Pressable
-                  key={pct}
-                  onPress={() => { setScale(pct / 100); setShowZoomMenu(false) }}
-                  className="px-4 py-2 active:bg-gray-50"
-                >
-                  <Text className={`text-sm ${pct === zoomPct ? 'text-orange-600 font-medium' : 'text-gray-700'}`}>
-                    {pct}%
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </View>
+        <Pressable onPress={() => setScale((s) => {
+          const i = ZOOM_PRESETS.findIndex((p) => p <= Math.round(s * 100))
+          return (ZOOM_PRESETS[Math.max(i - 1, 0)] ?? ZOOM_PRESETS[0]) / 100
+        })} className="p-1.5 rounded-lg bg-gray-100 active:bg-gray-200">
+          <ZoomIn size={14} color="#374151" />
+        </Pressable>
+        <Pressable
+          onPress={() => setShowZoomMenu((v) => !v)}
+          className="px-2 py-1 rounded-lg bg-gray-100 active:bg-gray-200"
+        >
+          <Text className="text-xs font-medium text-gray-700">{zoomPct}%</Text>
+        </Pressable>
+        <Pressable onPress={() => setScale((s) => {
+          const i = ZOOM_PRESETS.findIndex((p) => p <= Math.round(s * 100))
+          return (ZOOM_PRESETS[Math.min(i + 1, ZOOM_PRESETS.length - 1)] ?? ZOOM_PRESETS[ZOOM_PRESETS.length - 1]) / 100
+        })} className="p-1.5 rounded-lg bg-gray-100 active:bg-gray-200">
+          <ZoomOut size={14} color="#374151" />
+        </Pressable>
+
+        <View style={{ width: 1, height: 20, backgroundColor: '#e5e7eb', marginHorizontal: 4 }} />
+
+        {/* Full screen */}
+        <Pressable onPress={() => setFullScreen((v) => !v)} className="p-1.5 rounded-lg bg-gray-100 active:bg-gray-200">
+          {fullScreen
+            ? <Minimize2 size={14} color="#374151" />
+            : <Maximize2 size={14} color="#374151" />}
+        </Pressable>
       </View>
 
-      {/* Scrollable canvas */}
+      {/* Zoom dropdown */}
+      {showZoomMenu && (
+        <View className="absolute right-12 top-12 bg-white border border-gray-100 rounded-xl py-1 z-50"
+          style={{ shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, elevation: 8, minWidth: 80 }}
+        >
+          {ZOOM_PRESETS.map((pct) => (
+            <Pressable key={pct} onPress={() => { setScale(pct / 100); setShowZoomMenu(false) }} className="px-4 py-2 active:bg-gray-50">
+              <Text className={`text-sm ${pct === zoomPct ? 'text-violet-600 font-medium' : 'text-gray-700'}`}>{pct}%</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {/* ── Canvas ──────────────────────────────────────────────────── */}
       <ScrollView
         horizontal
         scrollEventThrottle={16}
         contentContainerStyle={{ width: scaledW + 80, height: scaledH + 80 }}
-        className="flex-1 bg-gray-50"
+        className="flex-1"
+        style={{ backgroundColor: '#f8fafc' }}
         showsHorizontalScrollIndicator={false}
         showsVerticalScrollIndicator={false}
         nestedScrollEnabled
       >
-        <Svg
-          width={scaledW}
-          height={scaledH}
-          viewBox={`0 0 ${canvasW} ${canvasH}`}
-          style={{ margin: 40 }}
-        >
-          {/* Edges */}
-          {edges.map((edge, i) => (
-            <Path key={i} d={bezierPath(edge)} stroke="#cbd5e1" strokeWidth={1.5} fill="none" />
-          ))}
+        <Svg width={scaledW} height={scaledH} viewBox={`0 0 ${canvasW} ${canvasH}`} style={{ margin: 40 }}>
+
+          {/* Edges — coloured by source depth */}
+          {edges.map((edge, i) => {
+            const c = depthColor(edge.depth)
+            return <Path key={i} d={bezierPath(edge)} stroke={c.stroke} strokeWidth={1.5} fill="none" opacity={0.5} />
+          })}
 
           {/* Nodes */}
           {nodes.map((node) => {
             const isVirtualRoot = node.id === -1
-            const isCollapsed = node.id !== -1 && collapsed.has(node.id)
-            const isDrillRoot = drillPath.length > 0 && isVirtualRoot
-            const rx = isVirtualRoot ? 12 : 8
-            const isNodeFocused = !isVirtualRoot && focusedId === node.id
+            const isFocused = !isVirtualRoot && focusedId === node.id
+            const col = depthColor(node.depth)
+            const rx = isVirtualRoot ? 14 : 10
+            const indicatorX = node.x + node.w
+            const indicatorMidY = node.y + node.h / 2
 
             return (
-              <G key={node.id}>
+              <React.Fragment key={node.id}>
+                {/* Main node rect */}
                 <Rect
-                  x={node.x}
-                  y={node.y}
-                  width={node.w}
-                  height={node.h}
-                  rx={rx}
-                  fill={isNodeFocused ? '#fff7ed' : nodeFill(node)}
-                  stroke={isNodeFocused ? ORANGE : isDrillRoot ? '#f97316' : nodeStroke(node)}
-                  strokeWidth={isVirtualRoot ? (isDrillRoot ? 2 : 0) : isNodeFocused ? 2 : 1}
-                  onPress={() => {
-                    if (isVirtualRoot) return
-                    setFocusedId(node.id)
-                    router.push(`/${checklistId}/tasks/${node.id}`)
-                  }}
+                  x={node.x} y={node.y} width={node.w} height={node.h} rx={rx}
+                  fill={col.bg}
+                  stroke={isFocused ? '#7c3aed' : col.stroke}
+                  strokeWidth={isFocused ? 2.5 : 1}
+                  onPress={() => { if (!isVirtualRoot) setFocusedId(node.id) }}
                 />
-
+                {/* Focus ring */}
+                {isFocused && (
+                  <Rect
+                    x={node.x - 2} y={node.y - 2} width={node.w + 4} height={node.h + 4} rx={rx + 2}
+                    fill="none" stroke="#7c3aed" strokeWidth={1} opacity={0.4}
+                  />
+                )}
                 {/* Label */}
                 <SvgText
-                  x={node.x + node.w / 2}
+                  x={node.x + (node.hasChildren && !isVirtualRoot ? (node.w - INDICATOR_W) / 2 : node.w / 2)}
                   y={node.y + node.h / 2 + 5}
                   textAnchor="middle"
-                  fontSize={isVirtualRoot ? 14 : 12}
-                  fontWeight={isVirtualRoot ? 'bold' : 'normal'}
-                  fill={isVirtualRoot ? 'white' : '#1f2937'}
-                  onPress={() => {
-                    if (isVirtualRoot) return
-                    setFocusedId(node.id)
-                    router.push(`/${checklistId}/tasks/${node.id}`)
-                  }}
+                  fontSize={isVirtualRoot ? 13 : 11}
+                  fontWeight={isVirtualRoot ? 'bold' : isFocused ? 'bold' : 'normal'}
+                  fill={col.text}
+                  onPress={() => { if (!isVirtualRoot) setFocusedId(node.id) }}
                 >
-                  {node.label.length > 22 ? node.label.slice(0, 20) + '…' : node.label}
+                  {node.label.length > 20 ? node.label.slice(0, 18) + '…' : node.label}
                 </SvgText>
 
-                {/* Collapse toggle */}
-                {node.hasRealChildren && !isVirtualRoot && (
-                  <G>
+                {/* Expand/Collapse indicator tab (> or <) */}
+                {node.hasChildren && !isVirtualRoot && (
+                  <>
                     <Rect
-                      x={node.x + node.w - TOGGLE_R * 2}
-                      y={node.y + node.h / 2 - TOGGLE_R}
-                      width={TOGGLE_R * 2}
-                      height={TOGGLE_R * 2}
-                      rx={TOGGLE_R}
-                      fill={isCollapsed ? ORANGE : '#e2e8f0'}
+                      x={indicatorX - INDICATOR_W / 2}
+                      y={indicatorMidY - 12}
+                      width={INDICATOR_W}
+                      height={24}
+                      rx={6}
+                      fill={node.isExpanded ? col.stroke : '#fff'}
+                      stroke={col.stroke}
+                      strokeWidth={1}
                       onPress={() => toggleCollapse(node.id)}
                     />
                     <SvgText
-                      x={node.x + node.w - TOGGLE_R}
-                      y={node.y + node.h / 2 + 5}
+                      x={indicatorX - INDICATOR_W / 2 + INDICATOR_W / 2}
+                      y={indicatorMidY + 5}
                       textAnchor="middle"
-                      fontSize={12}
+                      fontSize={10}
                       fontWeight="bold"
-                      fill={isCollapsed ? 'white' : '#64748b'}
+                      fill={node.isExpanded ? '#fff' : col.stroke}
                       onPress={() => toggleCollapse(node.id)}
                     >
-                      {isCollapsed ? '+' : '−'}
+                      {node.isExpanded ? '<' : '>'}
                     </SvgText>
-                  </G>
+                  </>
                 )}
-              </G>
+              </React.Fragment>
             )
           })}
         </Svg>
       </ScrollView>
+
+      {/* ── New child input (Tab) ──────────────────────────────────── */}
+      {newChildParentId != null && (
+        <View
+          className="absolute bottom-6 bg-white rounded-xl border-2 border-violet-400"
+          style={{
+            left: '50%', transform: [{ translateX: -160 }], width: 320,
+            shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, elevation: 12,
+          }}
+        >
+          <Text className="text-xs text-violet-500 font-semibold px-3 pt-2">
+            New child of "{nodeMap.get(newChildParentId)
+              ? stripMarkdown(nodeMap.get(newChildParentId)!.content).slice(0, 28)
+              : '…'}"
+          </Text>
+          <TextInput
+            ref={newChildInputRef}
+            value={newChildText}
+            onChangeText={setNewChildText}
+            placeholder="Task name…"
+            placeholderTextColor="#9ca3af"
+            className="px-3 py-2 text-sm text-gray-800"
+            autoFocus
+            onSubmitEditing={submitNewChild}
+            onKeyPress={(e) => {
+              if (e.nativeEvent.key === 'Escape') { setNewChildParentId(null); setNewChildText('') }
+            }}
+            blurOnSubmit={false}
+          />
+          <View className="flex-row justify-end gap-2 px-3 pb-2">
+            <Pressable onPress={() => { setNewChildParentId(null); setNewChildText('') }}>
+              <Text className="text-xs text-gray-400 py-1">Esc to cancel</Text>
+            </Pressable>
+            <Pressable onPress={submitNewChild} className="px-3 py-1 bg-violet-500 rounded-lg active:bg-violet-600">
+              <Text className="text-xs text-white font-medium">Add ↵</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
     </View>
   )
+
+  return content
 }
+
