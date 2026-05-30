@@ -1,12 +1,10 @@
-import { useMemo, useRef, useState, useCallback, useEffect } from 'react'
+import { useMemo, useState, useCallback, useEffect } from 'react'
 import { View, Text, Pressable, ScrollView, useWindowDimensions, Platform } from 'react-native'
 import Svg, { Path, Rect, Text as SvgText, G } from 'react-native-svg'
 import { useRouter } from 'expo-router'
 import type { CheckvistTask } from '@/api/types'
 import type { TaskNode } from '@/lib/taskTree'
 import { buildTaskTree } from '@/lib/taskTree'
-import { priorityBadgeClass, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
-import { humanizeDueDate } from '@/lib/dateUtils'
 import { stripMarkdown } from '@/components/InlineMarkdown'
 import { useChecklists } from '@/features/checklists/useChecklists'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
@@ -43,7 +41,7 @@ interface PlacedEdge { x1: number; y1: number; x2: number; y2: number }
 function computeLayout(
   visibleRoots: TaskNode[],
   collapsed: Set<number>,
-  checklistName: string,
+  rootLabel: string,
 ): { nodes: PlacedNode[]; edges: PlacedEdge[]; canvasW: number; canvasH: number } {
   const nodes: PlacedNode[] = []
   const edges: PlacedEdge[] = []
@@ -84,7 +82,7 @@ function computeLayout(
     : PAD + RH / 2
   const vrX = PAD
   const vrY = centerY - RH / 2
-  nodes.push({ task: null, id: -1, label: checklistName, x: vrX, y: vrY, w: RW, h: RH, depth: 0, hasRealChildren: visibleRoots.length > 0 })
+  nodes.push({ task: null, id: -1, label: rootLabel, x: vrX, y: vrY, w: RW, h: RH, depth: 0, hasRealChildren: visibleRoots.length > 0 })
 
   for (const root of visibleRoots) {
     const rn = nodes.find((n) => n.id === root.id)!
@@ -101,7 +99,6 @@ function bezierPath({ x1, y1, x2, y2 }: PlacedEdge): string {
   return `M ${x1} ${y1} C ${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`
 }
 
-// ─── Node fill colour (priority-based) ───────────────────────────────────────
 function nodeFill(node: PlacedNode): string {
   if (!node.task) return ORANGE
   const p = node.task.priority
@@ -139,17 +136,39 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
   const [scale, setScale] = useState(1)
   const [showZoomMenu, setShowZoomMenu] = useState(false)
 
-  // Build tree first so we can initialise collapsed to all parents (avoids large initial bitmap on Android)
+  // drillPath: stack of node IDs we've drilled into (F5 pushes, F6 pops)
+  const [drillPath, setDrillPath] = useState<number[]>([])
+
   const { allNodes, roots } = useMemo(() => buildTaskTree(tasks), [tasks])
 
+  // Build a flat id→node map for O(1) lookup
+  const nodeMap = useMemo(() => {
+    const m = new Map<number, TaskNode>()
+    allNodes.forEach((n) => m.set(n.id, n))
+    return m
+  }, [allNodes])
+
+  // Start all parents collapsed to keep initial SVG bitmap small (avoids Android OOM)
   const [collapsed, setCollapsed] = useState<Set<number>>(() => {
     const tree = buildTaskTree(tasks)
     return new Set(tree.allNodes.filter((n) => n.children.length > 0).map((n) => n.id))
   })
 
+  // Resolve visible roots based on drill stack
+  const { visibleRoots, rootLabel } = useMemo(() => {
+    if (drillPath.length === 0) return { visibleRoots: roots, rootLabel: checklistName }
+    const drillId = drillPath[drillPath.length - 1]
+    const drillNode = nodeMap.get(drillId)
+    if (!drillNode) return { visibleRoots: roots, rootLabel: checklistName }
+    return {
+      visibleRoots: drillNode.children,
+      rootLabel: stripMarkdown(drillNode.content),
+    }
+  }, [drillPath, roots, nodeMap, checklistName])
+
   const { nodes, edges, canvasW, canvasH } = useMemo(
-    () => computeLayout(roots, collapsed, checklistName),
-    [roots, collapsed, checklistName]
+    () => computeLayout(visibleRoots, collapsed, rootLabel),
+    [visibleRoots, collapsed, rootLabel]
   )
 
   const allParentIds = useMemo(
@@ -170,50 +189,116 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
     })
   }, [])
 
-  // Keyboard navigation: Up/Down = move focus, Left/Right = zoom, Enter = open.
-  // Use capture phase so SVG elements' internal stopPropagation doesn't block us.
+  const drillIn = useCallback((id: number) => {
+    const node = nodeMap.get(id)
+    if (!node || node.children.length === 0) return
+    // Ensure the node is expanded so its children are visible after drill
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+    setDrillPath((p) => [...p, id])
+    setFocusedId(null)
+  }, [nodeMap, setFocusedId])
+
+  const drillOut = useCallback(() => {
+    setDrillPath((p) => {
+      if (p.length === 0) return p
+      const newPath = p.slice(0, -1)
+      // Restore focus to the node we just drilled out of
+      setFocusedId(p[p.length - 1])
+      return newPath
+    })
+  }, [setFocusedId])
+
+  // ─── Keyboard navigation (web only) ─────────────────────────────────────────
+  // ArrowUp/Down  — move focus among visible nodes (by vertical position)
+  // ArrowRight    — expand collapsed node, or focus first child
+  // ArrowLeft     — collapse expanded node, or focus parent
+  // F5            — drill into focused node (XMind classic behaviour)
+  // F6            — drill out one level
+  // Enter         — open task detail
+  // +/-           — zoom in/out
   useEffect(() => {
     if (Platform.OS !== 'web') return
-    const handler = (e: KeyboardEvent) => {
-      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) return
-      const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
 
-      e.preventDefault()
-      e.stopPropagation()
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
 
       const realNodes = nodes.filter((n) => n.id !== -1).sort((a, b) => a.y - b.y)
       const orderedIds = realNodes.map((n) => n.id)
+      const currentIdx = focusedId != null ? orderedIds.indexOf(focusedId) : -1
 
       if (e.key === 'ArrowDown') {
-        const idx = focusedId != null ? orderedIds.indexOf(focusedId) : -1
-        const next = orderedIds[Math.min(idx + 1, orderedIds.length - 1)]
+        e.preventDefault(); e.stopPropagation()
+        const next = orderedIds[Math.min(currentIdx + 1, orderedIds.length - 1)]
         if (next != null) setFocusedId(next)
+
       } else if (e.key === 'ArrowUp') {
-        const idx = focusedId != null ? orderedIds.indexOf(focusedId) : orderedIds.length
-        const next = orderedIds[Math.max(idx - 1, 0)]
+        e.preventDefault(); e.stopPropagation()
+        const next = orderedIds[Math.max(currentIdx - 1, 0)]
         if (next != null) setFocusedId(next)
-      } else if (e.key === 'ArrowRight') {
+
+      } else if (e.key === 'ArrowRight' && focusedId != null) {
+        e.preventDefault(); e.stopPropagation()
+        const node = nodeMap.get(focusedId)
+        if (!node) return
+        if (node.children.length > 0 && collapsed.has(focusedId)) {
+          // Expand collapsed node
+          setCollapsed((prev) => { const n = new Set(prev); n.delete(focusedId); return n })
+        } else if (node.children.length > 0) {
+          // Already expanded — move focus to first child if visible
+          const firstChild = orderedIds.find((id) => node.children.some((c) => c.id === id))
+          if (firstChild != null) setFocusedId(firstChild)
+        }
+
+      } else if (e.key === 'ArrowLeft' && focusedId != null) {
+        e.preventDefault(); e.stopPropagation()
+        const node = nodeMap.get(focusedId)
+        if (!node) return
+        if (node.children.length > 0 && !collapsed.has(focusedId)) {
+          // Collapse expanded node
+          setCollapsed((prev) => new Set(prev).add(focusedId))
+        } else if (node.parent_id != null) {
+          // Move focus to parent
+          const parentNode = nodeMap.get(node.parent_id)
+          if (parentNode) setFocusedId(parentNode.id)
+        }
+
+      } else if (e.key === 'F5') {
+        e.preventDefault(); e.stopPropagation()
+        if (focusedId != null) drillIn(focusedId)
+
+      } else if (e.key === 'F6') {
+        e.preventDefault(); e.stopPropagation()
+        drillOut()
+
+      } else if (e.key === 'Enter' && focusedId != null) {
+        e.preventDefault(); e.stopPropagation()
+        router.push(`/${checklistId}/tasks/${focusedId}`)
+
+      } else if ((e.key === '+' || e.key === '=') && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault()
         setScale((s) => {
           const i = ZOOM_PRESETS.findIndex((p) => p <= Math.round(s * 100))
           return (ZOOM_PRESETS[Math.max(i - 1, 0)] ?? ZOOM_PRESETS[0]) / 100
         })
-      } else if (e.key === 'ArrowLeft') {
+      } else if (e.key === '-' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault()
         setScale((s) => {
           const i = ZOOM_PRESETS.findIndex((p) => p <= Math.round(s * 100))
           return (ZOOM_PRESETS[Math.min(i + 1, ZOOM_PRESETS.length - 1)] ?? ZOOM_PRESETS[ZOOM_PRESETS.length - 1]) / 100
         })
-      } else if (e.key === 'Enter' && focusedId != null) {
-        router.push(`/${checklistId}/tasks/${focusedId}`)
       }
     }
-    // capture: true — fires before SVG elements see the event
+
     window.addEventListener('keydown', handler, { capture: true })
     return () => window.removeEventListener('keydown', handler, { capture: true })
-  }, [nodes, focusedId, setFocusedId, checklistId, router])
+  }, [nodes, focusedId, setFocusedId, collapsed, nodeMap, drillIn, drillOut, checklistId, router])
 
   const zoomPct = Math.round(scale * 100)
-
   const scaledW = canvasW * scale
   const scaledH = canvasH * scale
 
@@ -229,16 +314,36 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
     <View className="flex-1">
       {/* Toolbar */}
       <View className="flex-row items-center gap-2 px-3 py-1.5 border-b border-gray-100 bg-white">
-        <Pressable
-          onPress={toggleFoldAll}
-          className="flex-row items-center gap-1.5 px-3 py-1.5 bg-gray-100 active:bg-gray-200 rounded-lg"
-        >
-          <Text className="text-sm text-gray-700 font-medium">
-            {allFolded ? 'Unfold All' : 'Fold All'}
-          </Text>
-        </Pressable>
+        {/* Drill breadcrumb / fold all */}
+        {drillPath.length > 0 ? (
+          <Pressable
+            onPress={drillOut}
+            className="flex-row items-center gap-1.5 px-3 py-1.5 bg-orange-50 active:bg-orange-100 rounded-lg border border-orange-200"
+          >
+            <Text className="text-sm text-orange-700 font-medium">← Drill Out</Text>
+            {drillPath.length > 1 && (
+              <Text className="text-xs text-orange-400">({drillPath.length} levels)</Text>
+            )}
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={toggleFoldAll}
+            className="flex-row items-center gap-1.5 px-3 py-1.5 bg-gray-100 active:bg-gray-200 rounded-lg"
+          >
+            <Text className="text-sm text-gray-700 font-medium">
+              {allFolded ? 'Unfold All' : 'Fold All'}
+            </Text>
+          </Pressable>
+        )}
 
         <View className="flex-1" />
+
+        {/* Keyboard hint (web only) */}
+        {Platform.OS === 'web' && (
+          <Text className="text-xs text-gray-400 hidden md:flex">
+            F5 drill in · F6 drill out · ↑↓ navigate · ←→ expand/collapse
+          </Text>
+        )}
 
         {/* Zoom */}
         <View className="relative">
@@ -293,8 +398,8 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
           {nodes.map((node) => {
             const isVirtualRoot = node.id === -1
             const isCollapsed = node.id !== -1 && collapsed.has(node.id)
+            const isDrillRoot = drillPath.length > 0 && isVirtualRoot
             const rx = isVirtualRoot ? 12 : 8
-
             const isNodeFocused = !isVirtualRoot && focusedId === node.id
 
             return (
@@ -306,10 +411,11 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
                   height={node.h}
                   rx={rx}
                   fill={isNodeFocused ? '#fff7ed' : nodeFill(node)}
-                  stroke={isNodeFocused ? ORANGE : nodeStroke(node)}
-                  strokeWidth={isVirtualRoot ? 0 : isNodeFocused ? 2 : 1}
+                  stroke={isNodeFocused ? ORANGE : isDrillRoot ? '#f97316' : nodeStroke(node)}
+                  strokeWidth={isVirtualRoot ? (isDrillRoot ? 2 : 0) : isNodeFocused ? 2 : 1}
                   onPress={() => {
                     if (isVirtualRoot) return
+                    setFocusedId(node.id)
                     router.push(`/${checklistId}/tasks/${node.id}`)
                   }}
                 />
@@ -324,6 +430,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
                   fill={isVirtualRoot ? 'white' : '#1f2937'}
                   onPress={() => {
                     if (isVirtualRoot) return
+                    setFocusedId(node.id)
                     router.push(`/${checklistId}/tasks/${node.id}`)
                   }}
                 >
