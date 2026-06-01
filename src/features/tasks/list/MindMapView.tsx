@@ -460,7 +460,10 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
     const el = canvasContainerRef.current as unknown as HTMLElement
     if (!el) return
     // The scrollable node is the inner div rendered by ScrollView
-    const getSvEl = () => (scrollViewRef.current as unknown as { getScrollableNode?: () => HTMLElement } | null)?.getScrollableNode?.() ?? null
+    const getSvEl = (): HTMLElement | null => {
+      const ref = scrollViewRef.current as unknown as { getScrollableNode?: () => HTMLElement } | null
+      return ref?.getScrollableNode?.() ?? (scrollViewRef.current as unknown as HTMLElement) ?? null
+    }
 
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
@@ -605,6 +608,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
         if (sv) {
           sv.scrollLeft = panRef.current.scrollX - dx
           sv.scrollTop = panRef.current.scrollY - dy
+          scrollPos.current = { x: sv.scrollLeft, y: sv.scrollTop }
         }
         return
       }
@@ -787,11 +791,13 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
       >
         <ScrollView
           ref={scrollViewRef}
-          horizontal
           scrollEventThrottle={16}
           contentContainerStyle={{ width: scaledW + 80, height: scaledH + 80 }}
           className="flex-1"
-          style={{ backgroundColor: '#f8fafc' }}
+          style={[
+            { backgroundColor: '#f8fafc' },
+            Platform.OS === 'web' ? { overflowX: 'scroll' } as never : {},
+          ]}
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
@@ -801,7 +807,6 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
           onScrollEndDrag={(e) => {
             scrollPos.current = { x: e.nativeEvent.contentOffset.x, y: e.nativeEvent.contentOffset.y }
           }}
-          // Disable native scroll during pan so our manual scroll takes over
           scrollEnabled={!isPanning}
         >
           <Svg width={scaledW} height={scaledH} viewBox={`0 0 ${canvasW} ${canvasH}`} style={{ margin: 40 }}>
