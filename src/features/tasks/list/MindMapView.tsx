@@ -210,11 +210,15 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
   const [fullScreen, setFullScreen] = useState(false)
   const [drillPath, setDrillPath] = useState<number[]>([])
 
+  const [showShortcuts, setShowShortcuts] = useState(false)
+
   const [newChildParentId, setNewChildParentId] = useState<number | null>(null)
   const [newChildText, setNewChildText] = useState('')
   const newChildInputRef = useRef<TextInput>(null)
   const { mutateAsync: createTask } = useCreateTask(checklistId)
   const { mutateAsync: deleteTask } = useDeleteTask(checklistId)
+  const deleteTaskRef = useRef(deleteTask)
+  useEffect(() => { deleteTaskRef.current = deleteTask }, [deleteTask])
   const { mutate: updateTaskMutate } = useUpdateTask(checklistId)
   const updateTaskRef = useRef(updateTaskMutate)
   useEffect(() => { updateTaskRef.current = updateTaskMutate }, [updateTaskMutate])
@@ -333,10 +337,15 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
   }, [nodeMap])
 
   const submitNewChild = useCallback(async () => {
-    if (!newChildParentId || !newChildText.trim()) { setNewChildParentId(null); return }
-    setCollapsed((prev) => { const n = new Set(prev); n.delete(newChildParentId); return n })
-    await createTask({ content: newChildText.trim(), parent_id: newChildParentId })
-    setFocusedId(newChildParentId)
+    if (newChildParentId == null || !newChildText.trim()) { setNewChildParentId(null); return }
+    if (newChildParentId === -1) {
+      // Root-level task (Add Parent shortcut)
+      await createTask({ content: newChildText.trim() })
+    } else {
+      setCollapsed((prev) => { const n = new Set(prev); n.delete(newChildParentId); return n })
+      await createTask({ content: newChildText.trim(), parent_id: newChildParentId })
+      setFocusedId(newChildParentId)
+    }
     setNewChildParentId(null)
     setNewChildText('')
   }, [newChildParentId, newChildText, createTask, setFocusedId])
@@ -434,12 +443,34 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
           return (ZOOM_PRESETS[Math.min(i + 1, ZOOM_PRESETS.length - 1)] ?? ZOOM_PRESETS[ZOOM_PRESETS.length - 1]) / 100
         })
       } else if (e.key === 'Escape') {
-        if (selectedIds.size > 0) setSelectedIds(new Set())
+        if (showShortcuts) { setShowShortcuts(false) }
+        else if (selectedIds.size > 0) setSelectedIds(new Set())
         else if (fullScreen) setFullScreen(false)
       } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
-        // Ctrl+A: select all visible nodes
         e.preventDefault()
         setSelectedIds(new Set(nodes.filter((n) => n.id !== -1).map((n) => n.id)))
+      } else if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+        e.preventDefault()
+        setShowShortcuts((v) => !v)
+      } else if (e.key === 'Delete' && focusedId != null) {
+        e.preventDefault(); e.stopPropagation()
+        const idToDelete = focusedId
+        setFocusedIdRef.current(null)
+        deleteTaskRef.current(idToDelete)
+      } else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && focusedId != null) {
+        e.preventDefault(); e.stopPropagation()
+        // Add sibling: create task under same parent
+        const node = nodeMap.get(focusedId)
+        const parentId = node?.parent_id ?? null
+        setNewChildParentId(parentId ?? focusedId)
+        setNewChildText('')
+        setTimeout(() => newChildInputRef.current?.focus(), 50)
+      } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && focusedId != null) {
+        e.preventDefault(); e.stopPropagation()
+        // Add parent task (create new root-level task, focus it)
+        setNewChildParentId(-1) // sentinel: root-level
+        setNewChildText('')
+        setTimeout(() => newChildInputRef.current?.focus(), 50)
       }
     }
     const keyUpHandler = (e: KeyboardEvent) => {
@@ -454,7 +485,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
       window.removeEventListener('keydown', handler, { capture: true })
       window.removeEventListener('keyup', keyUpHandler, { capture: true })
     }
-  }, [nodes, focusedId, setFocusedId, collapsed, nodeMap, drillIn, drillOut, newChildInputRef, fullScreen, selectedIds])
+  }, [nodes, focusedId, setFocusedId, collapsed, nodeMap, drillIn, drillOut, newChildInputRef, fullScreen, selectedIds, showShortcuts])
 
   // ─── Web DOM gesture events ───────────────────────────────────────────────
   useEffect(() => {
@@ -785,6 +816,13 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
 
         <View style={{ width: 1, height: 20, backgroundColor: '#e5e7eb', marginHorizontal: 4 }} />
 
+        {/* Shortcuts help */}
+        <Pressable onPress={() => setShowShortcuts(true)} className="p-1.5 rounded-lg bg-gray-100 active:bg-gray-200">
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151', width: 14, textAlign: 'center' }}>?</Text>
+        </Pressable>
+
+        <View style={{ width: 1, height: 20, backgroundColor: '#e5e7eb', marginHorizontal: 4 }} />
+
         {/* Full screen */}
         <Pressable onPress={() => setFullScreen((v) => !v)} className="p-1.5 rounded-lg bg-gray-100 active:bg-gray-200">
           {fullScreen
@@ -1081,6 +1119,84 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
         </View>
       )}
 
+      {/* ── Shortcuts dialog ────────────────────────────────────────── */}
+      {showShortcuts && (
+        <Modal transparent animationType="fade" onRequestClose={() => setShowShortcuts(false)}>
+          <Pressable
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center' }}
+            onPress={() => setShowShortcuts(false)}
+          >
+            <Pressable onPress={(e) => e.stopPropagation()} style={{
+              backgroundColor: '#1a1a2e',
+              borderRadius: 16,
+              width: 460,
+              maxWidth: '90%',
+              paddingHorizontal: 28,
+              paddingVertical: 24,
+            }}>
+              {/* Header */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ fontSize: 20, fontWeight: '700', color: '#ffffff' }}>Shortcuts</Text>
+                <Pressable onPress={() => setShowShortcuts(false)} style={{
+                  width: 32, height: 32, borderRadius: 8, backgroundColor: '#2d2d44',
+                  justifyContent: 'center', alignItems: 'center',
+                }}>
+                  <Text style={{ color: '#9ca3af', fontSize: 16, fontWeight: '600' }}>✕</Text>
+                </Pressable>
+              </View>
+
+              {/* Subtitle */}
+              <Text style={{ fontSize: 13, color: '#f59e0b', textAlign: 'center', marginBottom: 20, fontWeight: '500' }}>
+                Press Shift + / to show this dialog again
+              </Text>
+
+              {/* Divider */}
+              <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: '#2d2d44', paddingBottom: 8, marginBottom: 4 }}>
+                <Text style={{ flex: 1, color: '#6b7280', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Action</Text>
+                <Text style={{ color: '#6b7280', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8 }}>Shortcut</Text>
+              </View>
+
+              {/* Rows */}
+              {[
+                { action: 'Add Child', keys: ['Tab'] },
+                { action: 'Add Parent', keys: ['⌘', '+', 'Enter'] },
+                { action: 'Add Sibling', keys: ['Enter'] },
+                { action: 'Remove', keys: ['Delete'] },
+                { action: 'Drill In', keys: ['F5'] },
+                { action: 'Drill Out', keys: ['F6'] },
+                { action: 'Navigate', keys: ['↑', '↓', '←', '→'] },
+                { action: 'Zoom', keys: ['+', '−'] },
+                { action: 'Select All', keys: ['⌘', '+', 'A'] },
+                { action: 'Pan', keys: ['Space', '+', 'drag'] },
+              ].map(({ action, keys }, i) => (
+                <View key={action} style={{
+                  flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                  paddingVertical: 12,
+                  borderBottomWidth: i < 9 ? 1 : 0,
+                  borderColor: '#2d2d44',
+                  backgroundColor: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
+                }}>
+                  <Text style={{ color: '#e5e7eb', fontSize: 14, fontWeight: '500' }}>{action}</Text>
+                  <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>
+                    {keys.map((k, ki) =>
+                      k === '+' || k === '−' && keys.length > 1 && ki > 0 && ki < keys.length - 1
+                        ? <Text key={ki} style={{ color: '#6b7280', fontSize: 12, marginHorizontal: 2 }}>{k}</Text>
+                        : <View key={ki} style={{
+                            backgroundColor: '#2d2d44', borderRadius: 6,
+                            paddingHorizontal: 10, paddingVertical: 4,
+                            borderWidth: 1, borderColor: '#3d3d5c',
+                          }}>
+                            <Text style={{ color: '#e5e7eb', fontSize: 12, fontWeight: '600', fontFamily: 'monospace' }}>{k}</Text>
+                          </View>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
+
       {/* ── New child input (Tab) ──────────────────────────────────── */}
       {newChildParentId != null && (
         <View
@@ -1091,9 +1207,11 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
           }}
         >
           <Text className="text-xs text-violet-500 font-semibold px-3 pt-2">
-            New child of "{nodeMap.get(newChildParentId)
-              ? stripMarkdown(nodeMap.get(newChildParentId)!.content).slice(0, 28)
-              : '…'}"
+            {newChildParentId === -1
+              ? 'New root task'
+              : `New child of "${nodeMap.get(newChildParentId)
+                  ? stripMarkdown(nodeMap.get(newChildParentId)!.content).slice(0, 28)
+                  : '…'}"`}
           </Text>
           <TextInput
             ref={newChildInputRef}
