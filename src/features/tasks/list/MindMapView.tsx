@@ -461,11 +461,13 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
     if (Platform.OS !== 'web') return
     const el = canvasContainerRef.current as unknown as HTMLElement
     if (!el) return
-    // The scrollable node is the inner div rendered by ScrollView
-    const getSvEl = (): HTMLElement | null => {
-      const ref = scrollViewRef.current as unknown as { getScrollableNode?: () => HTMLElement } | null
-      return ref?.getScrollableNode?.() ?? (scrollViewRef.current as unknown as HTMLElement) ?? null
-    }
+    // Make `el` (canvasContainerRef's DOM div) the scroll container for both axes.
+    // Setting inline style directly on the DOM element beats any RN-applied styles.
+    el.style.overflow = 'scroll'
+    el.style.backgroundColor = '#f8fafc'
+    const syncScroll = () => { scrollPos.current = { x: el.scrollLeft, y: el.scrollTop } }
+    el.addEventListener('scroll', syncScroll, { passive: true })
+    const getSvEl = (): HTMLElement | null => el
 
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
@@ -657,8 +659,12 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
         const { nodeId } = rightClickRef.current
         rightClickRef.current = null
         if (nodeId !== null) {
+          // Right-clicked a node: focus it and show node menu
           setFocusedIdRef.current(nodeId)
           setContextMenu({ screenX: e.clientX, screenY: e.clientY, nodeId })
+        } else {
+          // Right-clicked blank canvas: show global menu (nodeId = -1 sentinel)
+          setContextMenu({ screenX: e.clientX, screenY: e.clientY, nodeId: -1 })
         }
         return
       }
@@ -698,6 +704,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
       el.removeEventListener('mousedown', handleMouseDown)
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+      el.removeEventListener('scroll', syncScroll)
     }
   }, []) // attach once; refs keep values fresh
 
@@ -806,139 +813,112 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
         className="flex-1"
         style={Platform.OS === 'web' ? { cursor: canvasCursor } as never : undefined}
       >
-        <ScrollView
-          ref={scrollViewRef}
-          scrollEventThrottle={16}
-          contentContainerStyle={{ width: scaledW + 80, height: scaledH + 80 }}
-          className="flex-1"
-          style={[
-            { backgroundColor: '#f8fafc' },
-            Platform.OS === 'web' ? { overflowX: 'scroll' } as never : {},
-          ]}
-          showsHorizontalScrollIndicator={false}
-          showsVerticalScrollIndicator={false}
-          nestedScrollEnabled
-          onScroll={(e) => {
-            scrollPos.current = { x: e.nativeEvent.contentOffset.x, y: e.nativeEvent.contentOffset.y }
-          }}
-          onScrollEndDrag={(e) => {
-            scrollPos.current = { x: e.nativeEvent.contentOffset.x, y: e.nativeEvent.contentOffset.y }
-          }}
-          scrollEnabled={!isPanning}
-        >
-          <Svg width={scaledW} height={scaledH} viewBox={`0 0 ${canvasW} ${canvasH}`} style={{ margin: 40 }}>
-
-            {/* Edges — coloured by source depth */}
-            {edges.map((edge, i) => {
-              const c = depthColor(edge.depth)
-              return <Path key={i} d={bezierPath(edge)} stroke={c.stroke} strokeWidth={1.5} fill="none" opacity={0.5} />
-            })}
-
-            {/* Nodes */}
-            {nodes.map((node) => {
-              const isVirtualRoot = node.id === -1
-              const isFocused = !isVirtualRoot && focusedId === node.id
-              const isSelected = !isVirtualRoot && selectedIds.has(node.id)
-              const isDraggingNode = !isVirtualRoot && renderDrag?.nodeId === node.id
-              const isDropTarget = !isVirtualRoot && renderDrag?.dropTargetId === node.id
-              const col = depthColor(node.depth)
-              const rx = isVirtualRoot ? 14 : 10
-              const indicatorX = node.x + node.w
-              const indicatorMidY = node.y + node.h / 2
-
-              return (
-                <React.Fragment key={node.id}>
-                  {/* Selection ring (drawn behind focus ring) */}
-                  {isSelected && (
+        {/* SVG canvas — rendered once, shared between web div and native ScrollView */}
+        {(() => {
+          const svgCanvas = (
+            <Svg width={scaledW} height={scaledH} viewBox={`0 0 ${canvasW} ${canvasH}`} style={{ margin: 40 }}>
+              {edges.map((edge, i) => {
+                const c = depthColor(edge.depth)
+                return <Path key={i} d={bezierPath(edge)} stroke={c.stroke} strokeWidth={1.5} fill="none" opacity={0.5} />
+              })}
+              {nodes.map((node) => {
+                const isVirtualRoot = node.id === -1
+                const isFocused = !isVirtualRoot && focusedId === node.id
+                const isSelected = !isVirtualRoot && selectedIds.has(node.id)
+                const isDraggingNode = !isVirtualRoot && renderDrag?.nodeId === node.id
+                const isDropTarget = !isVirtualRoot && renderDrag?.dropTargetId === node.id
+                const col = depthColor(node.depth)
+                const rx = isVirtualRoot ? 14 : 10
+                const indicatorX = node.x + node.w
+                const indicatorMidY = node.y + node.h / 2
+                return (
+                  <React.Fragment key={node.id}>
+                    {isSelected && (
+                      <Rect x={node.x - 3} y={node.y - 3} width={node.w + 6} height={node.h + 6} rx={rx + 3}
+                        fill="none" stroke="#3b82f6" strokeWidth={2} opacity={0.7} />
+                    )}
+                    {isDropTarget && (
+                      <Rect x={node.x - 4} y={node.y - 4} width={node.w + 8} height={node.h + 8} rx={rx + 4}
+                        fill="#7c3aed" fillOpacity={0.15} stroke="#7c3aed" strokeWidth={2.5} />
+                    )}
                     <Rect
-                      x={node.x - 3} y={node.y - 3} width={node.w + 6} height={node.h + 6} rx={rx + 3}
-                      fill="none" stroke="#3b82f6" strokeWidth={2} opacity={0.7}
-                    />
-                  )}
-                  {/* Drop target glow ring */}
-                  {isDropTarget && (
-                    <Rect
-                      x={node.x - 4} y={node.y - 4} width={node.w + 8} height={node.h + 8} rx={rx + 4}
-                      fill="#7c3aed" fillOpacity={0.15} stroke="#7c3aed" strokeWidth={2.5}
-                    />
-                  )}
-
-                  {/* Main node rect */}
-                  <Rect
-                    x={node.x} y={node.y} width={node.w} height={node.h} rx={rx}
-                    fill={isDropTarget ? '#ede9fe' : col.bg}
-                    stroke={isDropTarget ? '#7c3aed' : isFocused ? '#7c3aed' : isSelected ? '#3b82f6' : col.stroke}
-                    strokeWidth={isDropTarget ? 2.5 : isFocused ? 2.5 : isSelected ? 2 : 1}
-                    opacity={isDraggingNode ? 0.35 : 1}
-                    onPress={() => {
-                      if (isVirtualRoot) { handleRootPress(); return }
-                      handleNodePress(node.id)
-                    }}
-                  />
-                  {/* Focus ring */}
-                  {isFocused && (
-                    <Rect
-                      x={node.x - 2} y={node.y - 2} width={node.w + 4} height={node.h + 4} rx={rx + 2}
-                      fill="none" stroke="#7c3aed" strokeWidth={1} opacity={0.4}
-                    />
-                  )}
-                  {/* Wrapped text lines */}
-                  {node.lines.map((line, li) => (
-                    <SvgText
-                      key={li}
-                      x={node.x + (node.hasChildren && !isVirtualRoot ? (node.w - INDICATOR_W) / 2 : node.w / 2)}
-                      y={node.y + NODE_PAD_V + (li + 0.82) * LINE_H}
-                      textAnchor="middle"
-                      fontSize={isVirtualRoot ? ROOT_FONT : NODE_FONT}
-                      fontWeight={isVirtualRoot ? 'bold' : isFocused ? 'bold' : 'normal'}
-                      fill={col.text}
+                      x={node.x} y={node.y} width={node.w} height={node.h} rx={rx}
+                      fill={isDropTarget ? '#ede9fe' : col.bg}
+                      stroke={isDropTarget ? '#7c3aed' : isFocused ? '#7c3aed' : isSelected ? '#3b82f6' : col.stroke}
+                      strokeWidth={isDropTarget ? 2.5 : isFocused ? 2.5 : isSelected ? 2 : 1}
+                      opacity={isDraggingNode ? 0.35 : 1}
                       onPress={() => { if (isVirtualRoot) { handleRootPress(); return } handleNodePress(node.id) }}
-                    >
-                      {line}
-                    </SvgText>
-                  ))}
-
-                  {/* Expand/Collapse indicator tab (> or <) */}
-                  {node.hasChildren && !isVirtualRoot && (
-                    <>
-                      <Rect
-                        x={indicatorX - INDICATOR_W / 2}
-                        y={indicatorMidY - 12}
-                        width={INDICATOR_W}
-                        height={24}
-                        rx={6}
-                        fill={node.isExpanded ? col.stroke : '#fff'}
-                        stroke={col.stroke}
-                        strokeWidth={1}
-                        onPress={() => toggleCollapse(node.id)}
-                      />
+                    />
+                    {isFocused && (
+                      <Rect x={node.x - 2} y={node.y - 2} width={node.w + 4} height={node.h + 4} rx={rx + 2}
+                        fill="none" stroke="#7c3aed" strokeWidth={1} opacity={0.4} />
+                    )}
+                    {node.lines.map((line, li) => (
                       <SvgText
-                        x={indicatorX - INDICATOR_W / 2 + INDICATOR_W / 2}
-                        y={indicatorMidY + 5}
+                        key={li}
+                        x={node.x + (node.hasChildren && !isVirtualRoot ? (node.w - INDICATOR_W) / 2 : node.w / 2)}
+                        y={node.y + NODE_PAD_V + (li + 0.82) * LINE_H}
                         textAnchor="middle"
-                        fontSize={10}
-                        fontWeight="bold"
-                        fill={node.isExpanded ? '#fff' : col.stroke}
-                        onPress={() => toggleCollapse(node.id)}
-                      >
-                        {node.isExpanded ? '<' : '>'}
-                      </SvgText>
-                    </>
-                  )}
-                </React.Fragment>
-              )
-            })}
+                        fontSize={isVirtualRoot ? ROOT_FONT : NODE_FONT}
+                        fontWeight={isVirtualRoot ? 'bold' : isFocused ? 'bold' : 'normal'}
+                        fill={col.text}
+                        onPress={() => { if (isVirtualRoot) { handleRootPress(); return } handleNodePress(node.id) }}
+                      >{line}</SvgText>
+                    ))}
+                    {node.hasChildren && !isVirtualRoot && (
+                      <>
+                        <Rect
+                          x={indicatorX - INDICATOR_W / 2} y={indicatorMidY - 12}
+                          width={INDICATOR_W} height={24} rx={6}
+                          fill={node.isExpanded ? col.stroke : '#fff'} stroke={col.stroke} strokeWidth={1}
+                          onPress={() => toggleCollapse(node.id)}
+                        />
+                        <SvgText
+                          x={indicatorX} y={indicatorMidY + 5}
+                          textAnchor="middle" fontSize={10} fontWeight="bold"
+                          fill={node.isExpanded ? '#fff' : col.stroke}
+                          onPress={() => toggleCollapse(node.id)}
+                        >{node.isExpanded ? '<' : '>'}</SvgText>
+                      </>
+                    )}
+                  </React.Fragment>
+                )
+              })}
+              {marquee && marquee.w > 4 && marquee.h > 4 && (
+                <Rect x={marquee.x} y={marquee.y} width={marquee.w} height={marquee.h}
+                  fill="#3b82f6" fillOpacity={0.08} stroke="#3b82f6" strokeWidth={1} strokeDasharray="4 3" />
+              )}
+            </Svg>
+          )
 
-            {/* Marquee selection rect */}
-            {marquee && marquee.w > 4 && marquee.h > 4 && (
-              <Rect
-                x={marquee.x} y={marquee.y} width={marquee.w} height={marquee.h}
-                fill="#3b82f6" fillOpacity={0.08}
-                stroke="#3b82f6" strokeWidth={1} strokeDasharray="4 3"
-              />
-            )}
-          </Svg>
-        </ScrollView>
+          if (Platform.OS === 'web') {
+            // canvasContainerRef (el) is made scrollable via el.style.overflow='scroll' in useEffect.
+            // Just render a sized content div so el has something to scroll against.
+            return (
+              <View style={{ width: scaledW + 80, height: scaledH + 80 }}>
+                {svgCanvas}
+              </View>
+            )
+          }
+          return (
+            <ScrollView
+              ref={scrollViewRef}
+              horizontal
+              scrollEventThrottle={16}
+              contentContainerStyle={{ width: scaledW + 80, height: scaledH + 80 }}
+              className="flex-1"
+              style={{ backgroundColor: '#f8fafc' }}
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+              onScroll={(e) => {
+                scrollPos.current = { x: e.nativeEvent.contentOffset.x, y: e.nativeEvent.contentOffset.y }
+              }}
+            >
+              {svgCanvas}
+            </ScrollView>
+          )
+        })()}
       </View>
 
       {/* ── Gesture hint bar (web only) ──────────────────────────────── */}
@@ -954,49 +934,76 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
 
       {/* ── Context menu ────────────────────────────────────────────── */}
       {contextMenu && Platform.OS === 'web' && (() => {
-        const cmNode = nodeMap.get(contextMenu.nodeId)
+        const isGlobal = contextMenu.nodeId === -1
+        const cmNode = isGlobal ? null : nodeMap.get(contextMenu.nodeId)
         const hasChildren = (cmNode?.children.length ?? 0) > 0
 
         type MenuItem = { label: string; icon: string; action: () => void; danger?: boolean; disabled?: boolean }
-        const menuItems: MenuItem[] = [
-          {
-            label: 'Drill In',
-            icon: '⇥',
-            disabled: !hasChildren,
-            action: () => { drillIn(contextMenu.nodeId); hideContextMenu() },
-          },
-          {
-            label: 'Drill Out',
-            icon: '⇤',
-            disabled: drillPath.length === 0,
-            action: () => { drillOut(); hideContextMenu() },
-          },
-          {
-            label: 'Unfold All',
-            icon: '⊞',
-            action: () => { unfoldSubtree(contextMenu.nodeId); hideContextMenu() },
-          },
-          {
-            label: 'Insert Child',
-            icon: '+',
-            action: () => {
-              setNewChildParentId(contextMenu.nodeId)
-              setNewChildText('')
-              setTimeout(() => newChildInputRef.current?.focus(), 50)
-              hideContextMenu()
-            },
-          },
-          {
-            label: 'Delete',
-            icon: '✕',
-            danger: true,
-            action: async () => {
-              hideContextMenu()
-              await deleteTask(contextMenu.nodeId)
-              setFocusedId(null)
-            },
-          },
-        ]
+        const menuItems: MenuItem[] = isGlobal
+          ? [
+              {
+                label: 'Fold All',
+                icon: '▸',
+                action: () => { setCollapsed(new Set(allParentIds)); hideContextMenu() },
+              },
+              {
+                label: 'Unfold All',
+                icon: '▾',
+                action: () => { setCollapsed(new Set()); hideContextMenu() },
+              },
+              {
+                label: 'Fit Screen',
+                icon: '⊡',
+                action: () => {
+                  const el2 = canvasContainerRef.current as unknown as HTMLElement | null
+                  if (el2) {
+                    const { width, height } = el2.getBoundingClientRect()
+                    const fitScale = Math.min(width / (canvasW + 80), height / (canvasH + 80), 1)
+                    setScale(Math.max(0.2, fitScale))
+                  }
+                  hideContextMenu()
+                },
+              },
+            ]
+          : [
+              {
+                label: 'Drill In',
+                icon: '⇥',
+                disabled: !hasChildren,
+                action: () => { drillIn(contextMenu.nodeId); hideContextMenu() },
+              },
+              {
+                label: 'Drill Out',
+                icon: '⇤',
+                disabled: drillPath.length === 0,
+                action: () => { drillOut(); hideContextMenu() },
+              },
+              {
+                label: 'Unfold All',
+                icon: '⊞',
+                action: () => { unfoldSubtree(contextMenu.nodeId); hideContextMenu() },
+              },
+              {
+                label: 'Insert Child',
+                icon: '+',
+                action: () => {
+                  setNewChildParentId(contextMenu.nodeId)
+                  setNewChildText('')
+                  setTimeout(() => newChildInputRef.current?.focus(), 50)
+                  hideContextMenu()
+                },
+              },
+              {
+                label: 'Delete',
+                icon: '✕',
+                danger: true,
+                action: async () => {
+                  hideContextMenu()
+                  await deleteTask(contextMenu.nodeId)
+                  setFocusedId(null)
+                },
+              },
+            ]
 
         // Clamp menu to viewport, appear at cursor position
         const menuW = 180
