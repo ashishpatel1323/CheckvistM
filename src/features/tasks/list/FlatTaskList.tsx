@@ -1,11 +1,13 @@
-import { useMemo, useEffect, useCallback } from 'react'
-import { ScrollView, Platform } from 'react-native'
+import { useMemo, useEffect, useCallback, useRef } from 'react'
+import { ScrollView, Platform, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import type { CheckvistTask } from '@/api/types'
 import type { TaskNode } from '@/lib/taskTree'
 import { buildTaskTree } from '@/lib/taskTree'
 import { OutlineRow } from './OutlineRow'
 import { useExpandedIds } from './useExpandedIds'
+import { DragProvider, useDragContext } from './DragContext'
+import { DragGhost } from './DragGhost'
 
 interface FlatTaskListProps {
   tasks: CheckvistTask[]
@@ -39,17 +41,30 @@ function scrollToTask(id: number) {
   }, 30)
 }
 
-export function FlatTaskList({ tasks, checklistId, isMobile, focusedId, setFocusedId }: FlatTaskListProps) {
+interface InnerProps extends FlatTaskListProps {
+  roots: TaskNode[]
+  allNodes: TaskNode[]
+}
+
+function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, setFocusedId }: InnerProps) {
   const router = useRouter()
-  const { roots, allNodes } = useMemo(() => buildTaskTree(tasks), [tasks])
+  const { draggingId, containerScreenY } = useDragContext()
   const seed = useExpandedIds((s) => s.seed)
   const expand = useExpandedIds((s) => s.expand)
   const collapse = useExpandedIds((s) => s.collapse)
+  const containerRef = useRef<View>(null)
 
   useEffect(() => {
     seed(allNodes.map((n) => n.id))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Measure container screen Y for ghost positioning
+  const measureContainer = useCallback(() => {
+    containerRef.current?.measureInWindow((x, y) => {
+      containerScreenY.current = y
+    })
+  }, [containerScreenY])
 
   const handleKey = useCallback((e: KeyboardEvent) => {
     const tag = (e.target as HTMLElement)?.tagName
@@ -97,17 +112,42 @@ export function FlatTaskList({ tasks, checklistId, isMobile, focusedId, setFocus
   }, [handleKey])
 
   return (
-    <ScrollView className="flex-1" contentContainerClassName="px-3 py-3">
-      {roots.map((task) => (
-        <OutlineRow
-          key={task.id}
-          task={task}
-          checklistId={checklistId}
-          isMobile={isMobile}
-          depth={0}
-          focusedId={focusedId}
-        />
-      ))}
-    </ScrollView>
+    <View ref={containerRef} style={{ flex: 1 }} onLayout={measureContainer}>
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName="px-3 py-3"
+        scrollEnabled={draggingId === null}
+      >
+        {roots.map((task) => (
+          <OutlineRow
+            key={task.id}
+            task={task}
+            checklistId={checklistId}
+            isMobile={isMobile}
+            depth={0}
+            focusedId={focusedId}
+          />
+        ))}
+      </ScrollView>
+      <DragGhost />
+    </View>
+  )
+}
+
+export function FlatTaskList({ tasks, checklistId, isMobile, focusedId, setFocusedId }: FlatTaskListProps) {
+  const { roots, allNodes } = useMemo(() => buildTaskTree(tasks), [tasks])
+
+  return (
+    <DragProvider>
+      <FlatTaskListInner
+        tasks={tasks}
+        roots={roots}
+        allNodes={allNodes}
+        checklistId={checklistId}
+        isMobile={isMobile}
+        focusedId={focusedId}
+        setFocusedId={setFocusedId}
+      />
+    </DragProvider>
   )
 }

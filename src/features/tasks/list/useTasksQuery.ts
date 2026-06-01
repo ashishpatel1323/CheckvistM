@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { fetchTasks, createTask, updateTask, closeTask } from '@/api/endpoints'
+import { fetchTasks, createTask, updateTask, closeTask, deleteTask } from '@/api/endpoints'
 import type { CreateTaskPayload, UpdateTaskPayload } from '@/api/types'
 import { useAuth } from '@/auth/useAuth'
 import { getCachedTasks } from '@/lib/taskCache'
@@ -63,6 +63,17 @@ export function useCloseTask(checklistId: number) {
 
   return useMutation({
     mutationFn: (taskId: number) => closeTask(checklistId, taskId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: tasksQueryKey(checklistId) })
+    },
+  })
+}
+
+export function useDeleteTask(checklistId: number) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (taskId: number) => deleteTask(checklistId, taskId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: tasksQueryKey(checklistId) })
     },

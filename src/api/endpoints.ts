@@ -72,3 +72,10 @@ export async function closeTask(
   )
   return response.data
 }
+
+export async function deleteTask(
+  checklistId: number,
+  taskId: number
+): Promise<void> {
+  await apiClient.delete(`/checklists/${checklistId}/tasks/${taskId}.json`)
+}

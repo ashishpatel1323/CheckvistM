@@ -37,4 +37,6 @@ export interface UpdateTaskPayload {
   due_date?: string | null
   priority?: number
   status?: number
+  parent_id?: number | null
+  position?: number
 }
