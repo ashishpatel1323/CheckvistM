@@ -229,7 +229,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
   const dragRef = useRef<{ nodeId: number; label: string; startX: number; startY: number; active: boolean; dropTargetId: number | null } | null>(null)
 
   // ─── Context menu ─────────────────────────────────────────────────────────
-  const [contextMenu, setContextMenu] = useState<{ screenX: number; screenY: number; nodeId: number } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ screenX: number; screenY: number; nodeId: number; nodeW: number; nodeH: number } | null>(null)
   const contextMenuRef = useRef(contextMenu)
   useEffect(() => { contextMenuRef.current = contextMenu }, [contextMenu])
   const hideContextMenu = useCallback(() => setContextMenu(null), [])
@@ -253,6 +253,9 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
   // keep setFocusedId accessible in once-attached event handlers
   const setFocusedIdRef = useRef(setFocusedId)
   useEffect(() => { setFocusedIdRef.current = setFocusedId }, [setFocusedId])
+  // keep focusedId accessible in once-attached event handlers
+  const focusedIdRef = useRef(focusedId)
+  useEffect(() => { focusedIdRef.current = focusedId }, [focusedId])
   // keep nodes accessible in marquee handler
   const nodesRef = useRef<PlacedNode[]>([])
 
@@ -500,8 +503,15 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
           (n) => n.id !== -1 && cx >= n.x && cx <= n.x + n.w && cy >= n.y && cy <= n.y + n.h
         )
         if (hit) {
-          setFocusedIdRef.current(hit.id)
-          setContextMenu({ screenX: e.clientX, screenY: e.clientY, nodeId: hit.id })
+          if (focusedIdRef.current !== hit.id) {
+            // First right-click just selects the node, no menu
+            setFocusedIdRef.current(hit.id)
+          } else {
+            // Node already focused: show context menu anchored to node's screen position
+            const nodeScreenX = rect.left + hit.x * scaleRef.current + 40 - scrollPos.current.x
+            const nodeScreenY = rect.top + hit.y * scaleRef.current + 40 - scrollPos.current.y
+            setContextMenu({ screenX: nodeScreenX, screenY: nodeScreenY, nodeId: hit.id, nodeW: hit.w * scaleRef.current, nodeH: hit.h * scaleRef.current })
+          }
         } else {
           // blank canvas: pan
           panRef.current = {
@@ -591,11 +601,11 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
       if (panRef.current) {
         const dx = e.clientX - panRef.current.startX
         const dy = e.clientY - panRef.current.startY
-        scrollViewRef.current?.scrollTo({
-          x: panRef.current.scrollX - dx,
-          y: panRef.current.scrollY - dy,
-          animated: false,
-        })
+        const sv = getSvEl()
+        if (sv) {
+          sv.scrollLeft = panRef.current.scrollX - dx
+          sv.scrollTop = panRef.current.scrollY - dy
+        }
         return
       }
       if (marqueeStartRef.current) {
@@ -964,11 +974,18 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
           },
         ]
 
-        // Clamp to viewport
+        // Position menu anchored to node — prefer below-left of node, clamp to viewport
         const menuW = 180
         const menuH = menuItems.length * 40 + 8
-        const x = Math.min(contextMenu.screenX, (typeof window !== 'undefined' ? window.innerWidth : 800) - menuW - 8)
-        const y = Math.min(contextMenu.screenY, (typeof window !== 'undefined' ? window.innerHeight : 600) - menuH - 8)
+        const winW = typeof window !== 'undefined' ? window.innerWidth : 800
+        const winH = typeof window !== 'undefined' ? window.innerHeight : 600
+        // Try to align left edge with node left, below the node
+        let x = contextMenu.screenX
+        let y = contextMenu.screenY + contextMenu.nodeH + 4
+        // If it goes off the bottom, show above the node
+        if (y + menuH > winH - 8) y = contextMenu.screenY - menuH - 4
+        // Clamp horizontally
+        x = Math.min(Math.max(x, 8), winW - menuW - 8)
 
         return (
           <View
