@@ -229,7 +229,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
   const dragRef = useRef<{ nodeId: number; label: string; startX: number; startY: number; active: boolean; dropTargetId: number | null } | null>(null)
 
   // ─── Context menu ─────────────────────────────────────────────────────────
-  const [contextMenu, setContextMenu] = useState<{ screenX: number; screenY: number; nodeId: number; nodeW: number; nodeH: number } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ screenX: number; screenY: number; nodeId: number } | null>(null)
   const contextMenuRef = useRef(contextMenu)
   useEffect(() => { contextMenuRef.current = contextMenu }, [contextMenu])
   const hideContextMenu = useCallback(() => setContextMenu(null), [])
@@ -239,6 +239,8 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
   const scrollPos = useRef({ x: 0, y: 0 })
   // pan: right-click drag or space+left-drag
   const panRef = useRef<{ startX: number; startY: number; scrollX: number; scrollY: number } | null>(null)
+  // pending right-click: decides between context menu (no drag) and pan (drag)
+  const rightClickRef = useRef<{ startX: number; startY: number; scrollX: number; scrollY: number; nodeId: number | null } | null>(null)
   const spaceHeld = useRef(false)
   const ctrlHeld = useRef(false)
   const [isPanning, setIsPanning] = useState(false)
@@ -498,32 +500,20 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
 
       if (isRightClick) {
         e.preventDefault()
-        // Check if click lands on a node
+        // Find hit node at click position
         const rect = el.getBoundingClientRect()
         const cx = (e.clientX - rect.left + scrollPos.current.x) / scaleRef.current
         const cy = (e.clientY - rect.top + scrollPos.current.y) / scaleRef.current
         const hit = nodesRef.current.find(
           (n) => n.id !== -1 && cx >= n.x && cx <= n.x + n.w && cy >= n.y && cy <= n.y + n.h
         )
-        if (hit) {
-          if (focusedIdRef.current !== hit.id) {
-            // First right-click just selects the node, no menu
-            setFocusedIdRef.current(hit.id)
-          } else {
-            // Node already focused: show context menu anchored to node's screen position
-            const nodeScreenX = rect.left + hit.x * scaleRef.current + 40 - scrollPos.current.x
-            const nodeScreenY = rect.top + hit.y * scaleRef.current + 40 - scrollPos.current.y
-            setContextMenu({ screenX: nodeScreenX, screenY: nodeScreenY, nodeId: hit.id, nodeW: hit.w * scaleRef.current, nodeH: hit.h * scaleRef.current })
-          }
-        } else {
-          // blank canvas: pan
-          panRef.current = {
-            startX: e.clientX,
-            startY: e.clientY,
-            scrollX: scrollPos.current.x,
-            scrollY: scrollPos.current.y,
-          }
-          setIsPanning(true)
+        // Record pending — mousemove decides pan vs menu
+        rightClickRef.current = {
+          startX: e.clientX,
+          startY: e.clientY,
+          scrollX: scrollPos.current.x,
+          scrollY: scrollPos.current.y,
+          nodeId: hit?.id ?? null,
         }
         return
       }
@@ -574,6 +564,22 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
     }
 
     const handleMouseMove = (e: MouseEvent) => {
+      // Pending right-click: promote to pan if moved > 5px
+      if (rightClickRef.current && !panRef.current) {
+        const dx = e.clientX - rightClickRef.current.startX
+        const dy = e.clientY - rightClickRef.current.startY
+        if (Math.sqrt(dx * dx + dy * dy) > 5) {
+          panRef.current = {
+            startX: rightClickRef.current.startX,
+            startY: rightClickRef.current.startY,
+            scrollX: rightClickRef.current.scrollX,
+            scrollY: rightClickRef.current.scrollY,
+          }
+          rightClickRef.current = null
+          setIsPanning(true)
+        }
+      }
+
       // Handle leaf drag
       if (dragRef.current) {
         const dx = e.clientX - dragRef.current.startX
@@ -625,7 +631,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
       }
     }
 
-    const handleMouseUp = (_e: MouseEvent) => {
+    const handleMouseUp = (e: MouseEvent) => {
       // Commit leaf drag drop
       if (dragRef.current) {
         const wasActive = dragRef.current.active
@@ -644,6 +650,17 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
           }
           return
         }
+      }
+
+      // Right-click released without dragging → show context menu
+      if (rightClickRef.current) {
+        const { nodeId } = rightClickRef.current
+        rightClickRef.current = null
+        if (nodeId !== null) {
+          setFocusedIdRef.current(nodeId)
+          setContextMenu({ screenX: e.clientX, screenY: e.clientY, nodeId })
+        }
+        return
       }
 
       if (panRef.current) {
@@ -939,7 +956,9 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
       {contextMenu && Platform.OS === 'web' && (() => {
         const cmNode = nodeMap.get(contextMenu.nodeId)
         const hasChildren = (cmNode?.children.length ?? 0) > 0
-        const menuItems: { label: string; icon: string; action: () => void; danger?: boolean; disabled?: boolean }[] = [
+
+        type MenuItem = { label: string; icon: string; action: () => void; danger?: boolean; disabled?: boolean }
+        const menuItems: MenuItem[] = [
           {
             label: 'Drill In',
             icon: '⇥',
@@ -979,18 +998,14 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
           },
         ]
 
-        // Position menu anchored to node — prefer below-left of node, clamp to viewport
+        // Clamp menu to viewport, appear at cursor position
         const menuW = 180
         const menuH = menuItems.length * 40 + 8
         const winW = typeof window !== 'undefined' ? window.innerWidth : 800
         const winH = typeof window !== 'undefined' ? window.innerHeight : 600
-        // Try to align left edge with node left, below the node
-        let x = contextMenu.screenX
-        let y = contextMenu.screenY + contextMenu.nodeH + 4
-        // If it goes off the bottom, show above the node
+        let x = Math.min(Math.max(contextMenu.screenX, 8), winW - menuW - 8)
+        let y = contextMenu.screenY
         if (y + menuH > winH - 8) y = contextMenu.screenY - menuH - 4
-        // Clamp horizontally
-        x = Math.min(Math.max(x, 8), winW - menuW - 8)
 
         return (
           <View
