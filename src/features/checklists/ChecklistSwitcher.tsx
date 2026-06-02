@@ -24,26 +24,25 @@ export function ChecklistSwitcher() {
   return (
     <>
       <Pressable
-        className="flex-row items-center gap-2 px-3 py-1.5 rounded-lg active:bg-white/10"
+        className="flex-row items-center gap-1.5 active:opacity-70"
         onPress={() => setOpen(true)}
       >
-        <List size={16} color="white" style={{ opacity: 0.7 }} />
-        <Text className="text-white text-sm font-medium" numberOfLines={1} style={{ maxWidth: 192 }}>
+        <Text style={{ fontSize: 18, fontWeight: '600', color: '#111' }} numberOfLines={1}>
           {active?.name ?? (isLoading ? 'Loading…' : 'Select list')}
         </Text>
-        <ChevronDown size={14} color="white" style={{ opacity: 0.7 }} />
+        <ChevronDown size={16} color="#666" />
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable className="flex-1 bg-black/30" onPress={() => setOpen(false)}>
-          <View className="mt-20 mx-4 bg-white rounded-xl border border-gray-100 py-1"
-            style={{ shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, elevation: 10 }}
+          <View className="mt-20 mx-4 bg-white rounded-2xl py-1"
+            style={{ shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 16, elevation: 12 }}
           >
             {(checklists ?? []).map((checklist) => (
               <Pressable
                 key={checklist.id}
-                className={`flex-row items-center justify-between px-3 py-2.5 active:bg-gray-50 ${
-                  checklist.id === activeChecklistId ? 'bg-orange-50' : ''
+                className={`flex-row items-center justify-between px-4 py-3 active:bg-gray-50 ${
+                  checklist.id === activeChecklistId ? 'bg-blue-50' : ''
                 }`}
                 onPress={() => {
                   setActiveChecklistId(checklist.id)
@@ -51,12 +50,12 @@ export function ChecklistSwitcher() {
                   router.replace(`/${checklist.id}`)
                 }}
               >
-                <Text className={`text-sm flex-1 ${checklist.id === activeChecklistId ? 'text-orange-600 font-medium' : 'text-gray-700'}`}
+                <Text style={{ fontSize: 15, flex: 1, color: checklist.id === activeChecklistId ? '#4772FA' : '#222', fontWeight: checklist.id === activeChecklistId ? '600' : '400' }}
                   numberOfLines={1}
                 >
                   {checklist.name}
                 </Text>
-                <Text className="text-xs text-gray-400 ml-2">{checklist.task_count}</Text>
+                <Text style={{ fontSize: 12, color: '#BDBDBD', marginLeft: 8 }}>{checklist.task_count}</Text>
               </Pressable>
             ))}
           </View>

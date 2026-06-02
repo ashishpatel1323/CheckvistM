@@ -1,12 +1,12 @@
 import { View, Text, Pressable } from 'react-native'
 import {
   CalendarDays, Sunrise, RotateCw, Calendar, CalendarPlus,
-  XSquare, Sun, MoonStar, type LucideProps,
+  XSquare, type LucideProps,
 } from 'lucide-react-native'
 import type { ForwardRefExoticComponent } from 'react'
 import { addDays } from 'date-fns'
 import { toApiDate, getUpcomingSaturday } from '@/lib/dateUtils'
-import { setTaskTime, clearTaskTime } from '@/auth/tokenStore'
+import { clearTaskTime } from '@/auth/tokenStore'
 import { BottomSheet } from '@/components/BottomSheet'
 
 interface QuickDatePickerProps {
@@ -51,18 +51,6 @@ export function QuickDatePicker({ taskId, onSelect, onClose, isMobile }: QuickDa
     {
       Icon: XSquare, label: 'Clear',
       action: () => { clearTaskTime(taskId); onSelect(null) },
-    },
-    {
-      Icon: Sunrise, label: 'Morning',
-      action: () => { setTaskTime(taskId, '09:00'); onSelect(toApiDate(today)) },
-    },
-    {
-      Icon: Sun, label: 'Afternoon',
-      action: () => { setTaskTime(taskId, '14:00'); onSelect(toApiDate(today)) },
-    },
-    {
-      Icon: MoonStar, label: 'Night',
-      action: () => { setTaskTime(taskId, '20:00'); onSelect(toApiDate(today)) },
     },
   ]
 

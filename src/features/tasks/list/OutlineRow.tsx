@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
 import { useExpandedIds } from './useExpandedIds'
-import { PriorityPicker, priorityBadgeClass, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
+import { PriorityPicker, priorityBadgeClass, priorityDisplay, priorityTextColor } from '@/features/tasks/shared/PriorityPicker'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { useUpdateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
@@ -134,13 +134,14 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
 
   const webProps = Platform.OS === 'web' ? { 'data-task-id': task.id } : {}
 
-  const dropIndicatorColor = dropZone === 'onto' ? '#E8632A' : '#3b82f6'
+  const BLUE = '#4772FA'
+  const dropIndicatorColor = dropZone === 'onto' ? BLUE : BLUE
 
   return (
     <>
       {/* Drop-before indicator */}
       {isDropTarget && dropZone === 'before' && (
-        <View style={[styles.dropLine, { marginLeft: indent + 4 }]} />
+        <View style={[styles.dropLine, { marginLeft: indent + 4, backgroundColor: BLUE }]} />
       )}
 
       <View
@@ -148,15 +149,15 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
         style={[
           styles.rowContainer,
           isDragging && styles.rowDragging,
-          isDropTarget && dropZone === 'onto' && { borderColor: dropIndicatorColor, borderWidth: 1.5, borderRadius: 8 },
+          isDropTarget && dropZone === 'onto' && { borderColor: dropIndicatorColor, borderWidth: 1.5, borderRadius: 10 },
         ]}
       >
         <Pressable
           onPress={() => router.push(`/${checklistId}/tasks/${task.id}`)}
-          className="flex-row items-center gap-2 py-1.5 pr-3 rounded-lg active:bg-gray-50"
+          className="flex-row items-center gap-3 pr-4 active:bg-gray-50"
           style={[
-            { paddingLeft: indent + 4 },
-            isFocused && { backgroundColor: '#fff7ed', borderLeftWidth: 2, borderLeftColor: '#E8632A', paddingLeft: indent + 2 },
+            { paddingLeft: indent + 16, paddingVertical: 11 },
+            isFocused && { backgroundColor: '#EEF2FF', borderLeftWidth: 3, borderLeftColor: BLUE, paddingLeft: indent + 13 },
           ]}
           {...webProps}
         >
@@ -164,62 +165,63 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
           {Platform.OS !== 'web' && dragGesture && (
             <GestureDetector gesture={dragGesture}>
               <View style={styles.dragHandle} hitSlop={8}>
-                <GripVertical size={14} color="#d1d5db" />
+                <GripVertical size={14} color="#CFCFCF" />
               </View>
             </GestureDetector>
           )}
 
           {hasChildren ? (
-            <Pressable onPress={() => toggleExpanded(task.id)} hitSlop={8} className="w-5 h-5 items-center justify-center">
+            <Pressable onPress={() => toggleExpanded(task.id)} hitSlop={8} className="w-4 h-4 items-center justify-center">
               <ChevronRight
-                size={14}
-                color="#6b7280"
+                size={13}
+                color="#BDBDBD"
                 style={{ transform: [{ rotate: expanded ? '90deg' : '0deg' }] }}
               />
             </Pressable>
           ) : (
-            <View className="w-5 h-5 items-center justify-center">
-              <View className="w-2.5 h-2.5 rounded-full bg-gray-300" />
+            <View className="w-4 h-4 items-center justify-center">
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#CFCFCF' }} />
             </View>
           )}
 
-          <Text className="flex-1 text-sm text-gray-800" numberOfLines={1}>
+          <Text style={{ flex: 1, fontSize: 14.5, color: '#222', letterSpacing: 0.1 }} numberOfLines={1}>
             <InlineMarkdown content={task.content} />
             {hasChildren && (
-              <Text className="text-xs text-gray-400"> [{task.children.length}]</Text>
+              <Text style={{ fontSize: 12, color: '#BDBDBD' }}> [{task.children.length}]</Text>
             )}
           </Text>
 
-          <Pressable
-            onPress={() => { setShowPriorityPicker(true); setShowDatePicker(false) }}
-            hitSlop={6}
-            className={`px-1.5 py-0.5 rounded ${priorityBadgeClass(task.priority)}`}
-          >
-            <Text className={`text-xs font-bold ${priorityBadgeClass(task.priority)}`}>
-              {priorityDisplay(task.priority)}
-            </Text>
-          </Pressable>
+          <View className="items-end gap-0.5">
+            {task.due && (
+              <Pressable
+                onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false) }}
+                hitSlop={6}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '500', color: dueDateColorClass(task.due).includes('red') ? '#E53935' : BLUE }}>
+                  {humanizeDueDate(task.due)}
+                </Text>
+              </Pressable>
+            )}
 
-          {task.due && (
             <Pressable
-              onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false) }}
+              onPress={() => { setShowPriorityPicker(true); setShowDatePicker(false) }}
               hitSlop={6}
             >
-              <Text className={`text-xs font-medium rounded px-0.5 ${dueDateColorClass(task.due)}`}>
-                {humanizeDueDate(task.due)}
+              <Text style={{ fontSize: 11, color: priorityTextColor(task.priority || 0), fontWeight: '600' }}>
+                {priorityDisplay(task.priority || 0)}
               </Text>
             </Pressable>
-          )}
+          </View>
         </Pressable>
       </View>
 
       {/* Drop-after indicator */}
       {isDropTarget && dropZone === 'after' && (
-        <View style={[styles.dropLine, { marginLeft: indent + 4 }]} />
+        <View style={[styles.dropLine, { marginLeft: indent + 4, backgroundColor: BLUE }]} />
       )}
 
       {hasChildren && expanded && (
-        <View style={{ borderLeftWidth: 1, borderLeftColor: '#e5e7eb', marginLeft: indent + 12 }}>
+        <View style={{ borderLeftWidth: 1, borderLeftColor: '#EFEFEF', marginLeft: indent + 28 }}>
           {task.children.map((child) => (
             <OutlineRow
               key={child.id}

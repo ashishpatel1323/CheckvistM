@@ -22,7 +22,8 @@ function priorityBgColor(p: number): string {
   return '#dcfce7'
 }
 
-function priorityTextColor(p: number): string {
+export function priorityTextColor(p: number): string {
+  if (p <= 0 || p > 10) return '#6B7280'
   if (p <= 3) return '#b91c1c'
   if (p <= 6) return '#b45309'
   return '#15803d'

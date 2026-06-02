@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { View, Text, Pressable } from 'react-native'
-import { Tag, Calendar } from 'lucide-react-native'
+import { Tag, Calendar, Globe } from 'lucide-react-native'
 import { BottomSheet } from '@/components/BottomSheet'
 import { PriorityPicker } from './PriorityPicker'
 import { QuickDatePicker } from './QuickDatePicker'
@@ -13,6 +13,7 @@ interface ContextMenuProps {
   onClose: () => void
   onPriorityChange: (priority: number) => void
   onDateChange: (date: string | null) => void
+  onViewRaw?: () => void
   isMobile: boolean
 }
 
@@ -20,7 +21,7 @@ type SubMenu = 'priority' | 'date' | null
 
 export function ContextMenu({
   taskId, priority, open, onClose,
-  onPriorityChange, onDateChange, isMobile,
+  onPriorityChange, onDateChange, onViewRaw, isMobile,
 }: ContextMenuProps) {
   const [subMenu, setSubMenu] = useState<SubMenu>(null)
 
@@ -43,6 +44,13 @@ export function ContextMenu({
           >
             <Calendar size={16} color="#9ca3af" />
             <Text className="text-sm text-gray-700">Change due date</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => { onClose(); onViewRaw?.() }}
+            className="flex-row items-center gap-3 px-4 py-2.5 active:bg-gray-50"
+          >
+            <Globe size={16} color="#9ca3af" />
+            <Text className="text-sm text-gray-700">View Raw</Text>
           </Pressable>
         </View>
       )}

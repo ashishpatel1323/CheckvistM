@@ -99,7 +99,7 @@ export function VirtualTaskList({ groups, checklistId, isMobile, focusedId, setF
   }, [handleKey])
 
   return (
-    <ScrollView className="flex-1" contentContainerClassName="px-2 py-2">
+    <ScrollView className="flex-1" contentContainerStyle={{ paddingTop: 12, paddingBottom: 16 }}>
       {groups.map((group) => (
         <TaskGroup
           key={group.group}

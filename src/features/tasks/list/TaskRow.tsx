@@ -2,10 +2,10 @@ import { useRef, useState } from 'react'
 import { View, Text, Pressable, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useExpandedIds } from './useExpandedIds'
-import { ChevronRight, Circle, CheckCircle, CornerUpRight } from 'lucide-react-native'
+import { ChevronRight, Circle, CheckCircle, CornerUpRight, ExternalLink } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
-import { PriorityPicker, priorityBadgeClass, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
+import { PriorityPicker, priorityBadgeClass, priorityDisplay, priorityTextColor } from '@/features/tasks/shared/PriorityPicker'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { ContextMenu } from '@/features/tasks/shared/ContextMenu'
 import { classifyTask, GROUP_LABELS } from '@/lib/dateSort'
@@ -14,6 +14,7 @@ import { useToast } from '@/components/Toast'
 import { InlineMarkdown } from '@/components/InlineMarkdown'
 import { hapticMedium, hapticSuccess } from '@/platform/haptics'
 import { BottomSheet } from '@/components/BottomSheet'
+import { RawTaskModal } from '@/features/tasks/raw/RawTaskModal'
 
 interface TaskRowProps {
   task: TaskNode
@@ -36,6 +37,7 @@ export function TaskRow({
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
+  const [showRaw, setShowRaw] = useState(false)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { mutate: closeTask } = useCloseTask(checklistId)
@@ -98,10 +100,10 @@ export function TaskRow({
         onPress={openDetail}
         onLongPress={handleLongPress}
         delayLongPress={500}
-        className={`flex-row items-center gap-2 py-2 pr-3 rounded-lg active:bg-gray-50 ${isNestedCopy ? 'opacity-80' : ''}`}
+        className={`flex-row items-center gap-3 pr-4 active:bg-gray-50 ${isNestedCopy ? 'opacity-75' : ''}`}
         style={[
-          { paddingLeft: indent + 8 },
-          isFocused && { backgroundColor: '#fff7ed', borderLeftWidth: 2, borderLeftColor: '#E8632A', paddingLeft: indent + 6 },
+          { paddingLeft: indent + 16, paddingVertical: 11 },
+          isFocused && { backgroundColor: '#EEF2FF', borderLeftWidth: 3, borderLeftColor: '#4772FA', paddingLeft: indent + 13 },
         ]}
         {...webProps}
       >
@@ -109,31 +111,31 @@ export function TaskRow({
         <Pressable
           onPress={handleExpand}
           hitSlop={8}
-          className="w-5 h-5 items-center justify-center"
+          className="w-4 h-4 items-center justify-center"
           style={{ opacity: hasChildren ? 1 : 0 }}
           disabled={!hasChildren}
         >
           <ChevronRight
-            size={14}
-            color="#9ca3af"
+            size={13}
+            color="#BDBDBD"
             style={{ transform: [{ rotate: expanded ? '90deg' : '0deg' }] }}
           />
         </Pressable>
 
         {/* Check button */}
-        <Pressable onPress={handleCheck} hitSlop={8} className="w-5 h-5 items-center justify-center">
+        <Pressable onPress={handleCheck} hitSlop={10} className="w-5 h-5 items-center justify-center">
           {task.status === 1 ? (
-            <CheckCircle size={16} color="#22c55e" />
+            <CheckCircle size={18} color="#4772FA" />
           ) : (
-            <Circle size={16} color="#d1d5db" />
+            <Circle size={18} color="#CFCFCF" />
           )}
         </Pressable>
 
         {/* Content */}
-        <Text className="flex-1 text-sm text-gray-800" numberOfLines={1}>
+        <Text style={{ flex: 1, fontSize: 14.5, color: '#222', letterSpacing: 0.1 }} numberOfLines={1}>
           <InlineMarkdown content={task.content} />
           {hiddenDescendantCount > 0 && (
-            <Text className="text-xs text-gray-400"> · {hiddenDescendantCount} hidden</Text>
+            <Text style={{ fontSize: 12, color: '#BDBDBD' }}> · {hiddenDescendantCount} hidden</Text>
           )}
         </Text>
 
@@ -145,28 +147,39 @@ export function TaskRow({
           </View>
         )}
 
-        {/* Priority badge */}
-        <Pressable
-          onPress={() => { setShowPriorityPicker(true); setShowDatePicker(false) }}
-          hitSlop={6}
-          className={`px-1.5 py-0.5 rounded ${priorityBadgeClass(task.priority)}`}
-        >
-          <Text className={`text-xs font-bold ${priorityBadgeClass(task.priority)}`}>
-            {priorityDisplay(task.priority)}
-          </Text>
-        </Pressable>
-
-        {/* Due date */}
-        {task.due && (
+        {/* Right side: due date + priority, side by side */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {/* Priority badge */}
           <Pressable
-            onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false) }}
+            onPress={() => { setShowPriorityPicker(true); setShowDatePicker(false) }}
             hitSlop={6}
           >
-            <Text className={`text-xs font-medium rounded px-0.5 ${dateColorClass}`}>
-              {humanizeDueDate(task.due)}
+            <Text style={{ fontSize: 11, fontWeight: '700', color: priorityTextColor(task.priority || 0) }}>
+              {priorityDisplay(task.priority || 0)}
             </Text>
           </Pressable>
-        )}
+
+          {/* Due date */}
+          {task.due && (
+            <Pressable
+              onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false) }}
+              hitSlop={6}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '500', color: dateColorClass.includes('red') ? '#E53935' : '#4772FA' }}>
+                {humanizeDueDate(task.due)}
+              </Text>
+            </Pressable>
+          )}
+
+          {/* Jump to raw view icon */}
+          <Pressable
+            onPress={() => setShowRaw(true)}
+            hitSlop={8}
+            className="ml-1"
+          >
+            <ExternalLink size={16} color="#9ca3af" />
+          </Pressable>
+        </View>
       </Pressable>
 
       {/* Children when expanded */}
@@ -195,6 +208,7 @@ export function TaskRow({
         onClose={() => setContextMenuOpen(false)}
         onPriorityChange={handlePriorityChange}
         onDateChange={handleDateChange}
+        onViewRaw={() => setShowRaw(true)}
         isMobile={isMobile}
       />
 
@@ -210,6 +224,15 @@ export function TaskRow({
           onSelect={(date) => { handleDateChange(date); setShowDatePicker(false) }}
           onClose={() => setShowDatePicker(false)}
           isMobile
+        />
+      )}
+
+      {/* Raw task modal */}
+      {showRaw && (
+        <RawTaskModal
+          checklistId={checklistId}
+          taskId={task.id}
+          onClose={() => setShowRaw(false)}
         />
       )}
     </>

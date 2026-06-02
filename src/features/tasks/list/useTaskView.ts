@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-export type TaskView = 'date' | 'list' | 'mindmap' | 'search'
+export type TaskView = 'date' | 'list' | 'mindmap' | 'search' | 'raw'
 
 interface TaskViewStore {
   view: TaskView
