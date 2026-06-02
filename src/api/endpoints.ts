@@ -5,6 +5,7 @@ import type {
   CreateTaskPayload,
   UpdateTaskPayload,
 } from './types'
+import { enrichTask, enrichTasks } from '@/lib/taskEnrichment'
 
 // Auth
 export async function login(username: string, remoteKey: string): Promise<{ token: string }> {
@@ -30,14 +31,14 @@ export async function fetchTasks(checklistId: number): Promise<CheckvistTask[]> 
   const response = await apiClient.get<CheckvistTask[]>(
     `/checklists/${checklistId}/tasks.json`
   )
-  return response.data
+  return enrichTasks(response.data)
 }
 
 export async function fetchTask(checklistId: number, taskId: number): Promise<CheckvistTask> {
   const response = await apiClient.get<CheckvistTask>(
     `/checklists/${checklistId}/tasks/${taskId}.json`
   )
-  return response.data
+  return enrichTask(response.data)
 }
 
 export async function createTask(
@@ -48,7 +49,7 @@ export async function createTask(
     `/checklists/${checklistId}/tasks.json`,
     { task: payload }
   )
-  return response.data
+  return enrichTask(response.data)
 }
 
 export async function updateTask(
@@ -60,7 +61,7 @@ export async function updateTask(
     `/checklists/${checklistId}/tasks/${taskId}.json`,
     { task: payload }
   )
-  return response.data
+  return enrichTask(response.data)
 }
 
 export async function closeTask(
@@ -70,7 +71,7 @@ export async function closeTask(
   const response = await apiClient.post<CheckvistTask>(
     `/checklists/${checklistId}/tasks/${taskId}/close`
   )
-  return response.data
+  return enrichTask(response.data)
 }
 
 export async function deleteTask(

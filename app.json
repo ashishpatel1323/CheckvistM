@@ -21,7 +21,8 @@
         "foregroundImage": "./public/icons/icon-192.png",
         "backgroundColor": "#E8632A"
       },
-      "package": "com.ashishpatel.checkvist"
+      "package": "com.ashishpatel.checkvist",
+      "versionCode": 2
     },
     "web": {
       "bundler": "metro",

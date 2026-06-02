@@ -12,6 +12,10 @@ export interface CheckvistTask {
   tags_as_text?: string
   notes_count?: number
   sub_tasks?: CheckvistTask[]
+  duration?: {
+    minutes: number
+    formatted: string // e.g., "30m", "1h 30m"
+  } | null
 }
 
 export interface CheckvistChecklist {
