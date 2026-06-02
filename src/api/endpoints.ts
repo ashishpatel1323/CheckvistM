@@ -1,6 +1,7 @@
 import { apiClient } from './client'
 import type {
   CheckvistChecklist,
+  CheckvistNote,
   CheckvistTask,
   CreateTaskPayload,
   UpdateTaskPayload,
@@ -79,4 +80,15 @@ export async function deleteTask(
   taskId: number
 ): Promise<void> {
   await apiClient.delete(`/checklists/${checklistId}/tasks/${taskId}.json`)
+}
+
+// Notes (Checkvist comments)
+export async function fetchTaskNotes(
+  checklistId: number,
+  taskId: number
+): Promise<CheckvistNote[]> {
+  const response = await apiClient.get<CheckvistNote[]>(
+    `/checklists/${checklistId}/tasks/${taskId}/comments.json`
+  )
+  return response.data
 }

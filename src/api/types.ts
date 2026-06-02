@@ -11,11 +11,22 @@ export interface CheckvistTask {
   updated_at: string
   tags_as_text?: string
   notes_count?: number
+  comments_count?: number
   sub_tasks?: CheckvistTask[]
   duration?: {
     minutes: number
     formatted: string // e.g., "30m", "1h 30m"
   } | null
+}
+
+export interface CheckvistNote {
+  id: number
+  comment: string
+  task_id: number
+  user_id: number
+  username: string
+  created_at: string
+  updated_at: string
 }
 
 export interface CheckvistChecklist {
@@ -43,4 +54,5 @@ export interface UpdateTaskPayload {
   status?: number
   parent_id?: number | null
   position?: number
+  tags_as_text?: string
 }

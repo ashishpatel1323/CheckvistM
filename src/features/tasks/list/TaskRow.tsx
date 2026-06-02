@@ -2,10 +2,10 @@ import { useRef, useState } from 'react'
 import { View, Text, Pressable, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useExpandedIds } from './useExpandedIds'
-import { ChevronRight, Circle, CheckCircle, CornerUpRight, ExternalLink } from 'lucide-react-native'
+import { ChevronRight, Circle, CheckCircle, CornerUpRight, ExternalLink, Clock, MessageSquare } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
-import { PriorityPicker, priorityBadgeClass, priorityDisplay, priorityTextColor } from '@/features/tasks/shared/PriorityPicker'
+import { PriorityPicker, priorityBadgeClass, priorityDisplay, priorityRowBg, priorityTextColor } from '@/features/tasks/shared/PriorityPicker'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { ContextMenu } from '@/features/tasks/shared/ContextMenu'
 import { classifyTask, GROUP_LABELS } from '@/lib/dateSort'
@@ -102,7 +102,7 @@ export function TaskRow({
         delayLongPress={500}
         className={`flex-row items-center gap-3 pr-4 active:bg-gray-50 ${isNestedCopy ? 'opacity-75' : ''}`}
         style={[
-          { paddingLeft: indent + 16, paddingVertical: 11 },
+          { paddingLeft: indent + 16, paddingVertical: 11, backgroundColor: priorityRowBg(task.priority || 0) },
           isFocused && { backgroundColor: '#EEF2FF', borderLeftWidth: 3, borderLeftColor: '#4772FA', paddingLeft: indent + 13 },
         ]}
         {...webProps}
@@ -149,6 +149,30 @@ export function TaskRow({
 
         {/* Right side: due date + priority, side by side */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {/* Estimated time */}
+          {task.duration && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+              <Clock size={13} color="#9ca3af" />
+              <Text style={{ fontSize: 11, fontWeight: '500', color: '#6b7280' }}>
+                {task.duration.formatted}
+              </Text>
+            </View>
+          )}
+
+          {/* Notes count */}
+          {(task.comments_count ?? 0) > 0 && (
+            <Pressable
+              onPress={(e) => { e.stopPropagation?.(); router.push(`/${checklistId}/tasks/${task.id}/notes`) }}
+              hitSlop={6}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
+            >
+              <MessageSquare size={13} color="#9ca3af" />
+              <Text style={{ fontSize: 11, fontWeight: '500', color: '#6b7280' }}>
+                {task.comments_count}
+              </Text>
+            </Pressable>
+          )}
+
           {/* Priority badge */}
           <Pressable
             onPress={() => { setShowPriorityPicker(true); setShowDatePicker(false) }}

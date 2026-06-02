@@ -22,6 +22,13 @@ function priorityBgColor(p: number): string {
   return '#dcfce7'
 }
 
+export function priorityRowBg(priority: number): string | undefined {
+  if (!priority || priority <= 0 || priority > 10) return undefined
+  if (priority <= 3) return '#FEF2F2'
+  if (priority <= 6) return '#FFFBEB'
+  return '#F0FDF4'
+}
+
 export function priorityTextColor(p: number): string {
   if (p <= 0 || p > 10) return '#6B7280'
   if (p <= 3) return '#b91c1c'

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, TextInput, Pressable, ScrollView } from 'react-native'
 import { useRouter } from 'expo-router'
-import { ArrowLeft, X, Calendar, Tag, ChevronRight } from 'lucide-react-native'
+import { ArrowLeft, X, Calendar, Tag, ChevronRight, Timer } from 'lucide-react-native'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchTask } from '@/api/endpoints'
 import type { CheckvistTask } from '@/api/types'
@@ -14,9 +14,11 @@ import { MarkdownRenderer } from './MarkdownRenderer'
 import { SubTaskTree } from './SubTaskTree'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { PriorityPicker, priorityBadgeClass, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
+import { DurationPicker } from '@/features/tasks/shared/DurationPicker'
 import { useToast } from '@/components/Toast'
 import { BottomSheet } from '@/components/BottomSheet'
 import { hapticSuccess } from '@/platform/haptics'
+import { updateDurationTag } from '@/lib/durationTagUtils'
 
 interface TaskDetailViewProps {
   checklistId: number
@@ -30,6 +32,7 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
 
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
+  const [showDurationPicker, setShowDurationPicker] = useState(false)
   const [editedContent, setEditedContent] = useState('')
 
   const { data: allTasks } = useTasksQuery(checklistId)
@@ -110,6 +113,23 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
           setShowDatePicker(false)
         },
         onError: () => toast.error('Failed to update due date'),
+      }
+    )
+  }
+
+  const handleDurationChange = (duration: { minutes: number; formatted: string } | null) => {
+    if (!task) return
+    const newTags = updateDurationTag(task.tags_as_text, duration?.formatted ?? null)
+    updateTask(
+      { taskId, payload: { tags_as_text: newTags } },
+      {
+        onSuccess: () => {
+          toast.success(`Duration ${duration ? 'set to ' + duration.formatted : 'removed'}`)
+          void queryClient.invalidateQueries({ queryKey: tasksQueryKey(checklistId) })
+          void queryClient.invalidateQueries({ queryKey: ['task', checklistId, taskId] })
+          setShowDurationPicker(false)
+        },
+        onError: () => toast.error('Failed to update duration'),
       }
     )
   }
@@ -196,7 +216,7 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
         <View className="flex-row flex-wrap gap-2 mb-4">
           {/* Due date */}
           <Pressable
-            onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false) }}
+            onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false); setShowDurationPicker(false) }}
             className={`flex-row items-center gap-1.5 px-3 py-1 rounded-full border ${
               task.due ? dueDateColorClass(task.due) : 'border-gray-200 bg-gray-50'
             }`}
@@ -209,12 +229,25 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
 
           {/* Priority */}
           <Pressable
-            onPress={() => { setShowPriorityPicker(true); setShowDatePicker(false) }}
+            onPress={() => { setShowPriorityPicker(true); setShowDatePicker(false); setShowDurationPicker(false) }}
             className={`flex-row items-center gap-1.5 px-3 py-1 rounded-full ${priorityBadgeClass(task.priority)}`}
           >
             <Tag size={14} color="#6b7280" />
             <Text className={`text-sm font-medium ${priorityBadgeClass(task.priority)}`}>
               {priorityDisplay(task.priority ?? 0)}
+            </Text>
+          </Pressable>
+
+          {/* Duration */}
+          <Pressable
+            onPress={() => { setShowDurationPicker(true); setShowDatePicker(false); setShowPriorityPicker(false) }}
+            className={`flex-row items-center gap-1.5 px-3 py-1 rounded-full border ${
+              task.duration ? 'border-purple-200 bg-purple-50' : 'border-gray-200 bg-gray-50'
+            }`}
+          >
+            <Timer size={14} color={task.duration ? '#a855f7' : '#9ca3af'} />
+            <Text className={`text-sm font-medium ${task.duration ? 'text-purple-600' : 'text-gray-400'}`}>
+              {task.duration?.formatted ?? 'No time'}
             </Text>
           </Pressable>
 
@@ -267,6 +300,11 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
       {/* Priority picker */}
       <BottomSheet open={showPriorityPicker} onClose={() => setShowPriorityPicker(false)} title="Set Priority">
         <PriorityPicker value={task.priority} onChange={handlePriorityChange} />
+      </BottomSheet>
+
+      {/* Duration picker */}
+      <BottomSheet open={showDurationPicker} onClose={() => setShowDurationPicker(false)}>
+        <DurationPicker value={task.duration} onChange={handleDurationChange} onClose={() => setShowDurationPicker(false)} />
       </BottomSheet>
     </View>
   )

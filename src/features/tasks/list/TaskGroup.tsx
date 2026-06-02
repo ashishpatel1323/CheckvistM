@@ -74,7 +74,7 @@ export function TaskGroup({ group, checklistId, isMobile, focusedId }: TaskGroup
         <Pressable
           onPress={() => setCollapsed((v) => !v)}
           className="flex-row items-center px-4 py-3"
-          style={{ borderBottomWidth: collapsed ? 0 : 1, borderBottomColor: '#F5F5F5' }}
+          style={{ backgroundColor: '#EEF2FF', borderBottomWidth: collapsed ? 0 : 1, borderBottomColor: '#F5F5F5' }}
         >
           <Text className="font-semibold flex-1" style={{ color: colors.text, fontSize: 15 }}>
             {group.label}

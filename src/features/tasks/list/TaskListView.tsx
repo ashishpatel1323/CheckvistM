@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal } from 'react-native'
-import { LayoutList, AlignLeft, Network, Search, Plus, Menu, Sun, MoreVertical, Calendar, Flag, Tag, ArrowRight, Target, Globe } from 'lucide-react-native'
+import { LayoutList, AlignLeft, Network, Search, Plus, Menu, Sun, MoreVertical, Calendar, Flag, Tag, ArrowRight, Target, Globe, Timer } from 'lucide-react-native'
 import { useTasksQuery } from './useTasksQuery'
 import { buildTaskTree } from '@/lib/taskTree'
 import { groupTasksByDate } from '@/lib/dateSort'
@@ -15,6 +15,7 @@ import { ChecklistSwitcher } from '@/features/checklists/ChecklistSwitcher'
 import { useCreateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
 import { PlanYourDayModal } from '@/features/tasks/planday/PlanYourDayModal'
+import { ExecuteModeView } from '@/features/tasks/execute/ExecuteModeView'
 import { RawView } from '@/features/tasks/raw/RawView'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
@@ -43,6 +44,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
   const [focusedId, setFocusedId] = useState<number | null>(null)
   const [showPlanMenu, setShowPlanMenu] = useState(false)
   const [showPlanYourDay, setShowPlanYourDay] = useState(false)
+  const [showExecute, setShowExecute] = useState(false)
   const { view, setView } = useTaskView()
   const { mutate: createTask, isPending } = useCreateTask(checklistId)
   const toast = useToast()
@@ -95,7 +97,6 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
           shadowRadius: 4,
         }}
       >
-        <Menu size={22} color="#333" />
         <View className="flex-1">
           <ChecklistSwitcher />
         </View>
@@ -124,7 +125,6 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
           <Sun size={20} color={showPlanMenu ? BLUE : '#666'} />
         </Pressable>
 
-        <Pressable hitSlop={8}><MoreVertical size={20} color="#666" /></Pressable>
       </View>
 
       {/* Plan menu dropdown — rendered as Modal so it floats above all content on Android */}
@@ -151,18 +151,19 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
             shadowOffset: { width: 0, height: 6 }, elevation: 24,
           }}>
             <Pressable
-              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 13, gap: 12, opacity: 0.38 }}
-            >
-              <Sun size={17} color="#666" />
-              <Text style={{ fontSize: 14, color: '#444' }}>Suggested Tasks</Text>
-            </Pressable>
-            <View style={{ height: 1, backgroundColor: '#F5F5F5', marginHorizontal: 12 }} />
-            <Pressable
               style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 13, gap: 12 }}
               onPress={() => { setShowPlanMenu(false); setShowPlanYourDay(true) }}
             >
               <Target size={17} color={BLUE} />
               <Text style={{ fontSize: 14, color: '#222', fontWeight: '500' }}>Plan Your Day</Text>
+            </Pressable>
+            <View style={{ height: 1, backgroundColor: '#F5F5F5', marginHorizontal: 12 }} />
+            <Pressable
+              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 13, gap: 12 }}
+              onPress={() => { setShowPlanMenu(false); setShowExecute(true) }}
+            >
+              <Timer size={17} color={BLUE} />
+              <Text style={{ fontSize: 14, color: '#222', fontWeight: '500' }}>Execute Mode</Text>
             </Pressable>
           </View>
         </Pressable>
@@ -175,6 +176,15 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
           checklistId={checklistId}
           checklistName={checklistName}
           onClose={() => setShowPlanYourDay(false)}
+        />
+      )}
+
+      {/* Execute Mode modal */}
+      {showExecute && tasks && (
+        <ExecuteModeView
+          tasks={tasks}
+          checklistId={checklistId}
+          onClose={() => setShowExecute(false)}
         />
       )}
 
