@@ -4,16 +4,20 @@ import { Globe } from 'lucide-react-native'
 
 interface RawViewProps {
   checklistId: number
+  taskId?: number | null
 }
 
 const BLUE = '#4772FA'
 
-export function RawView({ checklistId }: RawViewProps) {
-  const url = `https://checkvist.com/checklists/${checklistId}`
+export function RawView({ checklistId, taskId }: RawViewProps) {
+  const url = taskId
+    ? `https://checkvist.com/checklists/${checklistId}#task_${taskId}`
+    : `https://checkvist.com/checklists/${checklistId}`
 
   if (Platform.OS === 'web') {
     return (
       <iframe
+        key={url}
         src={url}
         className="flex-1 w-full h-full border-none"
         title="Checkvist Raw View"

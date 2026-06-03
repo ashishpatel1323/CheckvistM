@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback, useRef } from 'react'
 import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal } from 'react-native'
 import { LayoutList, AlignLeft, Network, Search, Plus, Menu, Sun, MoreVertical, Calendar, Flag, Tag, ArrowRight, Target, Globe, Timer } from 'lucide-react-native'
 import { useTasksQuery } from './useTasksQuery'
@@ -24,11 +24,91 @@ interface TaskListViewProps {
   checklistId: number
 }
 
+interface ExecuteRawSplitViewProps {
+  tasks: import('@/api/types').CheckvistTask[]
+  checklistId: number
+  onClose: () => void
+}
+
+function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitViewProps) {
+  const [rawTaskId, setRawTaskId] = useState<number | null>(null)
+  const [leftPct, setLeftPct] = useState(50)
+  const containerRef = useRef<View>(null)
+  const dragging = useRef(false)
+
+  const handleJumpToRaw = useCallback((taskId: number) => {
+    setRawTaskId(taskId)
+  }, [])
+
+  const onDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    dragging.current = true
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!dragging.current) return
+      const rect = (containerRef.current as unknown as HTMLElement)?.getBoundingClientRect()
+      if (!rect) return
+      const pct = Math.min(80, Math.max(20, ((ev.clientX - rect.left) / rect.width) * 100))
+      setLeftPct(pct)
+    }
+
+    const onMouseUp = () => {
+      dragging.current = false
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }, [])
+
+  return (
+    <View ref={containerRef} style={{ flex: 1, flexDirection: 'row' }}>
+      <View style={{ width: `${leftPct}%` as unknown as number }}>
+        <ExecuteModeView
+          tasks={tasks}
+          checklistId={checklistId}
+          onClose={onClose}
+          onJumpToRaw={handleJumpToRaw}
+        />
+      </View>
+
+      {/* Drag divider */}
+      <div
+        onMouseDown={onDividerMouseDown}
+        style={{
+          width: 6,
+          cursor: 'col-resize',
+          backgroundColor: '#E5E7EB',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          zIndex: 10,
+          userSelect: 'none',
+        }}
+      >
+        <div style={{
+          width: 2,
+          height: 32,
+          borderRadius: 2,
+          backgroundColor: '#9CA3AF',
+        }} />
+      </div>
+
+      <View style={{ flex: 1 }}>
+        <RawView checklistId={checklistId} taskId={rawTaskId} />
+      </View>
+    </View>
+  )
+}
+
 const BLUE = '#4772FA'
 const INACTIVE = '#9ca3af'
 
 const TABS = [
   { key: 'date',    icon: LayoutList, label: 'Tasks'   },
+  { key: 'execute', icon: Timer,      label: 'Execute' },
   { key: 'list',    icon: AlignLeft,  label: 'Outline' },
   { key: 'mindmap', icon: Network,    label: 'Map'     },
   { key: 'search',  icon: Search,     label: 'Search'  },
@@ -44,8 +124,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
   const [focusedId, setFocusedId] = useState<number | null>(null)
   const [showPlanMenu, setShowPlanMenu] = useState(false)
   const [showPlanYourDay, setShowPlanYourDay] = useState(false)
-  const [showExecute, setShowExecute] = useState(false)
-  const { view, setView } = useTaskView()
+  const { view, setView, focusedTaskId } = useTaskView()
   const { mutate: createTask, isPending } = useCreateTask(checklistId)
   const toast = useToast()
   const { activeChecklistId } = useActiveChecklist()
@@ -157,14 +236,6 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
               <Target size={17} color={BLUE} />
               <Text style={{ fontSize: 14, color: '#222', fontWeight: '500' }}>Plan Your Day</Text>
             </Pressable>
-            <View style={{ height: 1, backgroundColor: '#F5F5F5', marginHorizontal: 12 }} />
-            <Pressable
-              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 13, gap: 12 }}
-              onPress={() => { setShowPlanMenu(false); setShowExecute(true) }}
-            >
-              <Timer size={17} color={BLUE} />
-              <Text style={{ fontSize: 14, color: '#222', fontWeight: '500' }}>Execute Mode</Text>
-            </Pressable>
           </View>
         </Pressable>
       </Modal>
@@ -179,19 +250,25 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
         />
       )}
 
-      {/* Execute Mode modal */}
-      {showExecute && tasks && (
-        <ExecuteModeView
-          tasks={tasks}
-          checklistId={checklistId}
-          onClose={() => setShowExecute(false)}
-        />
+      {/* ── Execute view ────────────────────────────────────────── */}
+      {view === 'execute' && tasks && (
+        isMobile ? (
+          <View style={{ flex: 1, paddingBottom: tabBarH }}>
+            <ExecuteModeView
+              tasks={tasks}
+              checklistId={checklistId}
+              onClose={() => setView('date')}
+            />
+          </View>
+        ) : (
+          <ExecuteRawSplitView tasks={tasks} checklistId={checklistId} onClose={() => setView('date')} />
+        )
       )}
 
       {/* ── Raw view ────────────────────────────────────────────── */}
       {view === 'raw' && (
         <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
-          <RawView checklistId={checklistId} />
+          <RawView checklistId={checklistId} taskId={focusedTaskId} />
         </View>
       )}
 
@@ -201,7 +278,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
       )}
 
       {/* ── Task views ──────────────────────────────────────────── */}
-      {view !== 'raw' && !isSearch && (
+      {view !== 'raw' && view !== 'execute' && !isSearch && (
         <>
           {isLoading && <TaskSkeleton count={8} />}
 
@@ -238,7 +315,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
           )}
 
           {/* Mobile FAB */}
-          {isMobile && view !== 'mindmap' && view !== 'raw' && !showFabInput && (
+          {isMobile && view !== 'mindmap' && view !== 'raw' && view !== 'execute' && !showFabInput && (
             <Pressable
               onPress={() => setShowFabInput(true)}
               className="absolute right-5 items-center justify-center rounded-full"

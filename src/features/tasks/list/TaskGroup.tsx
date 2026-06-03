@@ -60,49 +60,62 @@ export function TaskGroup({ group, checklistId, isMobile, focusedId }: TaskGroup
 
   return (
     <>
-      <View
-        className="mx-3 mb-3 bg-white rounded-2xl overflow-hidden"
-        style={{
-          shadowColor: '#000',
-          shadowOpacity: 0.06,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 2 },
-          elevation: 2,
-        }}
-      >
+      <View className="mx-3 mb-1">
         {/* Group header */}
         <Pressable
           onPress={() => setCollapsed((v) => !v)}
-          className="flex-row items-center px-4 py-3"
-          style={{ backgroundColor: '#EEF2FF', borderBottomWidth: collapsed ? 0 : 1, borderBottomColor: '#F5F5F5' }}
+          className="flex-row items-center px-1 py-2"
+          style={{ gap: 8 }}
         >
-          <Text className="font-semibold flex-1" style={{ color: colors.text, fontSize: 15 }}>
+          {/* Accent dot */}
+          <View style={{
+            width: 8, height: 8, borderRadius: 4,
+            backgroundColor: isOverdue ? '#E53935' : colors.accent,
+            opacity: isOverdue ? 1 : 0.7,
+          }} />
+
+          <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: isOverdue ? '#E53935' : '#6B7280', flex: 1 }}>
             {group.label}
           </Text>
+
           {isOverdue && (
             <Pressable
               hitSlop={6}
-              className="flex-row items-center gap-0.5 mr-3"
+              className="flex-row items-center gap-0.5"
               onPress={(e) => { e.stopPropagation?.(); setShowPostponeDialog(true) }}
             >
-              <Text style={{ color: '#4772FA', fontSize: 13, fontWeight: '500' }}>Postpone</Text>
-              <ChevronRight size={14} color="#4772FA" />
+              <Text style={{ color: '#4772FA', fontSize: 12, fontWeight: '500' }}>Postpone all</Text>
             </Pressable>
           )}
-          <Text className="mr-2 font-medium" style={{ color: colors.text, opacity: 0.4, fontSize: 13 }}>
-            {group.tasks.length}
-          </Text>
+
+          <View style={{ backgroundColor: isOverdue ? '#FEE2E2' : '#F3F4F6', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: isOverdue ? '#E53935' : '#9CA3AF' }}>
+              {group.tasks.length}
+            </Text>
+          </View>
+
           <ChevronDown
-            size={16}
-            color={colors.text}
-            style={{ opacity: 0.4, transform: [{ rotate: collapsed ? '-90deg' : '0deg' }] }}
+            size={14}
+            color="#9CA3AF"
+            style={{ transform: [{ rotate: collapsed ? '-90deg' : '0deg' }] }}
           />
         </Pressable>
 
         {!collapsed && (
-          <View className="pt-1 pb-2">
-            {group.tasks.map((task) => (
-              <TaskRow key={task.id} task={task} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} />
+          <View
+            style={{
+              backgroundColor: '#fff',
+              borderRadius: 12,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: '#F0F0F0',
+            }}
+          >
+            {group.tasks.map((task, i) => (
+              <View key={task.id}>
+                {i > 0 && <View style={{ height: 1, backgroundColor: '#F5F5F5', marginLeft: 48 }} />}
+                <TaskRow task={task} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} />
+              </View>
             ))}
           </View>
         )}

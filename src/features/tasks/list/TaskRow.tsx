@@ -14,7 +14,7 @@ import { useToast } from '@/components/Toast'
 import { InlineMarkdown } from '@/components/InlineMarkdown'
 import { hapticMedium, hapticSuccess } from '@/platform/haptics'
 import { BottomSheet } from '@/components/BottomSheet'
-import { RawTaskModal } from '@/features/tasks/raw/RawTaskModal'
+import { useTaskView } from './useTaskView'
 
 interface TaskRowProps {
   task: TaskNode
@@ -34,10 +34,10 @@ export function TaskRow({
   const router = useRouter()
   const expanded = useExpandedIds((s) => s.expanded.has(task.id))
   const toggleExpanded = useExpandedIds((s) => s.toggle)
+  const setView = useTaskView((s) => s.setView)
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
-  const [showRaw, setShowRaw] = useState(false)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { mutate: closeTask } = useCloseTask(checklistId)
@@ -100,10 +100,17 @@ export function TaskRow({
         onPress={openDetail}
         onLongPress={handleLongPress}
         delayLongPress={500}
-        className={`flex-row items-center gap-3 pr-4 active:bg-gray-50 ${isNestedCopy ? 'opacity-75' : ''}`}
+        className={`flex-row items-center gap-3 pr-4 active:bg-gray-50 ${isNestedCopy ? 'opacity-60' : ''}`}
         style={[
-          { paddingLeft: indent + 16, paddingVertical: 11, backgroundColor: priorityRowBg(task.priority || 0) },
-          isFocused && { backgroundColor: '#EEF2FF', borderLeftWidth: 3, borderLeftColor: '#4772FA', paddingLeft: indent + 13 },
+          {
+            paddingLeft: indent + 16,
+            paddingVertical: 10,
+            backgroundColor: '#fff',
+            borderLeftWidth: 3,
+            borderLeftColor: 'transparent',
+          },
+          !isFocused && task.priority >= 1 && task.priority <= 3 && { borderLeftColor: '#FECACA' },
+          isFocused && { backgroundColor: '#F5F8FF', borderLeftColor: '#4772FA' },
         ]}
         {...webProps}
       >
@@ -132,7 +139,7 @@ export function TaskRow({
         </Pressable>
 
         {/* Content */}
-        <Text style={{ flex: 1, fontSize: 14.5, color: '#222', letterSpacing: 0.1 }} numberOfLines={1}>
+        <Text style={{ flex: 1, fontSize: 14, color: '#1a1a1a', letterSpacing: 0.1 }} numberOfLines={1}>
           <InlineMarkdown content={task.content} />
           {hiddenDescendantCount > 0 && (
             <Text style={{ fontSize: 12, color: '#BDBDBD' }}> · {hiddenDescendantCount} hidden</Text>
@@ -195,14 +202,16 @@ export function TaskRow({
             </Pressable>
           )}
 
-          {/* Jump to raw view icon */}
-          <Pressable
-            onPress={() => setShowRaw(true)}
-            hitSlop={8}
-            className="ml-1"
-          >
-            <ExternalLink size={16} color="#9ca3af" />
-          </Pressable>
+          {/* Jump to raw view icon — web only, subtle */}
+          {Platform.OS === 'web' && (
+            <Pressable
+              onPress={() => setView('raw', task.id)}
+              hitSlop={8}
+              style={{ opacity: 0.35 }}
+            >
+              <ExternalLink size={13} color="#6B7280" />
+            </Pressable>
+          )}
         </View>
       </Pressable>
 
@@ -232,7 +241,7 @@ export function TaskRow({
         onClose={() => setContextMenuOpen(false)}
         onPriorityChange={handlePriorityChange}
         onDateChange={handleDateChange}
-        onViewRaw={() => setShowRaw(true)}
+        onViewRaw={() => setView('raw', task.id)}
         isMobile={isMobile}
       />
 
@@ -248,15 +257,6 @@ export function TaskRow({
           onSelect={(date) => { handleDateChange(date); setShowDatePicker(false) }}
           onClose={() => setShowDatePicker(false)}
           isMobile
-        />
-      )}
-
-      {/* Raw task modal */}
-      {showRaw && (
-        <RawTaskModal
-          checklistId={checklistId}
-          taskId={task.id}
-          onClose={() => setShowRaw(false)}
         />
       )}
     </>

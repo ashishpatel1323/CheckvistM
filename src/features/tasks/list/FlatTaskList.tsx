@@ -116,7 +116,7 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
       <ScrollView
         className="flex-1"
         style={{ backgroundColor: '#F5F5F5' }}
-        contentContainerStyle={{ paddingTop: 12, paddingBottom: 16, paddingHorizontal: 12 }}
+        contentContainerStyle={{ paddingTop: 16, paddingBottom: 32, paddingHorizontal: 12 }}
         scrollEnabled={draggingId === null}
       >
         <View
@@ -131,15 +131,17 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
             elevation: 2,
           }}
         >
-          {roots.map((task) => (
-            <OutlineRow
-              key={task.id}
-              task={task}
-              checklistId={checklistId}
-              isMobile={isMobile}
-              depth={0}
-              focusedId={focusedId}
-            />
+          {roots.map((task, i) => (
+            <View key={task.id}>
+              {i > 0 && <View style={{ height: 1, backgroundColor: '#F5F5F5', marginLeft: 48 }} />}
+              <OutlineRow
+                task={task}
+                checklistId={checklistId}
+                isMobile={isMobile}
+                depth={0}
+                focusedId={focusedId}
+              />
+            </View>
           ))}
         </View>
       </ScrollView>

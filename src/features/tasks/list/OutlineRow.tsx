@@ -156,8 +156,15 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
           onPress={() => router.push(`/${checklistId}/tasks/${task.id}`)}
           className="flex-row items-center gap-3 pr-4 active:bg-gray-50"
           style={[
-            { paddingLeft: indent + 16, paddingVertical: 11, backgroundColor: priorityRowBg(task.priority || 0) },
-            isFocused && { backgroundColor: '#EEF2FF', borderLeftWidth: 3, borderLeftColor: BLUE, paddingLeft: indent + 13 },
+            {
+              paddingLeft: indent + 16,
+              paddingVertical: 10,
+              backgroundColor: '#fff',
+              borderLeftWidth: 3,
+              borderLeftColor: 'transparent',
+            },
+            !isFocused && task.priority >= 1 && task.priority <= 3 && { borderLeftColor: '#FECACA' },
+            isFocused && { backgroundColor: '#F5F8FF', borderLeftColor: BLUE, paddingLeft: indent + 13 },
           ]}
           {...webProps}
         >
@@ -184,36 +191,42 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
             </View>
           )}
 
-          <Text style={{ flex: 1, fontSize: 14.5, color: '#222', letterSpacing: 0.1 }} numberOfLines={1}>
+          <Text style={{ flex: 1, fontSize: 14, color: '#1a1a1a', letterSpacing: 0.1 }} numberOfLines={1}>
             <InlineMarkdown content={task.content} />
             {hasChildren && (
               <Text style={{ fontSize: 12, color: '#BDBDBD' }}> [{task.children.length}]</Text>
             )}
           </Text>
 
-          <View className="items-end gap-0.5">
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              {task.duration && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                  <Clock size={12} color="#9ca3af" />
-                  <Text style={{ fontSize: 11, fontWeight: '500', color: '#6b7280' }}>
-                    {task.duration.formatted}
-                  </Text>
-                </View>
-              )}
-              {(task.comments_count ?? 0) > 0 && (
-                <Pressable
-                  onPress={(e) => { e.stopPropagation?.(); router.push(`/${checklistId}/tasks/${task.id}/notes`) }}
-                  hitSlop={6}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
-                >
-                  <MessageSquare size={12} color="#9ca3af" />
-                  <Text style={{ fontSize: 11, fontWeight: '500', color: '#6b7280' }}>
-                    {task.comments_count}
-                  </Text>
-                </Pressable>
-              )}
-            </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {task.duration && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                <Clock size={12} color="#9ca3af" />
+                <Text style={{ fontSize: 11, fontWeight: '500', color: '#6b7280' }}>
+                  {task.duration.formatted}
+                </Text>
+              </View>
+            )}
+            {(task.comments_count ?? 0) > 0 && (
+              <Pressable
+                onPress={(e) => { e.stopPropagation?.(); router.push(`/${checklistId}/tasks/${task.id}/notes`) }}
+                hitSlop={6}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
+              >
+                <MessageSquare size={12} color="#9ca3af" />
+                <Text style={{ fontSize: 11, fontWeight: '500', color: '#6b7280' }}>
+                  {task.comments_count}
+                </Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => { setShowPriorityPicker(true); setShowDatePicker(false) }}
+              hitSlop={6}
+            >
+              <Text style={{ fontSize: 11, color: priorityTextColor(task.priority || 0), fontWeight: '600' }}>
+                {priorityDisplay(task.priority || 0)}
+              </Text>
+            </Pressable>
             {task.due && (
               <Pressable
                 onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false) }}
@@ -224,15 +237,6 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
                 </Text>
               </Pressable>
             )}
-
-            <Pressable
-              onPress={() => { setShowPriorityPicker(true); setShowDatePicker(false) }}
-              hitSlop={6}
-            >
-              <Text style={{ fontSize: 11, color: priorityTextColor(task.priority || 0), fontWeight: '600' }}>
-                {priorityDisplay(task.priority || 0)}
-              </Text>
-            </Pressable>
           </View>
         </Pressable>
       </View>
@@ -243,7 +247,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
       )}
 
       {hasChildren && expanded && (
-        <View style={{ borderLeftWidth: 1, borderLeftColor: '#EFEFEF', marginLeft: indent + 28 }}>
+        <View style={{ borderLeftWidth: 1, borderLeftColor: '#E8E8E8', marginLeft: indent + 30 }}>
           {task.children.map((child) => (
             <OutlineRow
               key={child.id}

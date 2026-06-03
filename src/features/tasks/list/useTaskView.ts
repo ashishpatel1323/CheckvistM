@@ -3,11 +3,12 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-export type TaskView = 'date' | 'list' | 'mindmap' | 'search' | 'raw'
+export type TaskView = 'date' | 'list' | 'mindmap' | 'search' | 'raw' | 'execute'
 
 interface TaskViewStore {
   view: TaskView
-  setView: (view: TaskView) => void
+  focusedTaskId: number | null
+  setView: (view: TaskView, taskId?: number | null) => void
 }
 
 const storage = Platform.OS === 'web'
@@ -18,7 +19,8 @@ export const useTaskView = create<TaskViewStore>()(
   persist(
     (set) => ({
       view: 'date',
-      setView: (view) => set({ view }),
+      focusedTaskId: null,
+      setView: (view, taskId = null) => set({ view, focusedTaskId: taskId }),
     }),
     { name: 'task-view', storage }
   )
