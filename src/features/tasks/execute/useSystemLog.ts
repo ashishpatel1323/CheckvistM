@@ -1,0 +1,219 @@
+/**
+ * useSystemLog — syncs execution log sessions to a hidden Checkvist system list.
+ *
+ * Structure in Checkvist:
+ *   "⚙️ Checkvist System Log"  (one checklist, created on first use)
+ *   └── "2026-06-04"           (one parent task per day, due = that date)
+ *       └── "[EXLOG] Task name | 09:15–09:45 | 30m | key=cid:date:tid sec=1800"
+ *            (one child task per session; human-readable + machine-parseable)
+ *
+ * Sync happens on pause / complete — not every second.
+ * On app load the log view hydrates from the API.
+ */
+
+import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { Platform } from 'react-native'
+import { format, parseISO } from 'date-fns'
+import { apiClient } from '@/api/client'
+import { fetchChecklists, createChecklist, fetchTasks, createTask, updateTask } from '@/api/endpoints'
+import type { ExecuteLogEntry } from './useExecuteLog'
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const SYSTEM_LIST_NAME = '⚙️ Checkvist System Log'
+const EXLOG_PREFIX = '[EXLOG]'
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtTime(iso: string): string {
+  const d = parseISO(iso)
+  const h = d.getHours() % 12 || 12
+  const m = String(d.getMinutes()).padStart(2, '0')
+  const ampm = d.getHours() >= 12 ? 'PM' : 'AM'
+  return `${h}:${m} ${ampm}`
+}
+
+function fmtDur(sec: number): string {
+  const m = Math.round(sec / 60)
+  if (m < 60) return `${m}m`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
+/** Encode a session as Checkvist task content */
+function encodeSession(key: string, taskName: string, entry: ExecuteLogEntry): string {
+  const start = entry.startedAt ? fmtTime(entry.startedAt) : '?'
+  const endIso = entry.completedAt ?? new Date().toISOString()
+  const end = fmtTime(endIso)
+  const dur = fmtDur(entry.actualSeconds)
+  // Human-readable label + machine key at the end
+  return `${EXLOG_PREFIX} ${taskName} | ${start}–${end} | ${dur} | key=${key} sec=${entry.actualSeconds} s=${entry.startedAt ?? ''} done=${entry.completedAt ?? ''}`
+}
+
+export interface SyncedSession {
+  key: string            // "checklistId:yyyy-MM-dd:taskId"
+  taskId: number         // Checkvist task id of the original task
+  checklistId: number
+  taskName: string
+  startedAt: string
+  actualSeconds: number
+  completedAt: string | null
+  // The Checkvist system-list task id that stores this session (for updates)
+  systemTaskId?: number
+}
+
+/** Parse a session back from Checkvist task content */
+function decodeSession(content: string, systemTaskId: number): SyncedSession | null {
+  if (!content.startsWith(EXLOG_PREFIX)) return null
+  try {
+    const keyM = content.match(/key=([\w:.-]+)/)
+    const secM = content.match(/sec=(\d+)/)
+    const sM = content.match(/s=([^\s|]+)/)
+    const doneM = content.match(/done=([^\s|]+)/)
+    // Extract task name from between prefix and first |
+    const nameM = content.match(/\[EXLOG\] (.+?) \|/)
+
+    if (!keyM) return null
+    const key = keyM[1]
+    const parts = key.split(':')
+    if (parts.length < 3) return null
+    const [checklistId, , taskId] = parts
+
+    return {
+      key,
+      taskId: Number(taskId),
+      checklistId: Number(checklistId),
+      taskName: nameM?.[1] ?? `Task ${taskId}`,
+      startedAt: sM?.[1] ?? '',
+      actualSeconds: Number(secM?.[1] ?? 0),
+      completedAt: doneM?.[1] && doneM[1] !== 'null' && doneM[1] !== '' ? doneM[1] : null,
+      systemTaskId,
+    }
+  } catch {
+    return null
+  }
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+
+interface SystemLogStore {
+  /** ID of the "⚙️ Checkvist System Log" checklist, null until first sync */
+  systemListId: number | null
+  /** Today's date tasks in the system list, keyed by date string */
+  dayTaskIds: Record<string, number>
+  /** Sessions fetched from the API for the log view, keyed by session key */
+  remoteSessions: Record<string, SyncedSession>
+  /** System task IDs keyed by session key (for updates) */
+  sessionTaskIds: Record<string, number>
+
+  ensureSystemList: () => Promise<number>
+  ensureDayTask: (systemListId: number, dateStr: string) => Promise<number>
+  syncSession: (key: string, taskName: string, entry: ExecuteLogEntry) => Promise<void>
+  fetchTodaySessions: () => Promise<void>
+}
+
+const storage = Platform.OS === 'web'
+  ? createJSONStorage(() => localStorage)
+  : createJSONStorage(() => AsyncStorage)
+
+export const useSystemLog = create<SystemLogStore>()(
+  persist(
+    (set, get) => ({
+      systemListId: null,
+      dayTaskIds: {},
+      remoteSessions: {},
+      sessionTaskIds: {},
+
+      ensureSystemList: async () => {
+        const cached = get().systemListId
+        if (cached) return cached
+
+        const lists = await fetchChecklists()
+        const existing = lists.find((l) => l.name === SYSTEM_LIST_NAME)
+        if (existing) {
+          set({ systemListId: existing.id })
+          return existing.id
+        }
+
+        const created = await createChecklist(SYSTEM_LIST_NAME)
+        set({ systemListId: created.id })
+        return created.id
+      },
+
+      ensureDayTask: async (systemListId, dateStr) => {
+        const cached = get().dayTaskIds[dateStr]
+        if (cached) return cached
+
+        // Look for an existing day task in the system list
+        const tasks = await fetchTasks(systemListId)
+        const existing = tasks.find((t) => t.content === dateStr && t.parent_id === null)
+        if (existing) {
+          set((s) => ({ dayTaskIds: { ...s.dayTaskIds, [dateStr]: existing.id } }))
+          return existing.id
+        }
+
+        // Create the day parent task
+        const created = await createTask(systemListId, {
+          content: dateStr,
+          due_date: dateStr.replace(/-/g, '/'),
+        })
+        set((s) => ({ dayTaskIds: { ...s.dayTaskIds, [dateStr]: created.id } }))
+        return created.id
+      },
+
+      syncSession: async (key, taskName, entry) => {
+        if (!entry.startedAt || entry.actualSeconds < 5) return
+
+        try {
+          const systemListId = await get().ensureSystemList()
+          const dateStr = key.split(':')[1]
+          const dayTaskId = await get().ensureDayTask(systemListId, dateStr)
+          const content = encodeSession(key, taskName, entry)
+
+          const existingSystemTaskId = get().sessionTaskIds[key]
+          if (existingSystemTaskId) {
+            // Update existing system task
+            await updateTask(systemListId, existingSystemTaskId, { content })
+          } else {
+            // Create new child task under the day task
+            const created = await createTask(systemListId, {
+              content,
+              parent_id: dayTaskId,
+            })
+            set((s) => ({ sessionTaskIds: { ...s.sessionTaskIds, [key]: created.id } }))
+          }
+        } catch (e) {
+          // Non-fatal — local data is still in useExecuteLog
+          console.warn('[SystemLog] sync failed:', e)
+        }
+      },
+
+      fetchTodaySessions: async () => {
+        const state = get()
+        const systemListId = state.systemListId
+        if (!systemListId) return
+
+        try {
+          const tasks = await fetchTasks(systemListId)
+          const sessions: Record<string, SyncedSession> = {}
+          const taskIds: Record<string, number> = { ...state.sessionTaskIds }
+
+          for (const task of tasks) {
+            if (!task.content.startsWith(EXLOG_PREFIX)) continue
+            const session = decodeSession(task.content, task.id)
+            if (session) {
+              sessions[session.key] = session
+              taskIds[session.key] = task.id
+            }
+          }
+
+          set({ remoteSessions: sessions, sessionTaskIds: taskIds })
+        } catch (e) {
+          console.warn('[SystemLog] fetch failed:', e)
+        }
+      },
+    }),
+    { name: 'system-log-meta', storage }
+  )
+)

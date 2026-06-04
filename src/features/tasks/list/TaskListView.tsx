@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback } from 'react-native'
-import { LayoutList, AlignLeft, Network, Search, Plus, Sun, Calendar, Flag, Tag, ArrowRight, Target, Globe, Timer, RefreshCw } from 'lucide-react-native'
+import { LayoutList, AlignLeft, Network, Search, Plus, Sun, Calendar, Flag, Tag, ArrowRight, Target, Globe, Timer, RefreshCw, ClipboardList } from 'lucide-react-native'
 import { useTasksQuery } from './useTasksQuery'
 import { buildTaskTree } from '@/lib/taskTree'
 import { groupTasksByDate } from '@/lib/dateSort'
@@ -17,6 +17,7 @@ import { useCreateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
 import { PlanYourDayModal } from '@/features/tasks/planday/PlanYourDayModal'
 import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList } from '@/features/tasks/execute/ExecuteModeView'
+import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
@@ -189,6 +190,47 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
   )
 }
 
+// ─── Shimmer bar ──────────────────────────────────────────────────────────────
+
+function ShimmerBar({ pct, color }: { pct: number; color: string }) {
+  const [width, setWidth] = useState(0)
+  const anim = useRef(new Animated.Value(0)).current
+  const STREAK = 60
+
+  useEffect(() => {
+    if (width <= 0) return
+    anim.setValue(0)
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 1600, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 1600, useNativeDriver: true }),
+      ])
+    ).start()
+  }, [anim, width])
+
+  const translateX = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-STREAK, width + STREAK],
+  })
+
+  return (
+    <View
+      style={{ height: '100%', width: `${pct}%`, borderRadius: 3, backgroundColor: color, overflow: 'hidden' }}
+      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+    >
+      <Animated.View
+        style={{
+          position: 'absolute',
+          top: 0, bottom: 0,
+          width: STREAK,
+          backgroundColor: 'rgba(255,255,255,0.5)',
+          transform: [{ translateX }, { skewX: '-15deg' }],
+        }}
+      />
+    </View>
+  )
+}
+
 // Day spans full 24 hours: 00:00 AM to 11:59 PM
 const DAY_START_HOUR = 0
 const DAY_END_HOUR = 24
@@ -282,7 +324,7 @@ function DailyProgressBar() {
 
         {/* Track */}
         <View style={{ height: 6, backgroundColor: '#F3F4F6', borderRadius: 3, overflow: 'hidden' }}>
-          <View style={{ height: '100%', width: `${pct}%`, borderRadius: 3, backgroundColor: barColor }} />
+          <ShimmerBar pct={pct} color={barColor} />
         </View>
 
         {/* Ticks overlaid on track */}
@@ -327,12 +369,13 @@ const BLUE = '#4772FA'
 const INACTIVE = '#9ca3af'
 
 const TABS = [
-  { key: 'date',    icon: LayoutList, label: 'Tasks'   },
-  { key: 'execute', icon: Timer,      label: 'Execute' },
-  { key: 'list',    icon: AlignLeft,  label: 'Outline' },
-  { key: 'mindmap', icon: Network,    label: 'Map'     },
-  { key: 'search',  icon: Search,     label: 'Search'  },
-  { key: 'raw',     icon: Globe,      label: 'Raw'     },
+  { key: 'date',    icon: LayoutList,    label: 'Tasks'   },
+  { key: 'execute', icon: Timer,         label: 'Execute' },
+  { key: 'log',     icon: ClipboardList, label: 'Log'     },
+  { key: 'list',    icon: AlignLeft,     label: 'Outline' },
+  { key: 'mindmap', icon: Network,       label: 'Map'     },
+  { key: 'search',  icon: Search,        label: 'Search'  },
+  { key: 'raw',     icon: Globe,         label: 'Raw'     },
 ] as const
 
 export function TaskListView({ checklistId }: TaskListViewProps) {
@@ -359,6 +402,12 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
 
   const isEmpty = !isLoading && !isError && groups.length === 0
   const isSearch = view === 'search'
+
+  const taskNames = useMemo(() => {
+    const map: Record<number, string> = {}
+    if (tasks) for (const t of tasks) map[t.id] = t.content
+    return map
+  }, [tasks])
 
   const tabBarH = isMobile ? 64 : 0
 
@@ -540,6 +589,13 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
         )
       )}
 
+      {/* ── Execution log view ──────────────────────────────────── */}
+      {view === 'log' && (
+        <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
+          <ExecutionLogView checklistId={checklistId} taskNames={taskNames} />
+        </View>
+      )}
+
       {/* ── Raw view ────────────────────────────────────────────── */}
       {view === 'raw' && (
         <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
@@ -553,7 +609,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
       )}
 
       {/* ── Task views ──────────────────────────────────────────── */}
-      {view !== 'raw' && view !== 'execute' && !isSearch && (
+      {view !== 'raw' && view !== 'execute' && view !== 'log' && !isSearch && (
         <>
           {isLoading && <TaskSkeleton count={8} />}
 
@@ -593,7 +649,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
       )}
 
       {/* Mobile FAB — shown on all views except raw/search */}
-      {isMobile && view !== 'raw' && view !== 'search' && !showFabInput && (
+      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && !showFabInput && (
         <Pressable
           onPress={() => setShowFabInput(true)}
           className="absolute right-5 items-center justify-center rounded-full"

@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { format } from 'date-fns'
+import { useSystemLog } from './useSystemLog'
 
 export const MIN_ESTIMATE = 5
 export const ESTIMATE_STEP = 5
@@ -22,6 +23,8 @@ interface ExecuteLogStore {
   // Non-null means the timer is running, survives tab switches/unmounts.
   timerStartedAt: number | null
   timerRunningKey: string | null
+  // Task display names, set by ExecuteStateProvider for use during API sync
+  taskNames: Record<string, string>
   seed: (key: string, taskId: number, estimateMin: number) => void
   setEstimate: (key: string, min: number) => void
   markStarted: (key: string) => void
@@ -29,6 +32,7 @@ interface ExecuteLogStore {
   pause: () => void
   markCompleted: (key: string) => void
   reset: (key: string) => void
+  setTaskName: (key: string, name: string) => void
 }
 
 export function todayKey(): string {
@@ -56,6 +60,8 @@ export const useExecuteLog = create<ExecuteLogStore>()(
       entries: {},
       timerStartedAt: null,
       timerRunningKey: null,
+      taskNames: {},
+      setTaskName: (key, name) => set((s) => ({ taskNames: { ...s.taskNames, [key]: name } })),
       seed: (key, taskId, estimateMin) =>
         set((s) => {
           if (s.entries[key]) return s
@@ -103,14 +109,19 @@ export const useExecuteLog = create<ExecuteLogStore>()(
       pause: () => {
         const s = get()
         if (!s.timerRunningKey || s.timerStartedAt === null) return
-        const entry = s.entries[s.timerRunningKey]
+        const key = s.timerRunningKey
+        const entry = s.entries[key]
         if (entry) {
           const extra = Math.floor((Date.now() - s.timerStartedAt) / 1000)
+          const updated = { ...entry, actualSeconds: entry.actualSeconds + extra }
           set((st) => ({
-            entries: { ...st.entries, [s.timerRunningKey!]: { ...entry, actualSeconds: entry.actualSeconds + extra } },
+            entries: { ...st.entries, [key]: updated },
             timerRunningKey: null,
             timerStartedAt: null,
           }))
+          // Fire-and-forget sync to Checkvist API
+          const name = s.taskNames?.[key] ?? `Task ${entry.taskId}`
+          useSystemLog.getState().syncSession(key, name, updated).catch(() => {})
         } else {
           set({ timerRunningKey: null, timerStartedAt: null })
         }
@@ -122,18 +133,24 @@ export const useExecuteLog = create<ExecuteLogStore>()(
           const entry = s.entries[key]
           if (entry) {
             const extra = Math.floor((Date.now() - s.timerStartedAt) / 1000)
+            const updated = { ...entry, actualSeconds: entry.actualSeconds + extra, completedAt: new Date().toISOString() }
             set((st) => ({
-              entries: { ...st.entries, [key]: { ...entry, actualSeconds: entry.actualSeconds + extra, completedAt: new Date().toISOString() } },
+              entries: { ...st.entries, [key]: updated },
               timerRunningKey: null,
               timerStartedAt: null,
             }))
+            const name = s.taskNames?.[key] ?? `Task ${entry.taskId}`
+            useSystemLog.getState().syncSession(key, name, updated).catch(() => {})
             return
           }
         }
         set((st) => {
           const e = st.entries[key]
           if (!e) return st
-          return { entries: { ...st.entries, [key]: { ...e, completedAt: new Date().toISOString() } } }
+          const updated = { ...e, completedAt: new Date().toISOString() }
+          const name = st.taskNames?.[key] ?? `Task ${e.taskId}`
+          useSystemLog.getState().syncSession(key, name, updated).catch(() => {})
+          return { entries: { ...st.entries, [key]: updated } }
         })
       },
       reset: (key) => {

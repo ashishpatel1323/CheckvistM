@@ -1,11 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react'
-import { View, Text, Pressable, ScrollView, Platform, TextInput } from 'react-native'
+import { View, Text, Pressable, ScrollView, Platform, TextInput, Animated } from 'react-native'
 import { Play, Pause, Minus, Plus, Check, RotateCcw, Circle, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft } from 'lucide-react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import type { CheckvistTask } from '@/api/types'
 import { buildTaskTree } from '@/lib/taskTree'
 import { groupTasksByDate, classifyTask, GROUP_LABELS, type DateGroup } from '@/lib/dateSort'
-import { classifyPriority } from '@/features/tasks/list/PriorityDateView'
+import { classifyPriority, PRIORITY_META } from '@/features/tasks/list/PriorityDateView'
 import {
   useExecuteLog,
   entryKey,
@@ -34,18 +34,18 @@ const DATE_ACCENT: Record<DateGroup, string> = {
   noDueDate: '#D1D5DB',
 }
 
-const PRIORITY_LABEL: Record<'urgent' | 'important' | 'delegate' | 'tbd', string> = {
-  urgent:    'High',
-  important: 'Medium',
-  delegate:  'Low',
-  tbd:       'TBD',
+const PRIORITY_LABEL: Record<'high' | 'medium' | 'low' | 'tbd', string> = {
+  high:   'High',
+  medium: 'Medium',
+  low:    'Low',
+  tbd:    'TBD',
 }
 
-const PRIORITY_COLOR: Record<'urgent' | 'important' | 'delegate' | 'tbd', string> = {
-  urgent:    '#EF4444',
-  important: '#F59E0B',
-  delegate:  '#22C55E',
-  tbd:       '#8B5CF6',
+const PRIORITY_COLOR: Record<'high' | 'medium' | 'low' | 'tbd', string> = {
+  high:   '#b91c1c',
+  medium: '#b45309',
+  low:    '#15803d',
+  tbd:    '#7c3aed',
 }
 
 function groupKey(task: TaskNode): string {
@@ -58,6 +58,123 @@ function fmtClock(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60)
   const s = totalSeconds % 60
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+// ─── Flip clock ───────────────────────────────────────────────────────────────
+
+function FlipDigit({ digit, size }: { digit: string; size: 'sm' | 'lg' }) {
+  const prevDigit = useRef(digit)
+  const flipAnim = useRef(new Animated.Value(0)).current
+  const [flipping, setFlipping] = useState(false)
+  const [displayPrev, setDisplayPrev] = useState(digit)
+  const [displayNext, setDisplayNext] = useState(digit)
+
+  useEffect(() => {
+    if (digit === prevDigit.current) return
+    setDisplayPrev(prevDigit.current)
+    setDisplayNext(digit)
+    prevDigit.current = digit
+    flipAnim.setValue(0)
+    setFlipping(true)
+    Animated.timing(flipAnim, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(() => setFlipping(false))
+  }, [digit, flipAnim])
+
+  const cardW = size === 'lg' ? 52 : 28
+  const cardH = size === 'lg' ? 72 : 40
+  const fontSize = size === 'lg' ? 44 : 24
+
+  // Top half rotates away (0 → -90deg), bottom half reveals (90 → 0deg)
+  const topRotate = flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-90deg'] })
+  const btmRotate = flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['90deg', '0deg'] })
+  const topOpacity = flipAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0, 0] })
+  const btmOpacity = flipAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0, 1] })
+
+  const card = {
+    width: cardW, height: cardH, borderRadius: 8,
+    backgroundColor: '#1a1a1a',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    overflow: 'hidden' as const,
+    shadowColor: '#000',
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  }
+
+  const digitText = (val: string) => (
+    <Text style={{ fontSize, fontWeight: '800', color: '#FFFFFF', fontVariant: ['tabular-nums'] as never }}>
+      {val}
+    </Text>
+  )
+
+  return (
+    <View style={{ width: cardW, height: cardH, position: 'relative' }}>
+      {/* Static card (current digit) */}
+      <View style={card}>{digitText(flipping ? displayPrev : digit)}</View>
+
+      {/* Divider line */}
+      <View style={{
+        position: 'absolute', left: 0, right: 0,
+        top: cardH / 2 - 0.5, height: 1,
+        backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 10,
+      }} />
+
+      {flipping && (
+        <>
+          {/* Top flap (prev digit rotating away) */}
+          <Animated.View style={[card, {
+            position: 'absolute', top: 0,
+            transform: [{ perspective: 400 }, { rotateX: topRotate }],
+            transformOrigin: 'bottom',
+            opacity: topOpacity,
+            overflow: 'hidden',
+            zIndex: 5,
+          }]}>
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: cardH }}>
+              {digitText(displayPrev)}
+            </View>
+          </Animated.View>
+
+          {/* Bottom flap (next digit revealing) */}
+          <Animated.View style={[card, {
+            position: 'absolute', top: 0,
+            transform: [{ perspective: 400 }, { rotateX: btmRotate }],
+            transformOrigin: 'top',
+            opacity: btmOpacity,
+            overflow: 'hidden',
+            zIndex: 5,
+          }]}>
+            {digitText(displayNext)}
+          </Animated.View>
+        </>
+      )}
+    </View>
+  )
+}
+
+function FlipClock({ totalSeconds, color, size = 'lg' }: { totalSeconds: number; color?: string; size?: 'sm' | 'lg' }) {
+  const m = Math.floor(totalSeconds / 60)
+  const s = totalSeconds % 60
+  const m0 = String(Math.floor(m / 10))
+  const m1 = String(m % 10)
+  const s0 = String(Math.floor(s / 10))
+  const s1 = String(s % 10)
+  const gap = size === 'lg' ? 5 : 3
+  const sepSize = size === 'lg' ? 28 : 16
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap }}>
+      <FlipDigit digit={m0} size={size} />
+      <FlipDigit digit={m1} size={size} />
+      <Text style={{ fontSize: sepSize, fontWeight: '900', color: color ?? '#1a1a1a', marginHorizontal: 2 }}>:</Text>
+      <FlipDigit digit={s0} size={size} />
+      <FlipDigit digit={s1} size={size} />
+    </View>
+  )
 }
 
 function fmtMins(seconds: number): string {
@@ -170,7 +287,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
     [orderedIds, todayTasks]
   )
 
-  const { entries, timerRunningKey, timerStartedAt, seed, setEstimate, play, pause, markCompleted, reset } = useExecuteLog()
+  const { entries, timerRunningKey, timerStartedAt, seed, setEstimate, play, pause, markCompleted, reset, setTaskName } = useExecuteLog()
   const [currentIndex, setCurrentIndex] = useState(0)
   const [, setTick] = useState(0)
   const [now, setNow] = useState(new Date())
@@ -189,9 +306,11 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
 
   useEffect(() => {
     for (const t of todayTasks) {
-      seed(entryKey(checklistId, t.id), t.id, t.duration?.minutes ?? DEFAULT_ESTIMATE)
+      const key = entryKey(checklistId, t.id)
+      seed(key, t.id, t.duration?.minutes ?? DEFAULT_ESTIMATE)
+      setTaskName(key, t.content)
     }
-  }, [todayTasks, checklistId, seed])
+  }, [todayTasks, checklistId, seed, setTaskName])
 
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current)
@@ -294,10 +413,6 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
 
   return (
     <View style={{ backgroundColor: barBg, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }}>
-      {/* Day progress bar: 00:00 → 23:59 */}
-      <View style={{ height: 3, backgroundColor: '#E5E7EB' }}>
-        <View style={{ height: 3, backgroundColor: BLUE, width: `${dayProgressPct}%` }} />
-      </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, gap: 12 }}>
 
         {/* Prev/Next arrows */}
@@ -316,9 +431,7 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
         <View style={{ width: 1, height: 36, backgroundColor: '#E5E7EB' }} />
 
         {/* Timer */}
-        <Text style={{ fontSize: 32, fontWeight: '800', color: timerColor, letterSpacing: 1, minWidth: 90, textAlign: 'center' }}>
-          {fmtClock(currentSeconds)}
-        </Text>
+        <FlipClock totalSeconds={currentSeconds} color={timerColor} size="sm" />
 
         <View style={{ width: 1, height: 36, backgroundColor: '#E5E7EB' }} />
 
@@ -721,10 +834,10 @@ export function ExecuteTaskList() {
   }
 
   // Build priority groups preserving flat orderedTasks indices for drag/keyboard
-  type PriBucket = 'urgent' | 'important' | 'delegate' | 'tbd'
-  const PRI_BUCKETS: PriBucket[] = ['urgent', 'important', 'delegate', 'tbd']
+  type PriBucket = 'high' | 'medium' | 'low' | 'tbd'
+  const PRI_BUCKETS: PriBucket[] = ['high', 'medium', 'low', 'tbd']
   const priorityGroups = useMemo(() => {
-    const buckets: Record<PriBucket, { task: TaskNode; index: number }[]> = { urgent: [], important: [], delegate: [], tbd: [] }
+    const buckets: Record<PriBucket, { task: TaskNode; index: number }[]> = { high: [], medium: [], low: [], tbd: [] }
     orderedTasks.forEach((t, index) => buckets[classifyPriority(t.priority)].push({ task: t, index }))
     return PRI_BUCKETS.filter((b) => buckets[b].length > 0).map((b) => ({ bucket: b, items: buckets[b] }))
   }, [orderedTasks])
@@ -744,31 +857,39 @@ export function ExecuteTaskList() {
         const priColor = PRIORITY_COLOR[bucket]
         const priLabel = PRIORITY_LABEL[bucket]
 
+        const meta = PRIORITY_META[bucket]
+
         const header = Platform.OS === 'web' ? (
           <div
             key={`hdr-${bucket}`}
-            style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6, padding: '8px 6px 4px', cursor: 'pointer', userSelect: 'none' }}
+            style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer', userSelect: 'none', backgroundColor: meta.bg, borderBottom: collapsed ? 'none' : '1px solid #F3F4F6' }}
             onClick={() => toggleGroup(bucket)}
           >
-            <div style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: priColor, flexShrink: 0 }} />
-            <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: priColor, letterSpacing: '0.4px' }}>
-              {priLabel.toUpperCase()}
+            <div style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: priColor, flexShrink: 0 }} />
+            <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: priColor, letterSpacing: '0.2px' }}>
+                {priLabel.toUpperCase()}
+              </span>
+              <span style={{ fontSize: 11, color: priColor, opacity: 0.65 }}>{meta.sublabel}</span>
             </span>
-            <span style={{ fontSize: 11, color: '#9ca3af', marginRight: 4 }}>{items.length}</span>
-            <span style={{ fontSize: 11, color: '#9ca3af' }}>{collapsed ? '›' : '⌄'}</span>
+            <span style={{ fontSize: 13, color: '#9ca3af', marginRight: 4 }}>{items.length}</span>
+            <span style={{ fontSize: 13, color: '#9ca3af' }}>{collapsed ? '›' : '⌄'}</span>
           </div>
         ) : (
           <Pressable
             key={`hdr-${bucket}`}
             onPress={() => toggleGroup(bucket)}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 6, paddingTop: 8, paddingBottom: 4 }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: meta.bg, borderBottomWidth: collapsed ? 0 : 1, borderBottomColor: '#F3F4F6' }}
           >
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: priColor }} />
-            <Text style={{ flex: 1, fontSize: 11, fontWeight: '700', color: priColor, letterSpacing: 0.4 }}>
-              {priLabel.toUpperCase()}
-            </Text>
-            <Text style={{ fontSize: 11, color: '#9ca3af', marginRight: 4 }}>{items.length}</Text>
-            <ChevronRight size={12} color="#9ca3af" style={{ transform: [{ rotate: collapsed ? '0deg' : '90deg' }] }} />
+            <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: priColor }} />
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: priColor, letterSpacing: 0.2 }}>
+                {priLabel.toUpperCase()}
+              </Text>
+              <Text style={{ fontSize: 11, color: priColor, opacity: 0.65 }}>{meta.sublabel}</Text>
+            </View>
+            <Text style={{ fontSize: 13, color: '#9ca3af', marginRight: 4 }}>{items.length}</Text>
+            <ChevronRight size={13} color="#9ca3af" style={{ transform: [{ rotate: collapsed ? '0deg' : '90deg' }] }} />
           </Pressable>
         )
 
@@ -881,6 +1002,59 @@ interface ExecuteModeViewProps {
   onJumpToRaw?: (taskId: number) => void
 }
 
+// ─── Animated day progress bar ────────────────────────────────────────────────
+
+function DayProgressBar({ pct }: { pct: number }) {
+  const [barWidth, setBarWidth] = useState(0)
+  const shimmer = useRef(new Animated.Value(0)).current
+  const STREAK = 80 // px width of the shimmer streak
+
+  useEffect(() => {
+    if (barWidth <= 0) return
+    shimmer.setValue(0)
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, {
+          toValue: 1,
+          duration: 1400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shimmer, {
+          toValue: 0,
+          duration: 1400,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start()
+  }, [shimmer, barWidth])
+
+  const translateX = shimmer.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-STREAK, barWidth + STREAK],
+  })
+
+  return (
+    <View style={{ height: 6, backgroundColor: '#E5E7EB', overflow: 'hidden' }}>
+      <View
+        style={{ height: 6, width: `${pct}%`, backgroundColor: BLUE, overflow: 'hidden' }}
+        onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
+      >
+        {/* Shimmer streak — bright angled highlight bouncing back and forth */}
+        <Animated.View
+          style={{
+            position: 'absolute',
+            top: -2,
+            bottom: -2,
+            width: STREAK,
+            transform: [{ translateX }, { skewX: '-20deg' }],
+            backgroundColor: 'rgba(255,255,255,0.45)',
+          }}
+        />
+      </View>
+    </View>
+  )
+}
+
 export function ExecuteModeView({ tasks, checklistId, onClose, onJumpToRaw }: ExecuteModeViewProps) {
   return (
     <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={onJumpToRaw}>
@@ -917,10 +1091,8 @@ function ExecuteViewContent({ onClose, onJumpToRaw }: { onClose: () => void; onJ
 
   return (
     <View className="flex-1" style={{ backgroundColor: '#F5F5F5' }}>
-      {/* Day progress bar: 00:00 → 23:59 */}
-      <View style={{ height: 4, backgroundColor: '#E5E7EB' }}>
-        <View style={{ height: 4, backgroundColor: BLUE, width: `${dayProgressPct}%` }} />
-      </View>
+      {/* Day progress bar: 00:00 → 23:59 with shimmer */}
+      <DayProgressBar pct={dayProgressPct} />
 
       {/* Fixed header card */}
       <View>
@@ -930,9 +1102,7 @@ function ExecuteViewContent({ onClose, onJumpToRaw }: { onClose: () => void; onJ
             <Pressable hitSlop={12} onPress={prevTask} style={{ opacity: currentIndex === 0 ? 0.25 : 1 }}>
               <ChevronLeft size={24} color="#6B7280" />
             </Pressable>
-            <Text style={{ fontSize: 56, fontWeight: '800', color: isRunning ? '#1f2937' : '#DC2626', letterSpacing: 1, textAlign: 'center', minWidth: 140 }}>
-              {fmtClock(currentSeconds)}
-            </Text>
+            <FlipClock totalSeconds={currentSeconds} color={isRunning ? '#1a1a1a' : '#DC2626'} size="lg" />
             <Pressable hitSlop={12} onPress={nextTask} style={{ opacity: currentIndex >= orderedTasks.length - 1 ? 0.25 : 1 }}>
               <ChevronRight size={24} color="#6B7280" />
             </Pressable>

@@ -27,6 +27,11 @@ export async function fetchChecklists(): Promise<CheckvistChecklist[]> {
   return response.data
 }
 
+export async function createChecklist(name: string): Promise<CheckvistChecklist> {
+  const response = await apiClient.post<CheckvistChecklist>('/checklists.json', { checklist: { name } })
+  return response.data
+}
+
 // Tasks
 export async function fetchTasks(checklistId: number): Promise<CheckvistTask[]> {
   const response = await apiClient.get<CheckvistTask[]>(

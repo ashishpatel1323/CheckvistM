@@ -12,6 +12,7 @@ import { BottomSheet } from '@/components/BottomSheet'
 import { ContextMenu } from '@/features/tasks/shared/ContextMenu'
 import { useTaskView } from './useTaskView'
 import { isPast, isToday } from 'date-fns'
+import { priorityDisplay, priorityTextColor, priorityRowBg } from '@/features/tasks/shared/PriorityPicker'
 
 interface PriorityTaskRowProps {
   task: TaskNode
@@ -92,7 +93,7 @@ export function PriorityTaskRow({
           )}
         </Pressable>
 
-        {/* Title + checklist name */}
+        {/* Title */}
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text
             numberOfLines={1}
@@ -104,11 +105,28 @@ export function PriorityTaskRow({
             }}
           >
             {task.content}
-            {checklistName ? (
-              <Text style={{ color: '#9CA3AF', fontWeight: '400' }}> — {checklistName}</Text>
-            ) : null}
           </Text>
         </View>
+
+        {/* Priority badge */}
+        <Pressable
+          onPress={() => setShowPriorityPicker(true)}
+          hitSlop={6}
+          style={{
+            paddingHorizontal: 5,
+            paddingVertical: 2,
+            borderRadius: 4,
+            backgroundColor: task.priority > 0 && task.priority <= 10 ? priorityRowBg(task.priority) : '#F5F3FF',
+          }}
+        >
+          <Text style={{
+            fontSize: 11,
+            fontWeight: '700',
+            color: task.priority > 0 && task.priority <= 10 ? priorityTextColor(task.priority) : '#7c3aed',
+          }}>
+            {task.priority > 0 && task.priority <= 10 ? priorityDisplay(task.priority) : 'TBD'}
+          </Text>
+        </Pressable>
 
         {/* Due date */}
         {task.due ? (

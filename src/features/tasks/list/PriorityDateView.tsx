@@ -4,6 +4,10 @@ import { ChevronDown, ChevronRight } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import type { GroupedTasks, DateGroup } from '@/lib/dateSort'
 import { PriorityTaskRow } from './PriorityTaskRow'
+import { classifyPriority } from '@/features/tasks/shared/PriorityPicker'
+import type { PriorityBucket } from '@/features/tasks/shared/PriorityPicker'
+
+export type { PriorityBucket }
 
 interface PriorityDateViewProps {
   groups: GroupedTasks[]
@@ -14,26 +18,18 @@ interface PriorityDateViewProps {
   checklistName?: string
 }
 
-// ─── Priority bucket types ────────────────────────────────────────────────────
+// ─── Priority bucket metadata ─────────────────────────────────────────────────
 
-export type PriorityBucket = 'urgent' | 'important' | 'delegate' | 'tbd'
-
-export const PRIORITY_BUCKETS: PriorityBucket[] = ['urgent', 'important', 'delegate', 'tbd']
+export const PRIORITY_BUCKETS: PriorityBucket[] = ['high', 'medium', 'low', 'tbd']
 
 export const PRIORITY_META: Record<PriorityBucket, { label: string; sublabel: string; color: string; bg: string }> = {
-  urgent:    { label: 'High',     sublabel: 'P1–P3 · Urgent & Important',         color: '#EF4444', bg: '#FEF2F2' },
-  important: { label: 'Medium',   sublabel: 'P4–P6 · Not Urgent & Important',     color: '#F59E0B', bg: '#FFFBEB' },
-  delegate:  { label: 'Low',      sublabel: 'P7–P8 · Delegate',                   color: '#22C55E', bg: '#F0FDF4' },
-  tbd:       { label: 'TBD',      sublabel: 'P9–P10 · Meetings & TBD',            color: '#8B5CF6', bg: '#F5F3FF' },
+  high:   { label: 'High',   sublabel: 'P1–P3 · Urgent & Important',     color: '#b91c1c', bg: '#FEF2F2' },
+  medium: { label: 'Medium', sublabel: 'P4–P6 · Important, Not Urgent', color: '#b45309', bg: '#FFFBEB' },
+  low:    { label: 'Low',    sublabel: 'P7–P8 · Delegate',               color: '#15803d', bg: '#F0FDF4' },
+  tbd:    { label: 'TBD',    sublabel: 'P9–P10 · Meetings & TBD',        color: '#7c3aed', bg: '#F5F3FF' },
 }
 
-export function classifyPriority(priority: number): PriorityBucket {
-  if (priority >= 1 && priority <= 3) return 'urgent'
-  if (priority >= 4 && priority <= 6) return 'important'
-  if (priority >= 7 && priority <= 8) return 'delegate'
-  if (priority >= 9 && priority <= 10) return 'tbd'
-  return 'tbd'
-}
+export { classifyPriority }
 
 // ─── Date group accent colors ─────────────────────────────────────────────────
 
@@ -85,25 +81,27 @@ function PrioritySubSection({
           flexDirection: 'row',
           alignItems: 'center',
           paddingHorizontal: 14,
-          paddingVertical: 7,
+          paddingVertical: 11,
           backgroundColor: meta.bg,
-          gap: 6,
+          borderBottomWidth: collapsed ? 0 : 1,
+          borderBottomColor: '#F3F4F6',
+          gap: 8,
         }}
       >
         <View style={{
-          width: 8, height: 8, borderRadius: 4,
+          width: 9, height: 9, borderRadius: 5,
           backgroundColor: meta.color,
         }} />
-        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={{ fontSize: 11, fontWeight: '700', color: meta.color, letterSpacing: 0.4 }}>
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: meta.color, letterSpacing: 0.2 }}>
             {meta.label.toUpperCase()}
           </Text>
-          <Text style={{ fontSize: 10, color: meta.color, opacity: 0.7 }}>{meta.sublabel}</Text>
+          <Text style={{ fontSize: 11, color: meta.color, opacity: 0.65 }}>{meta.sublabel}</Text>
         </View>
-        <Text style={{ fontSize: 11, color: '#9CA3AF', marginRight: 4 }}>{tasks.length}</Text>
+        <Text style={{ fontSize: 13, color: '#9CA3AF', marginRight: 4 }}>{tasks.length}</Text>
         {collapsed
-          ? <ChevronRight size={12} color="#9CA3AF" />
-          : <ChevronDown size={12} color="#9CA3AF" />}
+          ? <ChevronRight size={14} color="#9CA3AF" />
+          : <ChevronDown size={14} color="#9CA3AF" />}
       </Pressable>
 
       {!collapsed && tasks.map((task, i) => (
@@ -140,7 +138,7 @@ function DateGroupCard({
   const accent = DATE_GROUP_COLOR[group.group]
 
   const buckets = useMemo(() => {
-    const b: Record<PriorityBucket, TaskNode[]> = { urgent: [], important: [], delegate: [], tbd: [] }
+    const b: Record<PriorityBucket, TaskNode[]> = { high: [], medium: [], low: [], tbd: [] }
     for (const t of group.tasks) b[classifyPriority(t.priority)].push(t)
     return b
   }, [group.tasks])
