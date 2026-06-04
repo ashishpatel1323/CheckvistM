@@ -33,6 +33,8 @@ interface ExecuteLogStore {
   markCompleted: (key: string) => void
   reset: (key: string) => void
   setTaskName: (key: string, name: string) => void
+  /** Merge remote session data into local entries without overwriting active timers */
+  hydrateFromRemote: (remote: Record<string, { startedAt: string; actualSeconds: number; completedAt: string | null }>) => void
 }
 
 export function todayKey(): string {
@@ -62,6 +64,23 @@ export const useExecuteLog = create<ExecuteLogStore>()(
       timerRunningKey: null,
       taskNames: {},
       setTaskName: (key, name) => set((s) => ({ taskNames: { ...s.taskNames, [key]: name } })),
+      hydrateFromRemote: (remote) => set((s) => {
+        const updated = { ...s.entries }
+        for (const [key, session] of Object.entries(remote)) {
+          const local = updated[key]
+          if (!local) continue
+          // Never overwrite a locally-started or currently-running session
+          if (local.startedAt) continue
+          if (s.timerRunningKey === key) continue
+          updated[key] = {
+            ...local,
+            startedAt: session.startedAt,
+            actualSeconds: session.actualSeconds,
+            completedAt: session.completedAt,
+          }
+        }
+        return { entries: updated }
+      }),
       seed: (key, taskId, estimateMin) =>
         set((s) => {
           if (s.entries[key]) return s

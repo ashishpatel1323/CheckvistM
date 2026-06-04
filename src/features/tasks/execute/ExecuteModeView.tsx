@@ -15,6 +15,7 @@ import {
   type ExecuteLogEntry,
 } from './useExecuteLog'
 import { priorityTextColor, priorityDisplay, priorityRowBg, PriorityPicker } from '@/features/tasks/shared/PriorityPicker'
+import { useSystemLog } from './useSystemLog'
 import { hapticMedium } from '@/platform/haptics'
 import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
@@ -287,7 +288,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
     [orderedIds, todayTasks]
   )
 
-  const { entries, timerRunningKey, timerStartedAt, seed, setEstimate, play, pause, markCompleted, reset, setTaskName } = useExecuteLog()
+  const { entries, timerRunningKey, timerStartedAt, seed, setEstimate, play, pause, markCompleted, reset, setTaskName, hydrateFromRemote } = useExecuteLog()
   const [currentIndex, setCurrentIndex] = useState(0)
   const [, setTick] = useState(0)
   const [now, setNow] = useState(new Date())
@@ -311,6 +312,20 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
       setTaskName(key, t.content)
     }
   }, [todayTasks, checklistId, seed, setTaskName])
+
+  // Hydrate Execute tab from API so sessions are consistent across devices/browsers
+  useEffect(() => {
+    useSystemLog.getState().fetchTodaySessions().then(() => {
+      const remote = useSystemLog.getState().remoteSessions
+      const hydrated: Record<string, { startedAt: string; actualSeconds: number; completedAt: string | null }> = {}
+      for (const [key, session] of Object.entries(remote)) {
+        if (session.startedAt) {
+          hydrated[key] = { startedAt: session.startedAt, actualSeconds: session.actualSeconds, completedAt: session.completedAt }
+        }
+      }
+      hydrateFromRemote(hydrated)
+    }).catch(() => {})
+  }, [checklistId, hydrateFromRemote])
 
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current)
