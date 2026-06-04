@@ -64,39 +64,46 @@ function bEnd(b: LogBlock)   { return bStart(b) + bDur(b) }
 
 /**
  * Google Calendar overlap layout.
- * 1. Sort by start time.
- * 2. Group into clusters of mutually-overlapping events.
- * 3. Within each cluster, greedily assign the smallest available column.
- * 4. totalCols for each event = max columns used in its cluster.
+ * Uses whole-minute boundaries to avoid false overlaps from second-level precision
+ * (e.g. a session ending at 2:58:45 and the next starting at 2:58:30 is treated as sequential).
+ * Minimum real overlap required: > 1 minute.
  */
+function overlaps(a: LogBlock, b: LogBlock): boolean {
+  // Round to whole minutes so sub-minute adjacency doesn't count as overlap
+  const aStart = Math.round(bStart(a))
+  const aEnd   = Math.round(bEnd(a))
+  const bS     = Math.round(bStart(b))
+  const bE     = Math.round(bEnd(b))
+  // Must overlap by more than 1 minute
+  const overlapMin = Math.min(aEnd, bE) - Math.max(aStart, bS)
+  return overlapMin > 1
+}
+
 function layoutBlocks(blocks: LogBlock[]): LayoutBlock[] {
   if (blocks.length === 0) return []
   const sorted = [...blocks].sort((a, b) => bStart(a) - bStart(b))
 
-  // Build clusters: each cluster is a set of blocks that all overlap with at least one other in the cluster
+  // Group into overlap clusters
   const clusters: LogBlock[][] = []
   for (const block of sorted) {
-    const cluster = clusters.find(c => c.some(b => bStart(b) < bEnd(block) && bStart(block) < bEnd(b)))
+    const cluster = clusters.find(c => c.some(b => overlaps(b, block)))
     if (cluster) cluster.push(block)
     else clusters.push([block])
   }
 
   const result: LayoutBlock[] = []
-
   for (const cluster of clusters) {
-    // Assign columns within this cluster
     const colEnds: number[] = []
     const assigned: { block: LogBlock; col: number }[] = []
     for (const block of cluster.sort((a, b) => bStart(a) - bStart(b))) {
-      let col = colEnds.findIndex(end => end <= bStart(block))
+      const bS = Math.round(bStart(block))
+      let col = colEnds.findIndex(end => end <= bS)
       if (col === -1) { col = colEnds.length; colEnds.push(0) }
-      colEnds[col] = bEnd(block)
+      colEnds[col] = Math.round(bEnd(block))
       assigned.push({ block, col })
     }
     const totalCols = colEnds.length
-    for (const { block, col } of assigned) {
-      result.push({ block, col, totalCols })
-    }
+    for (const { block, col } of assigned) result.push({ block, col, totalCols })
   }
 
   return result
