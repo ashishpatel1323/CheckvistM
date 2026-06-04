@@ -62,20 +62,44 @@ function bStart(b: LogBlock) { return b.overrideStartMin ?? b.startMin }
 function bDur(b: LogBlock)   { return b.overrideDurationMin ?? b.durationMin }
 function bEnd(b: LogBlock)   { return bStart(b) + bDur(b) }
 
-/** Google Calendar-style column assignment for overlapping blocks */
+/**
+ * Google Calendar overlap layout.
+ * 1. Sort by start time.
+ * 2. Group into clusters of mutually-overlapping events.
+ * 3. Within each cluster, greedily assign the smallest available column.
+ * 4. totalCols for each event = max columns used in its cluster.
+ */
 function layoutBlocks(blocks: LogBlock[]): LayoutBlock[] {
   if (blocks.length === 0) return []
   const sorted = [...blocks].sort((a, b) => bStart(a) - bStart(b))
-  const colEnds: number[] = []
-  const assigned: { block: LogBlock; col: number }[] = []
+
+  // Build clusters: each cluster is a set of blocks that all overlap with at least one other in the cluster
+  const clusters: LogBlock[][] = []
   for (const block of sorted) {
-    let col = colEnds.findIndex((end) => end <= bStart(block))
-    if (col === -1) { col = colEnds.length; colEnds.push(0) }
-    colEnds[col] = bEnd(block)
-    assigned.push({ block, col })
+    const cluster = clusters.find(c => c.some(b => bStart(b) < bEnd(block) && bStart(block) < bEnd(b)))
+    if (cluster) cluster.push(block)
+    else clusters.push([block])
   }
-  const totalCols = colEnds.length
-  return assigned.map(({ block, col }) => ({ block, col, totalCols }))
+
+  const result: LayoutBlock[] = []
+
+  for (const cluster of clusters) {
+    // Assign columns within this cluster
+    const colEnds: number[] = []
+    const assigned: { block: LogBlock; col: number }[] = []
+    for (const block of cluster.sort((a, b) => bStart(a) - bStart(b))) {
+      let col = colEnds.findIndex(end => end <= bStart(block))
+      if (col === -1) { col = colEnds.length; colEnds.push(0) }
+      colEnds[col] = bEnd(block)
+      assigned.push({ block, col })
+    }
+    const totalCols = colEnds.length
+    for (const { block, col } of assigned) {
+      result.push({ block, col, totalCols })
+    }
+  }
+
+  return result
 }
 
 // ─── Edit modal ───────────────────────────────────────────────────────────────
@@ -149,6 +173,7 @@ export function ExecutionLogView({ checklistId, taskNames }: ExecutionLogViewPro
   const [editingBlock, setEditingBlock] = useState<LogBlock | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [, tick] = useState(0)
+  const [timelineWidth, setTimelineWidth] = useState(0)
 
   useEffect(() => {
     const id = setInterval(() => { setNow(new Date()); tick(n => n + 1) }, 10_000)
@@ -258,7 +283,10 @@ export function ExecutionLogView({ checklistId, taskNames }: ExecutionLogViewPro
           </View>
 
           {/* Right: timeline */}
-          <View style={{ flex: 1, position: 'relative', paddingRight: 12 }}>
+          <View
+            style={{ flex: 1, position: 'relative', paddingRight: 12 }}
+            onLayout={e => setTimelineWidth(e.nativeEvent.layout.width - 12)}
+          >
 
             {/* Hour grid lines */}
             {Array.from({ length: 24 }, (_, h) => (
@@ -288,14 +316,14 @@ export function ExecutionLogView({ checklistId, taskNames }: ExecutionLogViewPro
               </View>
             )}
 
-            {/* Session blocks — absolutely positioned by time */}
-            {laid.map(({ block, col, totalCols }) => {
+            {/* Session blocks — absolutely positioned by time, pixel-based for column layout */}
+            {timelineWidth > 0 && laid.map(({ block, col, totalCols }) => {
               const top = bStart(block) * MIN_H
-              const height = Math.max(bDur(block) * MIN_H, 20) // min 20px so short sessions are visible
+              const height = Math.max(bDur(block) * MIN_H, 22)
               const name = taskNames[block.taskId] ?? `Task ${block.taskId}`
-              const colW = `${100 / totalCols}%`
-              const left = `${(col / totalCols) * 100}%`
-              const isShort = height < 36
+              const colW = (timelineWidth / totalCols) - 3
+              const left = col * (timelineWidth / totalCols)
+              const isShort = height < 38
 
               return (
                 <Pressable
@@ -305,9 +333,9 @@ export function ExecutionLogView({ checklistId, taskNames }: ExecutionLogViewPro
                     position: 'absolute',
                     top,
                     height,
-                    left: left as unknown as number,
-                    width: colW as unknown as number,
-                    paddingHorizontal: 2,
+                    left,
+                    width: colW,
+                    paddingHorizontal: 1,
                   }}
                 >
                   <View style={{
