@@ -190,14 +190,13 @@ export const useSystemLog = create<SystemLogStore>()(
       },
 
       fetchTodaySessions: async () => {
-        const state = get()
-        const systemListId = state.systemListId
-        if (!systemListId) return
-
         try {
+          // Always resolve the system list — handles fresh browsers with empty localStorage
+          const systemListId = await get().ensureSystemList()
+
           const tasks = await fetchTasks(systemListId)
           const sessions: Record<string, SyncedSession> = {}
-          const taskIds: Record<string, number> = { ...state.sessionTaskIds }
+          const taskIds: Record<string, number> = { ...get().sessionTaskIds }
 
           for (const task of tasks) {
             if (!task.content.startsWith(EXLOG_PREFIX)) continue
@@ -213,6 +212,7 @@ export const useSystemLog = create<SystemLogStore>()(
           console.warn('[SystemLog] fetch failed:', e)
         }
       },
+
     }),
     { name: 'system-log-meta', storage }
   )

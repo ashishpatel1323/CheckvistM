@@ -299,12 +299,11 @@ export function ExecutionLogView({ checklistId, taskNames }: ExecutionLogViewPro
     return () => clearInterval(id)
   }, [])
 
-  // Hydrate remote sessions when log tab opens
+  // Hydrate remote sessions when log tab opens — always runs, ensureSystemList handles discovery
   useEffect(() => {
-    if (!systemListId) return
     setSyncing(true)
     fetchTodaySessions().finally(() => setSyncing(false))
-  }, [systemListId, fetchTodaySessions])
+  }, [fetchTodaySessions])
 
   useEffect(() => {
     const h = new Date().getHours()
