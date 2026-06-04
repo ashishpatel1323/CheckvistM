@@ -265,103 +265,116 @@ function DailyProgressBar() {
   const beforeDay = elapsedSeconds < 0
   const afterDay = elapsedSeconds >= totalSeconds
 
-  // Build tick marks: every 30 min, label every hour
   const totalHours = DAY_END_HOUR - DAY_START_HOUR
-  const ticks: { pct: number; isHour: boolean; label: string }[] = []
-  for (let h = 0; h <= totalHours; h++) {
-    const hourVal = DAY_START_HOUR + h
-    // full hour tick
-    if (h > 0 && h < totalHours) {
-      const tickPct = (h / totalHours) * 100
-      const ampm = hourVal >= 12 ? 'PM' : 'AM'
-      const disp = hourVal % 12 || 12
-      ticks.push({ pct: tickPct, isHour: true, label: `${disp}${ampm}` })
-    }
-    // half-hour tick
-    if (h < totalHours) {
-      const halfPct = ((h + 0.5) / totalHours) * 100
-      ticks.push({ pct: halfPct, isHour: false, label: '' })
-    }
-  }
-
   const barColor = beforeDay || afterDay ? '#D1D5DB' : pct > 80 ? '#EF4444' : pct > 60 ? '#F59E0B' : '#4772FA'
 
+  // Only label every 3 hours (6AM, 9AM, 12PM, 3PM, 6PM, 9PM) to avoid crowding on mobile
+  const labelHours = [3, 6, 9, 12, 15, 18, 21]
+  const labels = labelHours.map((h) => {
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    const disp = h % 12 || 12
+    return { pct: (h / totalHours) * 100, label: `${disp}${ampm}` }
+  })
+
+  // Quarter-hour ticks for visual rhythm
+  const ticks: number[] = []
+  for (let h = 0; h < totalHours; h++) {
+    ticks.push(((h + 0.25) / totalHours) * 100)
+    ticks.push(((h + 0.5) / totalHours) * 100)
+    ticks.push(((h + 0.75) / totalHours) * 100)
+  }
+
+  // Clamp label position so it doesn't bleed off edges
+  const labelLeft = Math.min(Math.max(pct, 4), 88)
+
   return (
-    <View style={{
-      backgroundColor: 'white',
-      paddingHorizontal: 16,
-      paddingTop: 8,
-      paddingBottom: 4,
-      borderBottomWidth: 1,
-      borderBottomColor: '#EFEFEF',
-    }}>
+    <Pressable
+      onPress={() => setShowZoom(true)}
+      style={{
+        backgroundColor: 'white',
+        paddingHorizontal: 16,
+        paddingTop: 6,
+        paddingBottom: 6,
+        borderBottomWidth: 1,
+        borderBottomColor: '#EFEFEF',
+      }}
+    >
       {showZoom && <TimeZoomOverlay timeStr={timeStr} onClose={() => setShowZoom(false)} />}
 
-      {/* Track + filled bar + tick marks + floating time label */}
+      {/* Time label + track in a single compact row */}
       <View style={{ position: 'relative' }}>
 
-        {/* Floating time label above the bar, positioned at current pct */}
+        {/* Floating time label pinned above current position */}
         {!beforeDay && !afterDay && (
-          <Pressable
-            onPress={() => setShowZoom(true)}
-            hitSlop={10}
-            style={{
-              position: 'absolute',
-              left: `${pct}%` as unknown as number,
-              top: -2,
-              transform: [{ translateX: -28 }],
-              zIndex: 10,
-            }}
-          >
-            <Text style={{ fontSize: 16, fontWeight: '700', color: barColor, letterSpacing: 0.2 }}>
+          <View style={{
+            position: 'absolute',
+            left: `${labelLeft}%` as unknown as number,
+            top: 0,
+            transform: [{ translateX: -20 }],
+            zIndex: 10,
+          }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: barColor, letterSpacing: 0.1 }}>
               {timeStr}
             </Text>
-          </Pressable>
+          </View>
         )}
 
-        {/* Spacer so the label doesn't overlap the bar */}
-        <View style={{ height: 22 }} />
+        <View style={{ height: 18 }} />
 
         {/* Track */}
-        <View style={{ height: 6, backgroundColor: '#F3F4F6', borderRadius: 3, overflow: 'hidden' }}>
+        <View style={{ height: 4, backgroundColor: '#F3F4F6', borderRadius: 2, overflow: 'hidden' }}>
           <ShimmerBar pct={pct} color={barColor} />
         </View>
 
-        {/* Ticks overlaid on track */}
-        {ticks.map((tick) => (
+        {/* Quarter-hour tick marks */}
+        {ticks.map((p) => (
           <View
-            key={tick.pct}
+            key={p}
             style={{
               position: 'absolute',
-              left: `${tick.pct}%` as unknown as number,
-              top: 16,
+              left: `${p}%` as unknown as number,
+              top: 18,
               width: 1,
-              height: 6,
-              backgroundColor: tick.isHour ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.12)',
-              transform: [{ translateX: -0.5 }],
+              height: 3,
+              backgroundColor: 'rgba(0,0,0,0.1)',
             }}
           />
         ))}
 
-        {/* Hour labels below the bar */}
-        <View style={{ position: 'relative', height: 14, marginTop: 2 }}>
-          {ticks.filter(t => t.isHour).map((tick) => (
+        {/* Hour ticks (slightly taller) */}
+        {labels.map(({ pct: p }) => (
+          <View
+            key={p}
+            style={{
+              position: 'absolute',
+              left: `${p}%` as unknown as number,
+              top: 18,
+              width: 1,
+              height: 5,
+              backgroundColor: 'rgba(0,0,0,0.2)',
+            }}
+          />
+        ))}
+
+        {/* Sparse hour labels */}
+        <View style={{ position: 'relative', height: 12, marginTop: 4 }}>
+          {labels.map(({ pct: p, label }) => (
             <Text
-              key={tick.pct}
+              key={p}
               style={{
                 position: 'absolute',
-                left: `${tick.pct}%` as unknown as number,
+                left: `${p}%` as unknown as number,
                 fontSize: 9,
-                color: '#9ca3af',
-                transform: [{ translateX: -12 }],
+                color: '#C4C4C4',
+                transform: [{ translateX: -10 }],
               }}
             >
-              {tick.label}
+              {label}
             </Text>
           ))}
         </View>
       </View>
-    </View>
+    </Pressable>
   )
 }
 
