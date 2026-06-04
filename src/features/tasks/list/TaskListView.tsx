@@ -6,6 +6,7 @@ import { buildTaskTree } from '@/lib/taskTree'
 import { groupTasksByDate } from '@/lib/dateSort'
 import { TaskSkeleton } from '@/components/TaskSkeleton'
 import { VirtualTaskList } from './VirtualTaskList'
+import { PriorityDateView } from './PriorityDateView'
 import { FlatTaskList } from './FlatTaskList'
 import { MindMapView } from './MindMapView'
 import { SearchView } from '@/features/tasks/search/SearchView'
@@ -41,13 +42,17 @@ function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitVie
 
         {/* Left / right split below the bar */}
         <View style={{ flex: 1, flexDirection: 'row' }}>
-          <View style={{ width: '25%' }}>
+          <View style={{ width: rawTaskId !== null ? '25%' : '100%' }}>
             <ExecuteTaskList />
           </View>
-          <View style={{ width: 1, backgroundColor: '#E5E7EB' }} />
-          <View style={{ flex: 1 }}>
-            <RawView checklistId={checklistId} taskId={rawTaskId} />
-          </View>
+          {rawTaskId !== null && (
+            <>
+              <View style={{ width: 1, backgroundColor: '#E5E7EB' }} />
+              <View style={{ flex: 1 }}>
+                <RawView checklistId={checklistId} taskId={rawTaskId} />
+              </View>
+            </>
+          )}
         </View>
       </View>
     </ExecuteStateProvider>
@@ -184,9 +189,9 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
   )
 }
 
-// Day starts at 4:00 AM, ends at 9:00 PM (17 hours = 61200 seconds)
-const DAY_START_HOUR = 4
-const DAY_END_HOUR = 21
+// Day spans full 24 hours: 00:00 AM to 11:59 PM
+const DAY_START_HOUR = 0
+const DAY_END_HOUR = 24
 
 function DailyProgressBar() {
   const [now, setNow] = useState(() => new Date())
@@ -571,7 +576,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
           {!isLoading && !isError && !isEmpty && tasks && (
             <View className="flex-1" style={{ paddingBottom: isMobile ? tabBarH : 0 }}>
               {view === 'date' && (
-                <VirtualTaskList groups={groups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} />
+                <PriorityDateView groups={groups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} />
               )}
               {view === 'list' && (
                 <FlatTaskList tasks={tasks} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} />

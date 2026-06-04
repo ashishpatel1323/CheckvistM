@@ -1,10 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Dispatch, type SetStateAction, type MutableRefObject } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react'
 import { View, Text, Pressable, ScrollView, Platform, TextInput } from 'react-native'
-import { Play, Pause, Minus, Plus, Check, RotateCcw, Circle, CheckCircle2, GripVertical, Calendar, Pencil, X } from 'lucide-react-native'
+import { Play, Pause, Minus, Plus, Check, RotateCcw, Circle, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft } from 'lucide-react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import type { CheckvistTask } from '@/api/types'
 import { buildTaskTree } from '@/lib/taskTree'
-import { groupTasksByDate } from '@/lib/dateSort'
+import { groupTasksByDate, classifyTask, GROUP_LABELS, type DateGroup } from '@/lib/dateSort'
+import { classifyPriority } from '@/features/tasks/list/PriorityDateView'
 import {
   useExecuteLog,
   entryKey,
@@ -21,6 +22,35 @@ import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
 import { isToday, isPast } from 'date-fns'
 
 const BLUE = '#4772FA'
+
+// ─── Group header helpers ──────────────────────────────────────────────────────
+
+const DATE_ACCENT: Record<DateGroup, string> = {
+  overdue:   '#EF4444',
+  today:     '#4772FA',
+  tomorrow:  '#8B5CF6',
+  thisWeek:  '#059669',
+  later:     '#6B7280',
+  noDueDate: '#D1D5DB',
+}
+
+const PRIORITY_LABEL: Record<'urgent' | 'important' | 'delegate' | 'tbd', string> = {
+  urgent:    'High',
+  important: 'Medium',
+  delegate:  'Low',
+  tbd:       'TBD',
+}
+
+const PRIORITY_COLOR: Record<'urgent' | 'important' | 'delegate' | 'tbd', string> = {
+  urgent:    '#EF4444',
+  important: '#F59E0B',
+  delegate:  '#22C55E',
+  tbd:       '#8B5CF6',
+}
+
+function groupKey(task: TaskNode): string {
+  return `${classifyTask(task)}__${classifyPriority(task.priority)}`
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -61,6 +91,7 @@ interface ExecCtxValue {
   completedCount: number
   totalActualSeconds: number
   totalEstimateSeconds: number
+  dayProgressPct: number
   getEntry: (taskId: number) => ExecuteLogEntry | undefined
   entries: Record<string, ExecuteLogEntry>
   timerRunningKey: string | null
@@ -77,9 +108,12 @@ interface ExecCtxValue {
   // Actions
   togglePlay: () => void
   adjust: (delta: number) => void
+  setEstimateDirect: (mins: number) => void
   complete: () => void
   resetCurrent: () => void
   jumpTo: (index: number) => void
+  prevTask: () => void
+  nextTask: () => void
   persistOrder: (newIds: number[]) => void
   updateTask: ReturnType<typeof useUpdateTask>['mutate']
   // Config
@@ -111,20 +145,25 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
     return groups.find((g) => g.group === 'today')?.tasks ?? []
   }, [tasks])
 
-  const todayTasksByPosition = useMemo(
-    () => [...todayTasks].sort((a, b) => a.position - b.position),
+  const todayByPriority = useMemo(
+    () => [...todayTasks].sort((a, b) => {
+      const pa = a.priority > 0 ? a.priority : Infinity
+      const pb = b.priority > 0 ? b.priority : Infinity
+      if (pa !== pb) return pa - pb
+      return a.position - b.position
+    }),
     [todayTasks]
   )
 
   const [orderedIds, setOrderedIds] = useState<number[]>([])
   useEffect(() => {
     setOrderedIds((prev) => {
-      const newIds = todayTasksByPosition.map((t) => t.id)
+      const newIds = todayByPriority.map((t) => t.id)
       const kept = prev.filter((id) => newIds.includes(id))
       const added = newIds.filter((id) => !prev.includes(id))
       return [...kept, ...added]
     })
-  }, [todayTasksByPosition])
+  }, [todayByPriority])
 
   const orderedTasks = useMemo(
     () => orderedIds.map((id) => todayTasks.find((t) => t.id === id)).filter(Boolean) as TaskNode[],
@@ -134,7 +173,13 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
   const { entries, timerRunningKey, timerStartedAt, seed, setEstimate, play, pause, markCompleted, reset } = useExecuteLog()
   const [currentIndex, setCurrentIndex] = useState(0)
   const [, setTick] = useState(0)
+  const [now, setNow] = useState(new Date())
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const clockRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  useEffect(() => {
+    clockRef.current = setInterval(() => setNow(new Date()), 60_000)
+    return () => { if (clockRef.current) clearInterval(clockRef.current) }
+  }, [])
 
   const { mutate: updateTask } = useUpdateTask(checklistId)
   const [editingTitle, setEditingTitle] = useState(false)
@@ -156,21 +201,6 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [timerRunningKey])
 
-  // Pin the running task to the top of the list
-  useEffect(() => {
-    if (!timerRunningKey) return
-    const runningTaskId = entries[timerRunningKey]?.taskId
-    if (runningTaskId == null) return
-    setOrderedIds((prev) => {
-      const idx = prev.indexOf(runningTaskId)
-      if (idx <= 0) return prev
-      const next = [...prev]
-      next.splice(idx, 1)
-      next.unshift(runningTaskId)
-      return next
-    })
-    setCurrentIndex(0)
-  }, [timerRunningKey])
 
   const currentTask = orderedTasks[currentIndex]
   const currentKey = currentTask ? entryKey(checklistId, currentTask.id) : null
@@ -184,6 +214,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
     ? liveSeconds(currentEntry, timerRunningKey, timerStartedAt, currentKey)
     : 0
 
+  const dayProgressPct = ((now.getHours() * 60 + now.getMinutes()) / (24 * 60)) * 100
   const completedCount = orderedTasks.filter((t) => getEntry(t.id)?.completedAt).length
   const totalActualSeconds = orderedTasks.reduce((sum, t) => {
     const e = getEntry(t.id)
@@ -196,7 +227,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
   }, 0)
 
   function persistOrder(newIds: number[]) {
-    const sortedPositions = todayTasksByPosition.map((t) => t.position).sort((a, b) => a - b)
+    const sortedPositions = todayByPriority.map((t) => t.position).sort((a, b) => a - b)
     newIds.forEach((id, idx) => {
       const task = todayTasks.find((t) => t.id === id)
       const newPos = sortedPositions[idx]
@@ -208,6 +239,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
 
   const togglePlay = () => { if (!currentKey) return; isRunning ? pause() : play(currentKey) }
   const adjust = (delta: number) => { if (!currentKey || !currentEntry) return; setEstimate(currentKey, currentEntry.estimateMin + delta) }
+  const setEstimateDirect = (mins: number) => { if (!currentKey) return; setEstimate(currentKey, Math.max(1, mins)) }
   const complete = () => {
     if (!currentKey) return
     markCompleted(currentKey)
@@ -219,15 +251,17 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
   }
   const resetCurrent = () => { if (!currentKey) return; reset(currentKey) }
   const jumpTo = (index: number) => setCurrentIndex(index)
+  const prevTask = () => setCurrentIndex((ci) => Math.max(0, ci - 1))
+  const nextTask = () => setCurrentIndex((ci) => Math.min(orderedTasks.length - 1, ci + 1))
 
   const value: ExecCtxValue = {
     orderedTasks, orderedIds, setOrderedIds, currentIndex, setCurrentIndex,
     currentTask, currentKey, currentEntry, isRunning, currentSeconds,
-    completedCount, totalActualSeconds, totalEstimateSeconds, getEntry,
+    completedCount, totalActualSeconds, totalEstimateSeconds, dayProgressPct, getEntry,
     entries, timerRunningKey, timerStartedAt,
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
-    togglePlay, adjust, complete, resetCurrent, jumpTo, persistOrder, updateTask,
+    togglePlay, adjust, setEstimateDirect, complete, resetCurrent, jumpTo, prevTask, nextTask, persistOrder, updateTask,
     checklistId, onJumpToRaw,
   }
 
@@ -241,16 +275,45 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
     currentTask, currentSeconds, isRunning, currentEntry,
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
-    completedCount, orderedTasks, totalActualSeconds, totalEstimateSeconds,
-    togglePlay, adjust, complete, resetCurrent, updateTask, checklistId,
+    completedCount, orderedTasks, totalActualSeconds, totalEstimateSeconds, dayProgressPct,
+    currentIndex,
+    togglePlay, adjust, setEstimateDirect, complete, resetCurrent, prevTask, nextTask, updateTask, checklistId,
   } = useExecCtx()
+
+  const [editingEstimate, setEditingEstimate] = useState(false)
+  const [estimateDraft, setEstimateDraft] = useState('')
+
+  function commitEstimate() {
+    const v = parseInt(estimateDraft, 10)
+    if (!isNaN(v) && v > 0) setEstimateDirect(v)
+    setEditingEstimate(false)
+  }
 
   const barBg = isRunning ? '#FFFFFF' : '#FFF5F5'
   const timerColor = isRunning ? '#1f2937' : '#DC2626'
 
   return (
     <View style={{ backgroundColor: barBg, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }}>
+      {/* Day progress bar: 00:00 → 23:59 */}
+      <View style={{ height: 3, backgroundColor: '#E5E7EB' }}>
+        <View style={{ height: 3, backgroundColor: BLUE, width: `${dayProgressPct}%` }} />
+      </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, gap: 12 }}>
+
+        {/* Prev/Next arrows */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+          <Pressable hitSlop={8} onPress={prevTask} style={{ opacity: currentIndex === 0 ? 0.25 : 1 }}>
+            <ChevronLeft size={20} color="#6B7280" />
+          </Pressable>
+          <Text style={{ fontSize: 11, color: '#9ca3af', minWidth: 28, textAlign: 'center' }}>
+            {orderedTasks.length > 0 ? `${currentIndex + 1}/${orderedTasks.length}` : '—'}
+          </Text>
+          <Pressable hitSlop={8} onPress={nextTask} style={{ opacity: currentIndex >= orderedTasks.length - 1 ? 0.25 : 1 }}>
+            <ChevronRight size={20} color="#6B7280" />
+          </Pressable>
+        </View>
+
+        <View style={{ width: 1, height: 36, backgroundColor: '#E5E7EB' }} />
 
         {/* Timer */}
         <Text style={{ fontSize: 32, fontWeight: '800', color: timerColor, letterSpacing: 1, minWidth: 90, textAlign: 'center' }}>
@@ -321,37 +384,58 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
               </Text>
             </View>
 
-            {/* Estimate */}
+            {/* Estimate — inline editable */}
             {currentEntry && (
-              <View style={{ borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB' }}>
-                <Text style={{ fontSize: 11, fontWeight: '500', color: '#6B7280' }}>
-                  Est {currentEntry.estimateMin}m
-                </Text>
-              </View>
+              editingEstimate ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: BLUE }}>
+                  <Text style={{ fontSize: 11, color: '#6B7280' }}>Est </Text>
+                  <TextInput
+                    value={estimateDraft}
+                    onChangeText={setEstimateDraft}
+                    keyboardType="number-pad"
+                    autoFocus
+                    selectTextOnFocus
+                    onSubmitEditing={commitEstimate}
+                    onBlur={commitEstimate}
+                    style={{ fontSize: 11, fontWeight: '600', color: '#1a1a1a', minWidth: 22, maxWidth: 40 }}
+                  />
+                  <Text style={{ fontSize: 11, color: '#6B7280' }}>m</Text>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => { setEstimateDraft(String(currentEntry.estimateMin)); setEditingEstimate(true) }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB' }}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '500', color: '#6B7280' }}>Est {currentEntry.estimateMin}m</Text>
+                  <Pencil size={9} color="#D1D5DB" />
+                </Pressable>
+              )
             )}
 
             {/* Date chip */}
             {currentTask && (
               <Pressable
-                onPress={() => setShowDatePicker((v) => !v)}
+                onPress={() => { setShowDatePicker((v) => !v); setShowPriorityPicker(false) }}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderWidth: 1, borderColor: showDatePicker ? BLUE : '#D1D5DB', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 }}
               >
                 <Calendar size={10} color={currentTask.due ? (isPast(parseApiDate(currentTask.due)!) && !isToday(parseApiDate(currentTask.due)!) ? '#DC2626' : '#374151') : '#9ca3af'} />
                 <Text style={{ fontSize: 11, fontWeight: '500', color: currentTask.due ? (isPast(parseApiDate(currentTask.due)!) && !isToday(parseApiDate(currentTask.due)!) ? '#DC2626' : '#374151') : '#9ca3af' }}>
-                  {currentTask.due ? humanizeDueDate(currentTask.due) : 'No date'}
+                  {currentTask.due ? humanizeDueDate(currentTask.due) : 'Set date'}
                 </Text>
+                <Pencil size={9} color={showDatePicker ? BLUE : '#D1D5DB'} />
               </Pressable>
             )}
 
             {/* Priority chip */}
             {currentTask && (
               <Pressable
-                onPress={() => setShowPriorityPicker((v) => !v)}
-                style={{ borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: currentTask.priority > 0 && currentTask.priority <= 10 ? (priorityRowBg(currentTask.priority) ?? '#f3f4f6') : '#f3f4f6', borderWidth: 1, borderColor: showPriorityPicker ? BLUE : 'transparent' }}
+                onPress={() => { setShowPriorityPicker((v) => !v); setShowDatePicker(false) }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: currentTask.priority > 0 && currentTask.priority <= 10 ? (priorityRowBg(currentTask.priority) ?? '#f3f4f6') : '#f3f4f6', borderWidth: 1, borderColor: showPriorityPicker ? BLUE : 'transparent' }}
               >
                 <Text style={{ fontSize: 11, fontWeight: '700', color: currentTask.priority > 0 && currentTask.priority <= 10 ? priorityTextColor(currentTask.priority) : '#9ca3af' }}>
                   {currentTask.priority > 0 && currentTask.priority <= 10 ? priorityDisplay(currentTask.priority) : 'No P'}
                 </Text>
+                <Pencil size={9} color={showPriorityPicker ? BLUE : '#D1D5DB'} />
               </Pressable>
             )}
 
@@ -636,90 +720,133 @@ export function ExecuteTaskList() {
       })
   }
 
+  // Build priority groups preserving flat orderedTasks indices for drag/keyboard
+  type PriBucket = 'urgent' | 'important' | 'delegate' | 'tbd'
+  const PRI_BUCKETS: PriBucket[] = ['urgent', 'important', 'delegate', 'tbd']
+  const priorityGroups = useMemo(() => {
+    const buckets: Record<PriBucket, { task: TaskNode; index: number }[]> = { urgent: [], important: [], delegate: [], tbd: [] }
+    orderedTasks.forEach((t, index) => buckets[classifyPriority(t.priority)].push({ task: t, index }))
+    return PRI_BUCKETS.filter((b) => buckets[b].length > 0).map((b) => ({ bucket: b, items: buckets[b] }))
+  }, [orderedTasks])
+
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<PriBucket>>(new Set())
+  function toggleGroup(b: PriBucket) {
+    setCollapsedGroups((prev) => { const s = new Set(prev); s.has(b) ? s.delete(b) : s.add(b); return s })
+  }
+
   const listContent = (
     <ScrollView
-      contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 4, paddingBottom: 32 }}
+      contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 6, paddingBottom: 32 }}
       scrollEnabled={draggingIdx === null}
     >
-      {orderedTasks.map((t, index) => {
-        const entry = getEntry(t.id)
-        const isDone = !!entry?.completedAt
-        const isCurrent = index === currentIndex
-        const isSelected = selectedIndices.has(index)
-        const isDragging = draggingIdx === index
-        const showDropBefore = insertIdx !== null && insertIdx === index && draggingIdx !== null && draggingIdx !== index && draggingIdx !== index - 1
+      {priorityGroups.map(({ bucket, items }) => {
+        const collapsed = collapsedGroups.has(bucket)
+        const priColor = PRIORITY_COLOR[bucket]
+        const priLabel = PRIORITY_LABEL[bucket]
 
-        const bgColor = isCurrent ? '#EEF2FF' : isSelected ? '#F0F4FF' : 'transparent'
-
-        const cardInner = (
-          <Pressable
-            onPress={() => { if (draggingIdx === null) { jumpTo(index); onJumpToRaw?.(t.id) } }}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              paddingHorizontal: 6,
-              paddingVertical: 5,
-              borderRadius: 6,
-              backgroundColor: bgColor,
-              opacity: isDragging ? 0.35 : 1,
-              borderLeftWidth: isCurrent ? 2 : 0,
-              borderLeftColor: BLUE,
-            }}
+        const header = Platform.OS === 'web' ? (
+          <div
+            key={`hdr-${bucket}`}
+            style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6, padding: '8px 6px 4px', cursor: 'pointer', userSelect: 'none' }}
+            onClick={() => toggleGroup(bucket)}
           >
-            {Platform.OS === 'web' ? (
-              <div onPointerDown={(e) => onGripPointerDown(e, index)} style={{ cursor: 'grab', display: 'flex', alignItems: 'center' }}>
-                <GripVertical size={12} color="#D1D5DB" />
-              </div>
-            ) : (
-              <GestureDetector gesture={makeNativeGesture(index)}>
-                <View hitSlop={8}>
-                  <GripVertical size={12} color="#D1D5DB" />
-                </View>
-              </GestureDetector>
-            )}
-            <Text style={{ fontSize: 11, color: '#9ca3af', width: 18, textAlign: 'right' }}>{index + 1}.</Text>
-            {isDone ? <CheckCircle2 size={14} color="#22c55e" /> : <Circle size={14} color="#d1d5db" />}
-            <Text style={{ flex: 1, fontSize: 13, color: isDone ? '#9ca3af' : isCurrent ? '#1a1a1a' : '#374151', textDecorationLine: isDone ? 'line-through' : 'none', fontWeight: isCurrent ? '600' : '400' }} numberOfLines={1}>
-              {t.content}
+            <div style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: priColor, flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: priColor, letterSpacing: '0.4px' }}>
+              {priLabel.toUpperCase()}
+            </span>
+            <span style={{ fontSize: 11, color: '#9ca3af', marginRight: 4 }}>{items.length}</span>
+            <span style={{ fontSize: 11, color: '#9ca3af' }}>{collapsed ? '›' : '⌄'}</span>
+          </div>
+        ) : (
+          <Pressable
+            key={`hdr-${bucket}`}
+            onPress={() => toggleGroup(bucket)}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 6, paddingTop: 8, paddingBottom: 4 }}
+          >
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: priColor }} />
+            <Text style={{ flex: 1, fontSize: 11, fontWeight: '700', color: priColor, letterSpacing: 0.4 }}>
+              {priLabel.toUpperCase()}
             </Text>
-            <Text style={{ fontSize: 10, color: '#9ca3af' }}>
-              {(() => {
-                const k = entryKey(checklistId, t.id)
-                const s = entry ? liveSeconds(entry, timerRunningKey, timerStartedAt, k) : 0
-                return isDone || s > 0 ? fmtMins(s) : `${entry?.estimateMin ?? DEFAULT_ESTIMATE}m`
-              })()}
-            </Text>
-            {t.priority > 0 && t.priority <= 10 && (
-              <>
-                <Text style={{ fontSize: 10, color: '#D1D5DB' }}>–</Text>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: priorityTextColor(t.priority) }}>{priorityDisplay(t.priority)}</Text>
-              </>
-            )}
+            <Text style={{ fontSize: 11, color: '#9ca3af', marginRight: 4 }}>{items.length}</Text>
+            <ChevronRight size={12} color="#9ca3af" style={{ transform: [{ rotate: collapsed ? '0deg' : '90deg' }] }} />
           </Pressable>
         )
 
-        if (Platform.OS === 'web') {
-          return (
-            <div
-              key={t.id}
-              data-execute-idx={index}
-              ref={(el) => { if (el) cardDomRefs.current.set(index, el); else cardDomRefs.current.delete(index) }}
-              style={{ marginTop: 8 }}
-              onMouseDown={(e) => handleCardMouseDown(e, index)}
-            >
-              {showDropBefore && <div className="execute-drop-indicator" />}
-              {cardInner}
-            </div>
-          )
-        }
+        const rows = collapsed ? null : items.map(({ task: t, index }) => {
+          const entry = getEntry(t.id)
+          const isDone = !!entry?.completedAt
+          const isCurrent = index === currentIndex
+          const isSelected = selectedIndices.has(index)
+          const isDragging = draggingIdx === index
+          const showDropBefore = insertIdx !== null && insertIdx === index && draggingIdx !== null && draggingIdx !== index && draggingIdx !== index - 1
 
-        return (
-          <View key={t.id} ref={(r) => { if (r) nativeRowRefs.current.set(index, r); else nativeRowRefs.current.delete(index) }} style={{ marginTop: 8 }}>
-            {showDropBefore && <View style={{ height: 2, backgroundColor: BLUE, borderRadius: 1, marginBottom: 6 }} />}
-            {cardInner}
-          </View>
-        )
+          const bgColor = isCurrent ? '#EEF2FF' : isSelected ? '#F0F4FF' : 'transparent'
+
+          const cardInner = (
+            <Pressable
+              onPress={() => { if (draggingIdx === null) jumpTo(index) }}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 6,
+                paddingHorizontal: 6, paddingVertical: 5, borderRadius: 6,
+                backgroundColor: bgColor, opacity: isDragging ? 0.35 : 1,
+                borderLeftWidth: isCurrent ? 2 : 0, borderLeftColor: BLUE,
+              }}
+            >
+              {Platform.OS === 'web' ? (
+                <div onPointerDown={(e) => onGripPointerDown(e, index)} style={{ cursor: 'grab', display: 'flex', alignItems: 'center' }}>
+                  <GripVertical size={12} color="#D1D5DB" />
+                </div>
+              ) : (
+                <GestureDetector gesture={makeNativeGesture(index)}>
+                  <View hitSlop={8}><GripVertical size={12} color="#D1D5DB" /></View>
+                </GestureDetector>
+              )}
+              <Text style={{ fontSize: 11, color: '#9ca3af', width: 18, textAlign: 'right' }}>{index + 1}.</Text>
+              {isDone ? <CheckCircle2 size={14} color="#22c55e" /> : <Circle size={14} color="#d1d5db" />}
+              <Text style={{ flex: 1, fontSize: 13, color: isDone ? '#9ca3af' : isCurrent ? '#1a1a1a' : '#374151', textDecorationLine: isDone ? 'line-through' : 'none', fontWeight: isCurrent ? '600' : '400' }} numberOfLines={1}>
+                {t.content}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#9ca3af' }}>
+                {(() => {
+                  const k = entryKey(checklistId, t.id)
+                  const s = entry ? liveSeconds(entry, timerRunningKey, timerStartedAt, k) : 0
+                  return isDone || s > 0 ? fmtMins(s) : `${entry?.estimateMin ?? DEFAULT_ESTIMATE}m`
+                })()}
+              </Text>
+              {onJumpToRaw && (
+                <Pressable hitSlop={6} onPress={(e) => { e.stopPropagation?.(); onJumpToRaw(t.id) }} style={{ paddingLeft: 2 }}>
+                  <AlignLeft size={12} color="#9ca3af" />
+                </Pressable>
+              )}
+            </Pressable>
+          )
+
+          if (Platform.OS === 'web') {
+            return (
+              <div
+                key={t.id}
+                data-execute-idx={index}
+                ref={(el) => { if (el) cardDomRefs.current.set(index, el); else cardDomRefs.current.delete(index) }}
+                onMouseDown={(e) => handleCardMouseDown(e, index)}
+              >
+                {showDropBefore && <div className="execute-drop-indicator" />}
+                {cardInner}
+              </div>
+            )
+          }
+
+          return (
+            <View key={t.id} ref={(r) => { if (r) nativeRowRefs.current.set(index, r); else nativeRowRefs.current.delete(index) }}>
+              {showDropBefore && <View style={{ height: 2, backgroundColor: BLUE, borderRadius: 1, marginBottom: 6 }} />}
+              {cardInner}
+            </View>
+          )
+        })
+
+        if (Platform.OS === 'web') {
+          return <div key={bucket}>{header}{rows}</div>
+        }
+        return <View key={bucket}>{header}{rows}</View>
       })}
 
       {insertIdx === orderedTasks.length && draggingIdx !== null && draggingIdx !== orderedTasks.length - 1 && (
@@ -765,11 +892,20 @@ export function ExecuteModeView({ tasks, checklistId, onClose, onJumpToRaw }: Ex
 function ExecuteViewContent({ onClose, onJumpToRaw }: { onClose: () => void; onJumpToRaw?: (taskId: number) => void }) {
   const {
     currentTask, currentSeconds, isRunning, currentEntry, orderedTasks,
-    completedCount, totalActualSeconds, totalEstimateSeconds,
+    completedCount, totalActualSeconds, totalEstimateSeconds, dayProgressPct, currentIndex,
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
-    togglePlay, adjust, complete, resetCurrent, updateTask, checklistId,
+    togglePlay, adjust, setEstimateDirect, complete, resetCurrent, prevTask, nextTask, updateTask, checklistId,
   } = useExecCtx()
+
+  const [editingEstimate, setEditingEstimate] = useState(false)
+  const [estimateDraft, setEstimateDraft] = useState('')
+
+  function commitEstimate() {
+    const v = parseInt(estimateDraft, 10)
+    if (!isNaN(v) && v > 0) setEstimateDirect(v)
+    setEditingEstimate(false)
+  }
 
   if (orderedTasks.length === 0) {
     return (
@@ -781,12 +917,28 @@ function ExecuteViewContent({ onClose, onJumpToRaw }: { onClose: () => void; onJ
 
   return (
     <View className="flex-1" style={{ backgroundColor: '#F5F5F5' }}>
+      {/* Day progress bar: 00:00 → 23:59 */}
+      <View style={{ height: 4, backgroundColor: '#E5E7EB' }}>
+        <View style={{ height: 4, backgroundColor: BLUE, width: `${dayProgressPct}%` }} />
+      </View>
+
       {/* Fixed header card */}
       <View>
         <View className="mx-4 mt-4 rounded-2xl p-6" style={{ gap: 12, backgroundColor: isRunning ? 'white' : '#FEF2F2' }}>
-          {/* Timer */}
-          <Text style={{ fontSize: 56, fontWeight: '800', color: isRunning ? '#1f2937' : '#DC2626', letterSpacing: 1, textAlign: 'center' }}>
-            {fmtClock(currentSeconds)}
+          {/* Arrow nav + timer */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Pressable hitSlop={12} onPress={prevTask} style={{ opacity: currentIndex === 0 ? 0.25 : 1 }}>
+              <ChevronLeft size={24} color="#6B7280" />
+            </Pressable>
+            <Text style={{ fontSize: 56, fontWeight: '800', color: isRunning ? '#1f2937' : '#DC2626', letterSpacing: 1, textAlign: 'center', minWidth: 140 }}>
+              {fmtClock(currentSeconds)}
+            </Text>
+            <Pressable hitSlop={12} onPress={nextTask} style={{ opacity: currentIndex >= orderedTasks.length - 1 ? 0.25 : 1 }}>
+              <ChevronRight size={24} color="#6B7280" />
+            </Pressable>
+          </View>
+          <Text style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', marginTop: -8 }}>
+            {currentIndex + 1} of {orderedTasks.length}
           </Text>
 
           {/* Editable title */}
@@ -834,33 +986,59 @@ function ExecuteViewContent({ onClose, onJumpToRaw }: { onClose: () => void; onJ
 
           {/* Chips: estimate, date, priority */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
-            <View className="rounded-full px-3 py-1" style={{ backgroundColor: '#EEF2FF' }}>
-              <Text className="text-xs font-medium" style={{ color: BLUE }}>
-                Est. {currentEntry?.estimateMin ?? DEFAULT_ESTIMATE}m
-              </Text>
-            </View>
 
+            {/* Estimate — inline editable */}
+            {currentEntry && (
+              editingEstimate ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: BLUE }}>
+                  <Text style={{ fontSize: 12, color: '#6B7280' }}>Est. </Text>
+                  <TextInput
+                    value={estimateDraft}
+                    onChangeText={setEstimateDraft}
+                    keyboardType="number-pad"
+                    autoFocus
+                    selectTextOnFocus
+                    onSubmitEditing={commitEstimate}
+                    onBlur={commitEstimate}
+                    style={{ fontSize: 12, fontWeight: '600', color: '#1a1a1a', minWidth: 24, maxWidth: 44 }}
+                  />
+                  <Text style={{ fontSize: 12, color: '#6B7280' }}>m</Text>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => { setEstimateDraft(String(currentEntry.estimateMin)); setEditingEstimate(true) }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB' }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '500', color: '#6B7280' }}>Est. {currentEntry.estimateMin}m</Text>
+                  <Pencil size={10} color="#D1D5DB" />
+                </Pressable>
+              )
+            )}
+
+            {/* Date chip */}
             {currentTask && (
               <Pressable
-                onPress={() => setShowDatePicker((v) => !v)}
+                onPress={() => { setShowDatePicker((v) => !v); setShowPriorityPicker(false) }}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: showDatePicker ? BLUE : '#D1D5DB', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 }}
               >
                 <Calendar size={11} color={currentTask.due ? (isPast(parseApiDate(currentTask.due)!) && !isToday(parseApiDate(currentTask.due)!) ? '#DC2626' : '#374151') : '#9ca3af'} />
                 <Text style={{ fontSize: 11, fontWeight: '500', color: currentTask.due ? (isPast(parseApiDate(currentTask.due)!) && !isToday(parseApiDate(currentTask.due)!) ? '#DC2626' : '#374151') : '#9ca3af' }}>
-                  {currentTask.due ? humanizeDueDate(currentTask.due) : 'No date'}
+                  {currentTask.due ? humanizeDueDate(currentTask.due) : 'Set date'}
                 </Text>
+                <Pencil size={10} color={showDatePicker ? BLUE : '#D1D5DB'} />
               </Pressable>
             )}
 
+            {/* Priority chip */}
             {currentTask && (
               <Pressable
-                onPress={() => setShowPriorityPicker((v) => !v)}
-                className="rounded-full px-3 py-1"
-                style={{ backgroundColor: currentTask.priority > 0 && currentTask.priority <= 10 ? (priorityRowBg(currentTask.priority) ?? '#f3f4f6') : '#f3f4f6', borderWidth: 1, borderColor: showPriorityPicker ? BLUE : 'transparent' }}
+                onPress={() => { setShowPriorityPicker((v) => !v); setShowDatePicker(false) }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: currentTask.priority > 0 && currentTask.priority <= 10 ? (priorityRowBg(currentTask.priority) ?? '#f3f4f6') : '#f3f4f6', borderWidth: 1, borderColor: showPriorityPicker ? BLUE : 'transparent' }}
               >
-                <Text className="text-xs font-bold" style={{ color: currentTask.priority > 0 && currentTask.priority <= 10 ? priorityTextColor(currentTask.priority) : '#9ca3af' }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: currentTask.priority > 0 && currentTask.priority <= 10 ? priorityTextColor(currentTask.priority) : '#9ca3af' }}>
                   {currentTask.priority > 0 && currentTask.priority <= 10 ? priorityDisplay(currentTask.priority) : 'No P'}
                 </Text>
+                <Pencil size={10} color={showPriorityPicker ? BLUE : '#D1D5DB'} />
               </Pressable>
             )}
           </ScrollView>
