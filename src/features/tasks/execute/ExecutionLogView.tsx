@@ -66,7 +66,7 @@ const bEnd   = (b: LogBlock) => bStart(b) + bDur(b)
 function overlaps(a: LogBlock, b: LogBlock): boolean {
   const aS = Math.round(bStart(a)), aE = Math.round(bEnd(a))
   const bS = Math.round(bStart(b)), bE = Math.round(bEnd(b))
-  return Math.min(aE, bE) - Math.max(aS, bS) > 1
+  return Math.min(aE, bE) - Math.max(aS, bS) > 0
 }
 
 /**
