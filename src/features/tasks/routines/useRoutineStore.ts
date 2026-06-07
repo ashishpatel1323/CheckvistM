@@ -24,6 +24,8 @@ interface RoutineStoreState {
   checkins: Record<number, CheckinLog[]>
   loading: boolean
   activeTimer: ActiveTimer | null
+  /** Remaining routine taskIds to auto-start once the current one finishes */
+  routineQueue: number[]
 
   loadRoutines: () => Promise<void>
   getCheckinForDate: (routineTaskId: number, date: string) => CheckinLog | undefined
@@ -32,6 +34,8 @@ interface RoutineStoreState {
   /** Toggle a single step done/undone for a given date (defaults to today) */
   toggleStep: (routine: RoutineDef, stepId: string, date?: string) => Promise<void>
   startTimer: (routine: RoutineDef) => void
+  /** Start the first routine and queue the rest to auto-start in sequence */
+  startQueue: (routines: RoutineDef[]) => void
   pauseTimer: () => void
   resumeTimer: () => void
   advanceStep: (action: 'done' | 'skip') => Promise<void>
@@ -48,6 +52,7 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
   checkins: {},
   loading: false,
   activeTimer: null,
+  routineQueue: [],
 
   loadRoutines: async () => {
     set({ loading: true })
@@ -138,6 +143,13 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
     })
   },
 
+  startQueue: (routinesToRun) => {
+    if (routinesToRun.length === 0) return
+    const [first, ...rest] = routinesToRun
+    set({ routineQueue: rest.map((r) => r.taskId) })
+    get().startTimer(first)
+  },
+
   pauseTimer: () => {
     const { activeTimer } = get()
     if (!activeTimer || activeTimer.pausedAt !== null) return
@@ -212,7 +224,23 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
     }
   },
 
-  stopTimer: () => set({ activeTimer: null }),
+  stopTimer: () => {
+    const { routines, getTodayCheckin } = get()
+    const queue = [...get().routineQueue]
+    while (queue.length > 0) {
+      const nextId = queue.shift()!
+      const nextRoutine = routines.find((r) => r.taskId === nextId)
+      if (!nextRoutine) continue
+      const completed = getTodayCheckin(nextRoutine.taskId)?.completedStepIds ?? []
+      const hasPending = nextRoutine.steps.some((s) => !completed.includes(s.id))
+      if (hasPending) {
+        set({ routineQueue: queue })
+        get().startTimer(nextRoutine)
+        return
+      }
+    }
+    set({ activeTimer: null, routineQueue: [] })
+  },
 
   upsertCheckin: async (log, routineName) => {
     try {

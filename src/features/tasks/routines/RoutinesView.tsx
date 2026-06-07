@@ -327,7 +327,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   const { width } = useWindowDimensions()
   const isMobile = width < 768
 
-  const { routines, checkins, loading, activeTimer, loadRoutines, toggleStep, startTimer, getTodayCheckin } = useRoutineStore()
+  const { routines, checkins, loading, activeTimer, loadRoutines, toggleStep, startQueue, getTodayCheckin } = useRoutineStore()
   const { saveRoutineDef, deleteRoutineDef } = useRoutineSystem()
 
   const [selectedDate, setSelectedDate] = useState(() => new Date())
@@ -335,7 +335,6 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   const [showOnlyPending, setShowOnlyPending] = useState(false)
   const [editingRoutine, setEditingRoutine] = useState<RoutineDef | 'new' | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
-  const [showRoutinePicker, setShowRoutinePicker] = useState(false)
 
   // Compute pending step counts for today per routine
   const todayPending = useMemo(() => {
@@ -354,11 +353,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
 
   const handleGlobalStart = () => {
     if (routinesWithPending.length === 0) return
-    if (routinesWithPending.length === 1) {
-      startTimer(routinesWithPending[0])
-    } else {
-      setShowRoutinePicker(true)
-    }
+    startQueue(routinesWithPending)
   }
 
   useEffect(() => { loadRoutines() }, [loadRoutines])
@@ -642,30 +637,6 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
 
       {/* Timer mode overlay */}
       {activeTimer && <TimerModeView />}
-
-      {/* Routine picker (shown when multiple routines have pending steps) */}
-      <Modal visible={showRoutinePicker} transparent animationType="fade" onRequestClose={() => setShowRoutinePicker(false)}>
-        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 32 }} onPress={() => setShowRoutinePicker(false)}>
-          <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 340 }}>
-            <Text style={{ fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 16 }}>Start which routine?</Text>
-            {routinesWithPending.map((r) => (
-              <Pressable
-                key={r.taskId}
-                onPress={() => { setShowRoutinePicker(false); startTimer(r) }}
-                style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 12,
-                  paddingVertical: 12, paddingHorizontal: 14,
-                  backgroundColor: '#F9FAFB', borderRadius: 12, marginBottom: 8,
-                }}
-              >
-                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: ROUTINE_COLORS[r.color] }} />
-                <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: '#111' }}>{r.name}</Text>
-                <Text style={{ fontSize: 12, color: '#9CA3AF' }}>{todayPending[r.taskId]} pending</Text>
-              </Pressable>
-            ))}
-          </View>
-        </Pressable>
-      </Modal>
 
       {/* Delete confirmation */}
       <Modal

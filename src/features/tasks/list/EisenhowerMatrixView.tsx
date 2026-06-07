@@ -5,6 +5,8 @@ import type { CheckvistTask } from '@/api/types'
 import { classifyPriority, type PriorityBucket, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
 import { classifyTask } from '@/lib/dateSort'
 import { useUpdateTask } from './useTasksQuery'
+import { useOrderedTaskGroup } from '@/features/tasks/shared/useOrderedTaskGroup'
+import { InlineMarkdown } from '@/components/InlineMarkdown'
 
 // Date filter options for the matrix view
 export type MatrixDateFilter = 'today' | 'tomorrow' | 'thisWeek' | 'overdue' | 'later' | 'noDueDate' | 'all'
@@ -291,23 +293,28 @@ interface MatrixTaskCardProps {
   onDragStart: () => void
   onLongPress: () => void
   showTimeBadge?: boolean
+  isCurrent?: boolean
+  isSelected?: boolean
+  onMouseDown?: (e: React.MouseEvent) => void
 }
 
-function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTimeBadge }: MatrixTaskCardProps) {
+function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTimeBadge, isCurrent, isSelected, onMouseDown }: MatrixTaskCardProps) {
   const dragRef = useDraggableRef(onDragStart)
   const timeBucket = showTimeBadge ? classifyTime(task) : null
 
   return (
     <View
       ref={dragRef}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {...(onMouseDown ? { onMouseDown } as any : {})}
       style={{
-        backgroundColor: 'white',
+        backgroundColor: isSelected ? '#EEF2FF' : isCurrent ? '#F5F7FF' : 'white',
         borderRadius: 6,
         paddingHorizontal: 8,
         paddingVertical: 6,
         marginBottom: 4,
-        borderLeftWidth: 3,
-        borderLeftColor: quadrantColor,
+        borderLeftWidth: isCurrent ? 4 : 3,
+        borderLeftColor: isCurrent ? '#4772FA' : quadrantColor,
         shadowColor: '#000',
         shadowOpacity: 0.04,
         shadowRadius: 2,
@@ -317,7 +324,7 @@ function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTim
     >
       <Pressable onLongPress={onLongPress} delayLongPress={400}>
         <Text style={{ fontSize: 13, color: '#1F2937', lineHeight: 18 }} numberOfLines={2}>
-          {task.content}
+          <InlineMarkdown content={task.content} />
         </Text>
         <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
           {task.priority > 0 && !showTimeBadge && (
@@ -346,6 +353,7 @@ function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTim
 interface MatrixQuadrantProps<TBucket extends string> {
   config: { bucket: TBucket; label: string; sublabel: string; color: string; bg: string; border: string; Icon: typeof Zap }
   tasks: CheckvistTask[]
+  checklistId: number
   isDropTarget: boolean
   onDragOver: () => void
   onDragLeave: () => void
@@ -356,16 +364,28 @@ interface MatrixQuadrantProps<TBucket extends string> {
 }
 
 function MatrixQuadrant<TBucket extends string>({
-  config, tasks, isDropTarget,
+  config, tasks, checklistId, isDropTarget,
   onDragOver, onDragLeave, onDrop,
   onCardDragStart, onMoveTo, showTimeBadge,
 }: MatrixQuadrantProps<TBucket>) {
   const dropRef = useDropZoneRef(onDragOver, onDragLeave, onDrop)
   const { Icon } = config
 
+  // Same keyboard navigation/reorder/selection model as the Execute tab,
+  // scoped to this quadrant's task list (order persisted via task `position`).
+  const { orderedTasks, currentIndex, selectedIndices, onItemMouseDown, onKeyDown, panelRef } =
+    useOrderedTaskGroup(tasks, checklistId)
+
+  const setRefs = (el: View | null) => {
+    (dropRef as React.MutableRefObject<View | null>).current = el
+    if (Platform.OS === 'web') panelRef.current = el as unknown as HTMLDivElement | null
+  }
+
   return (
     <View
-      ref={dropRef}
+      ref={setRefs}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {...(Platform.OS === 'web' ? { tabIndex: 0, onKeyDown } as any : {})}
       style={{
         flex: 1,
         backgroundColor: isDropTarget ? config.bg : 'white',
@@ -409,12 +429,12 @@ function MatrixQuadrant<TBucket extends string>({
       </View>
 
       <ScrollView style={{ flex: 1, padding: 8 }} showsVerticalScrollIndicator={false}>
-        {tasks.length === 0 ? (
+        {orderedTasks.length === 0 ? (
           <View style={{ paddingVertical: 20, alignItems: 'center' }}>
             <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Drop tasks here</Text>
           </View>
         ) : (
-          tasks.map((task) => (
+          orderedTasks.map((task, index) => (
             <MatrixTaskCard
               key={task.id}
               task={task}
@@ -422,6 +442,9 @@ function MatrixQuadrant<TBucket extends string>({
               onDragStart={() => onCardDragStart(task)}
               onLongPress={() => onMoveTo(task)}
               showTimeBadge={showTimeBadge}
+              isCurrent={index === currentIndex}
+              isSelected={selectedIndices.has(index)}
+              onMouseDown={Platform.OS === 'web' ? (e) => onItemMouseDown(e, index) : undefined}
             />
           ))
         )}
@@ -487,6 +510,7 @@ function TimeMatrixContent({ tasks, checklistId, isMobile, dateFilter }: TimeMat
       key={config.bucket}
       config={config}
       tasks={bucketTasks[config.bucket]}
+      checklistId={checklistId}
       isDropTarget={dropTarget === config.bucket}
       onDragOver={() => setDropTarget(config.bucket)}
       onDragLeave={() => setDropTarget(null)}
@@ -614,6 +638,7 @@ function PriorityMatrixContent({ tasks, checklistId, isMobile, dateFilter }: Pri
       key={config.bucket}
       config={config}
       tasks={quadrantTasks[config.bucket]}
+      checklistId={checklistId}
       isDropTarget={dropTarget === config.bucket}
       onDragOver={() => setDropTarget(config.bucket)}
       onDragLeave={() => setDropTarget(null)}

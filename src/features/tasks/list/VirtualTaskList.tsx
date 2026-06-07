@@ -5,6 +5,7 @@ import type { GroupedTasks } from '@/lib/dateSort'
 import type { TaskNode } from '@/lib/taskTree'
 import { TaskGroup } from './TaskGroup'
 import { useExpandedIds } from './useExpandedIds'
+import { useUpdateTask } from './useTasksQuery'
 
 interface VirtualTaskListProps {
   groups: GroupedTasks[]
@@ -31,6 +32,21 @@ function buildNodeMap(groups: GroupedTasks[]): Map<number, TaskNode> {
   return map
 }
 
+// Ordered sibling ids (by Checkvist `position`) sharing the focused task's parent —
+// used to swap-reorder with Cmd/Ctrl+Arrow, mirroring the Execute tab's reorder model.
+function siblingIds(nodeMap: Map<number, TaskNode>, groups: GroupedTasks[], taskId: number): number[] {
+  const node = nodeMap.get(taskId)
+  if (!node) return []
+  const parentId = node.parent_id
+  let pool: TaskNode[]
+  if (parentId != null && nodeMap.has(parentId)) {
+    pool = nodeMap.get(parentId)!.children
+  } else {
+    pool = groups.flatMap((g) => g.tasks).filter((t) => t.parent_id == null || !nodeMap.has(t.parent_id))
+  }
+  return [...pool].sort((a, b) => a.position - b.position).map((t) => t.id)
+}
+
 function scrollToTask(id: number) {
   setTimeout(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,6 +59,7 @@ export function VirtualTaskList({ groups, checklistId, isMobile, focusedId, setF
   const seed = useExpandedIds((s) => s.seed)
   const expand = useExpandedIds((s) => s.expand)
   const collapse = useExpandedIds((s) => s.collapse)
+  const { mutate: updateTask } = useUpdateTask(checklistId)
 
   // Seed expansion state from localStorage on mount
   useEffect(() => {
@@ -60,6 +77,30 @@ export function VirtualTaskList({ groups, checklistId, isMobile, focusedId, setF
     const { expanded } = useExpandedIds.getState()
     const nodeMap = buildNodeMap(groups)
     const ordered = flattenVisible(groups, expanded)
+
+    if (e.key === 'Escape') {
+      setFocusedId(null)
+      return
+    }
+
+    // Cmd/Ctrl+Up/Down: swap the focused task with its adjacent sibling and
+    // persist the new order — mirrors the Execute tab's reorder shortcut.
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && focusedId != null) {
+      e.preventDefault()
+      const sibs = siblingIds(nodeMap, groups, focusedId)
+      const idx = sibs.indexOf(focusedId)
+      const delta = e.key === 'ArrowUp' ? -1 : 1
+      const otherIdx = idx + delta
+      if (idx < 0 || otherIdx < 0 || otherIdx >= sibs.length) return
+      const taskA = nodeMap.get(sibs[idx])
+      const taskB = nodeMap.get(sibs[otherIdx])
+      if (!taskA || !taskB) return
+      const posA = taskA.position
+      const posB = taskB.position
+      updateTask({ taskId: taskA.id, payload: { position: posB } })
+      updateTask({ taskId: taskB.id, payload: { position: posA } })
+      return
+    }
 
     if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -90,7 +131,7 @@ export function VirtualTaskList({ groups, checklistId, isMobile, focusedId, setF
       e.preventDefault()
       router.push(`/${checklistId}/tasks/${focusedId}`)
     }
-  }, [groups, focusedId, setFocusedId, expand, collapse, router, checklistId])
+  }, [groups, focusedId, setFocusedId, expand, collapse, router, checklistId, updateTask])
 
   useEffect(() => {
     if (Platform.OS !== 'web') return

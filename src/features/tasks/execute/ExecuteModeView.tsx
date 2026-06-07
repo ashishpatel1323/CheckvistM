@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react'
-import { View, Text, Pressable, ScrollView, Platform, TextInput, Animated, Modal } from 'react-native'
-import { Play, Pause, Minus, Plus, Check, RotateCcw, Circle, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft, Maximize2, Network } from 'lucide-react-native'
+import { View, Text, Pressable, ScrollView, Platform, TextInput, Animated, Modal, useWindowDimensions } from 'react-native'
+import { Play, Pause, Minus, Plus, Check, RotateCcw, Circle, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft, Maximize2, Network, Clock } from 'lucide-react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import type { CheckvistTask } from '@/api/types'
 import { buildTaskTree } from '@/lib/taskTree'
@@ -20,7 +20,8 @@ import { hapticMedium } from '@/platform/haptics'
 import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
-import { isToday, isPast } from 'date-fns'
+import { InlineMarkdown } from '@/components/InlineMarkdown'
+import { isToday, isPast, format } from 'date-fns'
 
 const BLUE = '#4772FA'
 
@@ -63,7 +64,7 @@ function fmtClock(totalSeconds: number): string {
 
 // ─── Flip clock ───────────────────────────────────────────────────────────────
 
-function FlipDigit({ digit, size }: { digit: string; size: 'sm' | 'lg' | 'xl' }) {
+function FlipDigit({ digit, size }: { digit: string; size: 'sm' | 'md' | 'lg' | 'xl' }) {
   const prevDigit = useRef(digit)
   const flipAnim = useRef(new Animated.Value(0)).current
   const [flipping, setFlipping] = useState(false)
@@ -84,9 +85,9 @@ function FlipDigit({ digit, size }: { digit: string; size: 'sm' | 'lg' | 'xl' })
     }).start(() => setFlipping(false))
   }, [digit, flipAnim])
 
-  const cardW = size === 'xl' ? 80 : size === 'lg' ? 52 : 28
-  const cardH = size === 'xl' ? 110 : size === 'lg' ? 72 : 40
-  const fontSize = size === 'xl' ? 68 : size === 'lg' ? 44 : 24
+  const cardW = size === 'xl' ? 80 : size === 'lg' ? 52 : size === 'md' ? 36 : 28
+  const cardH = size === 'xl' ? 110 : size === 'lg' ? 72 : size === 'md' ? 50 : 40
+  const fontSize = size === 'xl' ? 68 : size === 'lg' ? 44 : size === 'md' ? 28 : 24
 
   // Top half rotates away (0 → -90deg), bottom half reveals (90 → 0deg)
   const topRotate = flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-90deg'] })
@@ -158,15 +159,15 @@ function FlipDigit({ digit, size }: { digit: string; size: 'sm' | 'lg' | 'xl' })
   )
 }
 
-function FlipClock({ totalSeconds, color, size = 'lg' }: { totalSeconds: number; color?: string; size?: 'sm' | 'lg' | 'xl' }) {
+function FlipClock({ totalSeconds, color, size = 'lg' }: { totalSeconds: number; color?: string; size?: 'sm' | 'md' | 'lg' | 'xl' }) {
   const m = Math.floor(totalSeconds / 60)
   const s = totalSeconds % 60
   const m0 = String(Math.floor(m / 10))
   const m1 = String(m % 10)
   const s0 = String(Math.floor(s / 10))
   const s1 = String(s % 10)
-  const gap = size === 'xl' ? 8 : size === 'lg' ? 5 : 3
-  const sepSize = size === 'xl' ? 44 : size === 'lg' ? 28 : 16
+  const gap = size === 'xl' ? 8 : size === 'lg' ? 5 : size === 'md' ? 4 : 3
+  const sepSize = size === 'xl' ? 44 : size === 'lg' ? 28 : size === 'md' ? 20 : 16
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap }}>
       <FlipDigit digit={m0} size={size} />
@@ -181,6 +182,14 @@ function FlipClock({ totalSeconds, color, size = 'lg' }: { totalSeconds: number;
 function fmtMins(seconds: number): string {
   const m = Math.round(seconds / 60)
   return `${m}m`
+}
+
+function fmtDuration(seconds: number): string {
+  const totalMin = Math.round(seconds / 60)
+  if (totalMin < 60) return `${totalMin}m`
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return m > 0 ? `${h}h ${m}m` : `${h}h`
 }
 
 // ─── Full-screen counter modal ────────────────────────────────────────────────
@@ -203,7 +212,7 @@ function FullScreenCounterModal({ onClose }: { onClose: () => void }) {
         {/* Task name */}
         {currentTask && (
           <Text style={{ fontSize: 17, color: 'rgba(255,255,255,0.65)', textAlign: 'center', paddingHorizontal: 48, lineHeight: 24 }} numberOfLines={2}>
-            {currentTask.content}
+            <InlineMarkdown content={currentTask.content} />
           </Text>
         )}
 
@@ -274,7 +283,6 @@ interface ExecCtxValue {
   completedCount: number
   totalActualSeconds: number
   totalEstimateSeconds: number
-  dayProgressPct: number
   getEntry: (taskId: number) => ExecuteLogEntry | undefined
   entries: Record<string, ExecuteLogEntry>
   timerRunningKey: string | null
@@ -415,7 +423,6 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
     ? liveSeconds(currentEntry, timerRunningKey, timerStartedAt, currentKey)
     : 0
 
-  const dayProgressPct = ((now.getHours() * 60 + now.getMinutes()) / (24 * 60)) * 100
   const completedCount = orderedTasks.filter((t) => getEntry(t.id)?.completedAt).length
   const totalActualSeconds = orderedTasks.reduce((sum, t) => {
     const e = getEntry(t.id)
@@ -458,7 +465,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
   const value: ExecCtxValue = {
     orderedTasks, orderedIds, setOrderedIds, currentIndex, setCurrentIndex,
     currentTask, currentKey, currentEntry, isRunning, currentSeconds,
-    completedCount, totalActualSeconds, totalEstimateSeconds, dayProgressPct, getEntry,
+    completedCount, totalActualSeconds, totalEstimateSeconds, getEntry,
     entries, timerRunningKey, timerStartedAt,
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
@@ -476,7 +483,7 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
     currentTask, currentSeconds, isRunning, currentEntry,
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
-    completedCount, orderedTasks, totalActualSeconds, totalEstimateSeconds, dayProgressPct,
+    completedCount, orderedTasks, totalActualSeconds, totalEstimateSeconds,
     currentIndex,
     togglePlay, adjust, setEstimateDirect, complete, resetCurrent, prevTask, nextTask, updateTask, checklistId,
   } = useExecCtx()
@@ -560,7 +567,7 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
               <View style={{ gap: 2 }}>
                 <Pressable onPress={() => { setTitleDraft(currentTask.content); setEditingTitle(true) }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
-                    {currentTask.content}
+                    <InlineMarkdown content={currentTask.content} />
                   </Text>
                   <Pencil size={11} color="#D1D5DB" />
                 </Pressable>
@@ -981,7 +988,7 @@ export function ExecuteTaskList() {
                 textDecorationLine: isDone ? 'line-through' : 'none',
                 fontWeight: isCurrent ? '600' : '400',
               }} numberOfLines={1}>
-                {t.content}
+                <InlineMarkdown content={t.content} />
               </Text>
               {/* Time badge */}
               <View style={{
@@ -1068,57 +1075,6 @@ interface ExecuteModeViewProps {
 
 // ─── Animated day progress bar ────────────────────────────────────────────────
 
-function DayProgressBar({ pct }: { pct: number }) {
-  const [barWidth, setBarWidth] = useState(0)
-  const shimmer = useRef(new Animated.Value(0)).current
-  const STREAK = 80 // px width of the shimmer streak
-
-  useEffect(() => {
-    if (barWidth <= 0) return
-    shimmer.setValue(0)
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmer, {
-          toValue: 1,
-          duration: 1400,
-          useNativeDriver: true,
-        }),
-        Animated.timing(shimmer, {
-          toValue: 0,
-          duration: 1400,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start()
-  }, [shimmer, barWidth])
-
-  const translateX = shimmer.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-STREAK, barWidth + STREAK],
-  })
-
-  return (
-    <View style={{ height: 6, backgroundColor: '#E5E7EB', overflow: 'hidden' }}>
-      <View
-        style={{ height: 6, width: `${pct}%`, backgroundColor: BLUE, overflow: 'hidden' }}
-        onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
-      >
-        {/* Shimmer streak — bright angled highlight bouncing back and forth */}
-        <Animated.View
-          style={{
-            position: 'absolute',
-            top: -2,
-            bottom: -2,
-            width: STREAK,
-            transform: [{ translateX }, { skewX: '-20deg' }],
-            backgroundColor: 'rgba(255,255,255,0.45)',
-          }}
-        />
-      </View>
-    </View>
-  )
-}
-
 export function ExecuteModeView({ tasks, checklistId, onClose, onJumpToRaw, onJumpToMindmap }: ExecuteModeViewProps) {
   return (
     <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={onJumpToRaw} onJumpToMindmap={onJumpToMindmap}>
@@ -1130,12 +1086,28 @@ export function ExecuteModeView({ tasks, checklistId, onClose, onJumpToRaw, onJu
 function ExecuteViewContent({ onClose }: { onClose: () => void }) {
   const {
     currentTask, currentSeconds, isRunning, currentEntry, orderedTasks,
-    completedCount, totalActualSeconds, totalEstimateSeconds, dayProgressPct, currentIndex,
+    currentIndex,
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
     togglePlay, adjust, setEstimateDirect, complete, resetCurrent, prevTask, nextTask, updateTask, checklistId,
-    onJumpToRaw,
+    onJumpToRaw, entries, timerRunningKey, timerStartedAt,
   } = useExecCtx()
+
+  const { width } = useWindowDimensions()
+  const isMobile = width < 768
+
+  const todayStr = useMemo(() => format(new Date(), 'yyyy-MM-dd'), [])
+  const { sessionCount, sessionTotalSeconds } = useMemo(() => {
+    let count = 0
+    let total = 0
+    for (const [key, entry] of Object.entries(entries)) {
+      const parts = key.split(':')
+      if (parts.length < 3 || parts[1] !== todayStr || !entry.startedAt) continue
+      count += 1
+      total += liveSeconds(entry, timerRunningKey, timerStartedAt, key)
+    }
+    return { sessionCount: count, sessionTotalSeconds: total }
+  }, [entries, timerRunningKey, timerStartedAt, todayStr])
 
   const [editingEstimate, setEditingEstimate] = useState(false)
   const [estimateDraft, setEstimateDraft] = useState('')
@@ -1157,28 +1129,30 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
 
   return (
     <View className="flex-1" style={{ backgroundColor: '#F5F5F5' }}>
-      {/* Day progress bar: 00:00 → 23:59 with shimmer */}
-      <DayProgressBar pct={dayProgressPct} />
-
       {/* Fixed header card */}
       <View>
-        <View className="mx-4 mt-4 rounded-2xl p-6" style={{ gap: 12, backgroundColor: isRunning ? 'white' : '#FEF2F2' }}>
-          {/* Arrow nav + timer */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <View
+          className={isMobile ? 'mx-4 mt-3 rounded-2xl px-4 py-3' : 'mx-4 mt-4 rounded-2xl p-6'}
+          style={{ gap: isMobile ? 8 : 12, backgroundColor: isRunning ? 'white' : '#FEF2F2' }}
+        >
+          {/* Arrow nav + timer + position pill */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: isMobile ? 6 : 8 }}>
             <Pressable hitSlop={12} onPress={prevTask} style={{ opacity: currentIndex === 0 ? 0.25 : 1 }}>
-              <ChevronLeft size={24} color="#6B7280" />
+              <ChevronLeft size={isMobile ? 20 : 24} color="#6B7280" />
             </Pressable>
             <Pressable onPress={() => setShowFullScreen(true)}>
-              <FlipClock totalSeconds={currentSeconds} color={isRunning ? '#1a1a1a' : '#DC2626'} size="lg" />
+              <FlipClock totalSeconds={currentSeconds} color={isRunning ? '#1a1a1a' : '#DC2626'} size={isMobile ? 'md' : 'lg'} />
             </Pressable>
             <Pressable hitSlop={12} onPress={nextTask} style={{ opacity: currentIndex >= orderedTasks.length - 1 ? 0.25 : 1 }}>
-              <ChevronRight size={24} color="#6B7280" />
+              <ChevronRight size={isMobile ? 20 : 24} color="#6B7280" />
             </Pressable>
+            <View style={{ position: 'absolute', right: 0, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: 'rgba(107,114,128,0.1)' }}>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: '#9ca3af' }}>
+                {currentIndex + 1}/{orderedTasks.length}
+              </Text>
+            </View>
           </View>
           {showFullScreen && <FullScreenCounterModal onClose={() => setShowFullScreen(false)} />}
-          <Text style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', marginTop: -8 }}>
-            {currentIndex + 1} of {orderedTasks.length}
-          </Text>
 
           {/* Editable title */}
           {currentTask && (
@@ -1216,7 +1190,7 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
                 style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >
                 <Text className="text-base font-semibold text-center" style={{ color: '#222', flex: 1 }} numberOfLines={2}>
-                  {currentTask.content}
+                  <InlineMarkdown content={currentTask.content} />
                 </Text>
                 <Pencil size={13} color="#9ca3af" />
               </Pressable>
@@ -1301,15 +1275,15 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
           )}
 
           {/* Timer controls */}
-          <View className="flex-row items-center justify-center mt-2" style={{ gap: 20 }}>
-            <Pressable hitSlop={8} onPress={resetCurrent}><RotateCcw size={24} color="#9ca3af" /></Pressable>
-            <Pressable hitSlop={8} onPress={() => adjust(-ESTIMATE_STEP)}><Minus size={28} color="#666" /></Pressable>
-            <Pressable onPress={togglePlay} className="items-center justify-center rounded-full" style={{ width: 64, height: 64, backgroundColor: '#1f2937' }}>
-              {isRunning ? <Pause size={28} color="white" /> : <Play size={28} color="white" />}
+          <View className={isMobile ? 'flex-row items-center justify-center mt-1' : 'flex-row items-center justify-center mt-2'} style={{ gap: isMobile ? 16 : 20 }}>
+            <Pressable hitSlop={8} onPress={resetCurrent}><RotateCcw size={isMobile ? 20 : 24} color="#9ca3af" /></Pressable>
+            <Pressable hitSlop={8} onPress={() => adjust(-ESTIMATE_STEP)}><Minus size={isMobile ? 24 : 28} color="#666" /></Pressable>
+            <Pressable onPress={togglePlay} className="items-center justify-center rounded-full" style={{ width: isMobile ? 52 : 64, height: isMobile ? 52 : 64, backgroundColor: '#1f2937' }}>
+              {isRunning ? <Pause size={isMobile ? 22 : 28} color="white" /> : <Play size={isMobile ? 22 : 28} color="white" />}
             </Pressable>
-            <Pressable hitSlop={8} onPress={() => adjust(ESTIMATE_STEP)}><Plus size={28} color="#666" /></Pressable>
-            <Pressable hitSlop={8} onPress={complete} className="items-center justify-center rounded-full" style={{ width: 40, height: 40, backgroundColor: '#16A34A' }}>
-              <Check size={22} color="white" />
+            <Pressable hitSlop={8} onPress={() => adjust(ESTIMATE_STEP)}><Plus size={isMobile ? 24 : 28} color="#666" /></Pressable>
+            <Pressable hitSlop={8} onPress={complete} className="items-center justify-center rounded-full" style={{ width: isMobile ? 36 : 40, height: isMobile ? 36 : 40, backgroundColor: '#16A34A' }}>
+              <Check size={isMobile ? 18 : 22} color="white" />
             </Pressable>
           </View>
 
@@ -1336,24 +1310,18 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
           )}
         </View>
 
-        <View className="mx-4 mt-4" style={{ gap: 10 }}>
-          <View style={{ gap: 4 }}>
-            <View className="flex-row justify-between">
-              <Text className="text-xs font-medium" style={{ color: '#6B7280' }}>Tasks done</Text>
-              <Text className="text-xs font-semibold" style={{ color: '#374151' }}>{completedCount}/{orderedTasks.length}</Text>
-            </View>
-            <View className="rounded-full overflow-hidden" style={{ height: 8, backgroundColor: '#E5E7EB' }}>
-              <View className="rounded-full" style={{ height: 8, backgroundColor: '#22C55E', width: orderedTasks.length > 0 ? `${Math.round((completedCount / orderedTasks.length) * 100)}%` : '0%' }} />
-            </View>
+        <View
+          className={isMobile ? 'mx-4 mt-3 rounded-2xl px-4 py-3 flex-row items-center' : 'mx-4 mt-4 rounded-2xl px-6 py-4 flex-row items-center'}
+          style={{ backgroundColor: 'white', gap: 12 }}
+        >
+          <View className="items-center justify-center rounded-full" style={{ width: 40, height: 40, backgroundColor: '#EEF2FF' }}>
+            <Clock size={18} color={BLUE} />
           </View>
-          <View style={{ gap: 4 }}>
-            <View className="flex-row justify-between">
-              <Text className="text-xs font-medium" style={{ color: '#6B7280' }}>Time spent</Text>
-              <Text className="text-xs font-semibold" style={{ color: '#374151' }}>{fmtMins(totalActualSeconds)}/{fmtMins(totalEstimateSeconds)}</Text>
-            </View>
-            <View className="rounded-full overflow-hidden" style={{ height: 8, backgroundColor: '#E5E7EB' }}>
-              <View className="rounded-full" style={{ height: 8, backgroundColor: totalActualSeconds > totalEstimateSeconds ? '#EF4444' : BLUE, width: totalEstimateSeconds > 0 ? `${Math.min(Math.round((totalActualSeconds / totalEstimateSeconds) * 100), 100)}%` : '0%' }} />
-            </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text className="text-xs font-medium" style={{ color: '#9ca3af' }}>Today's sessions</Text>
+            <Text className="text-sm font-semibold" style={{ color: '#374151' }}>
+              {sessionCount} {sessionCount === 1 ? 'session' : 'sessions'} · {fmtDuration(sessionTotalSeconds)}
+            </Text>
           </View>
         </View>
       </View>

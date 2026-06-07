@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, TextInput, Modal, useWindowDimension
 import { useExecuteLog, type ExecuteLogEntry } from './useExecuteLog'
 import { useSystemLog } from './useSystemLog'
 import { format, parseISO, addDays, subDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth, isToday } from 'date-fns'
-import { Cloud, ChevronLeft, ChevronRight, Calendar } from 'lucide-react-native'
+import { Cloud, ChevronLeft, ChevronRight, Calendar, CalendarDays, List } from 'lucide-react-native'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -344,12 +344,57 @@ function CalendarPicker({ selected, onSelect, onClose }: {
   )
 }
 
+// ─── Agenda list view ─────────────────────────────────────────────────────────
+
+function AgendaList({ blocks, taskNames, onPressBlock }: {
+  blocks: LogBlock[]; taskNames: Record<number, string>; onPressBlock: (b: LogBlock) => void
+}) {
+  const sorted = [...blocks].sort((a, b) => bStart(a) - bStart(b))
+
+  if (sorted.length === 0) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 64 }}>
+        <Text style={{ fontSize: 13, color: '#9CA3AF' }}>No sessions recorded for this day.</Text>
+      </View>
+    )
+  }
+
+  return (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 8 }} showsVerticalScrollIndicator={false}>
+      {sorted.map(block => (
+        <Pressable
+          key={block.key}
+          onPress={() => onPressBlock(block)}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 12,
+            backgroundColor: 'white', borderRadius: 10, padding: 12,
+            borderLeftWidth: 3, borderLeftColor: '#4772FA',
+            shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },
+          }}
+        >
+          <View style={{ width: 64 }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#374151' }}>{fmtMinTime(bStart(block))}</Text>
+            <Text style={{ fontSize: 10, color: '#9CA3AF' }}>{fmtMinTime(bEnd(block))}</Text>
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '600', color: '#1e3a8a' }}>
+              {taskNames[block.taskId] ?? `Task ${block.taskId}`}
+            </Text>
+            <Text style={{ fontSize: 11, color: '#6B7280' }}>{fmtDur(bDur(block))}</Text>
+          </View>
+        </Pressable>
+      ))}
+    </ScrollView>
+  )
+}
+
 export function ExecutionLogView({ checklistId, taskNames }: { checklistId: number; taskNames: Record<number, string> }) {
   const { entries, timerRunningKey, timerStartedAt } = useExecuteLog()
   const { remoteSessions, fetchTodaySessions, systemListId, addManualSession } = useSystemLog()
   const [now, setNow]           = useState(() => new Date())
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [showCalendar, setShowCalendar] = useState(false)
+  const [viewMode, setViewMode] = useState<'calendar' | 'agenda'>('calendar')
   const scrollRef               = useRef<ScrollView>(null)
   const [overrides, setOverrides] = useState<Record<string, { startMin?: number; durationMin?: number }>>({})
   const [editingBlock, setEditingBlock] = useState<LogBlock | null>(null)
@@ -485,6 +530,21 @@ export function ExecutionLogView({ checklistId, taskNames }: { checklistId: numb
           <ChevronRight size={16} color="#374151" />
         </Pressable>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {/* Calendar / Agenda toggle */}
+          <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderRadius: 8, padding: 2 }}>
+            <Pressable
+              onPress={() => setViewMode('calendar')}
+              style={{ paddingHorizontal: 6, paddingVertical: 4, borderRadius: 6, backgroundColor: viewMode === 'calendar' ? 'white' : 'transparent' }}
+            >
+              <CalendarDays size={13} color={viewMode === 'calendar' ? '#4772FA' : '#9CA3AF'} />
+            </Pressable>
+            <Pressable
+              onPress={() => setViewMode('agenda')}
+              style={{ paddingHorizontal: 6, paddingVertical: 4, borderRadius: 6, backgroundColor: viewMode === 'agenda' ? 'white' : 'transparent' }}
+            >
+              <List size={13} color={viewMode === 'agenda' ? '#4772FA' : '#9CA3AF'} />
+            </Pressable>
+          </View>
           <Cloud size={13} color={syncing ? '#9CA3AF' : systemListId ? '#4772FA' : '#D1D5DB'} />
           {allBlocks.length > 0 && (
             <View style={{ backgroundColor: '#EEF2FF', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20 }}>
@@ -534,6 +594,9 @@ export function ExecutionLogView({ checklistId, taskNames }: { checklistId: numb
         />
       )}
 
+      {viewMode === 'agenda' ? (
+        <AgendaList blocks={allBlocks} taskNames={taskNames} onPressBlock={setEditingBlock} />
+      ) : (
       <ScrollView ref={scrollRef} style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         <View style={{ flexDirection: 'row', height: 24 * HOUR_H + 32 }}>
 
@@ -640,6 +703,7 @@ export function ExecutionLogView({ checklistId, taskNames }: { checklistId: numb
           </Pressable>
         </View>
       </ScrollView>
+      )}
 
       {addingAt !== null && (
         <AddEntryModal

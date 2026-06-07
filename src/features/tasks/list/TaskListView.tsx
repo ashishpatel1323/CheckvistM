@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X } from 'lucide-react-native'
+import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical } from 'lucide-react-native'
 import { useTasksQuery } from './useTasksQuery'
 import { buildTaskTree } from '@/lib/taskTree'
 import { groupTasksByDate } from '@/lib/dateSort'
@@ -13,6 +13,8 @@ import { MindMapView } from './MindMapView'
 import { SearchView } from '@/features/tasks/search/SearchView'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useTaskView } from './useTaskView'
+import { useTabBarConfig, PINNED_TAB_COUNT } from './useTabBarConfig'
+import { BottomSheet } from '@/components/BottomSheet'
 import { ChecklistSwitcher } from '@/features/checklists/ChecklistSwitcher'
 import { useCreateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
@@ -111,6 +113,9 @@ interface Sparkle {
 }
 
 function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () => void }) {
+  const pctIdx = timeStr.indexOf(' (')
+  const timeLabel = pctIdx === -1 ? timeStr : timeStr.slice(0, pctIdx)
+  const pctLabel = pctIdx === -1 ? '' : timeStr.slice(pctIdx + 1)
   const { width, height } = useWindowDimensions()
   const scaleAnim = useRef(new Animated.Value(0)).current
   const opacityAnim = useRef(new Animated.Value(0)).current
@@ -213,7 +218,8 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
               textShadowOffset: { width: 0, height: 0 },
               textShadowRadius: 40,
             }}>
-              {timeStr}
+              {timeLabel}{' '}
+              <Text style={{ fontSize: 32, fontWeight: '700', letterSpacing: -1 }}>{pctLabel}</Text>
             </Text>
             <Text style={{ fontSize: 15, color: 'rgba(255,255,255,0.45)', marginTop: 4, letterSpacing: 3 }}>
               TAP TO CLOSE
@@ -222,47 +228,6 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
         </Animated.View>
       </TouchableWithoutFeedback>
     </Modal>
-  )
-}
-
-// ─── Shimmer bar ──────────────────────────────────────────────────────────────
-
-function ShimmerBar({ pct, color }: { pct: number; color: string }) {
-  const [width, setWidth] = useState(0)
-  const anim = useRef(new Animated.Value(0)).current
-  const STREAK = 60
-
-  useEffect(() => {
-    if (width <= 0) return
-    anim.setValue(0)
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(anim, { toValue: 1, duration: 1600, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 0, duration: 1600, useNativeDriver: true }),
-      ])
-    ).start()
-  }, [anim, width])
-
-  const translateX = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-STREAK, width + STREAK],
-  })
-
-  return (
-    <View
-      style={{ height: '100%', width: `${pct}%`, borderRadius: 3, backgroundColor: color, overflow: 'hidden' }}
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-    >
-      <Animated.View
-        style={{
-          position: 'absolute',
-          top: 0, bottom: 0,
-          width: STREAK,
-          backgroundColor: 'rgba(255,255,255,0.5)',
-          transform: [{ translateX }, { skewX: '-15deg' }],
-        }}
-      />
-    </View>
   )
 }
 
@@ -295,7 +260,9 @@ function DailyProgressBar() {
   const minutes = now.getMinutes()
   const ampm = hours >= 12 ? 'PM' : 'AM'
   const displayHour = hours % 12 || 12
-  const timeStr = `${displayHour}:${String(minutes).padStart(2, '0')} ${ampm} (${pct.toFixed(2)}%)`
+  const timeLabel = `${displayHour}:${String(minutes).padStart(2, '0')} ${ampm}`
+  const pctLabel = `(${pct.toFixed(2)}%)`
+  const timeStr = `${timeLabel} ${pctLabel}`
 
   const beforeDay = elapsedSeconds < 0
   const afterDay = elapsedSeconds >= totalSeconds
@@ -345,12 +312,19 @@ function DailyProgressBar() {
             position: 'absolute',
             left: `${labelLeft}%` as unknown as number,
             top: 0,
-            transform: [{ translateX: -20 }],
+            width: 110,
+            transform: [{ translateX: -55 }],
             zIndex: 10,
+            alignItems: 'center',
           }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: barColor, letterSpacing: 0.1 }}>
-              {timeStr}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: barColor, letterSpacing: 0.1 }} numberOfLines={1}>
+                {timeLabel}
+              </Text>
+              <Text style={{ fontSize: 9, fontWeight: '600', color: barColor }} numberOfLines={1}>
+                {pctLabel}
+              </Text>
+            </View>
           </View>
         )}
 
@@ -358,7 +332,7 @@ function DailyProgressBar() {
 
         {/* Track */}
         <View style={{ height: 4, backgroundColor: '#F3F4F6', borderRadius: 2, overflow: 'hidden' }}>
-          <ShimmerBar pct={pct} color={barColor} />
+          <View style={{ height: '100%', width: `${pct}%`, borderRadius: 3, backgroundColor: barColor }} />
         </View>
 
         {/* Quarter-hour tick marks */}
@@ -436,6 +410,18 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
   const [newTaskText, setNewTaskText] = useState('')
   const [focusedId, setFocusedId] = useState<number | null>(null)
 const { view, setView, focusedTaskId } = useTaskView()
+  const { order: tabOrder, moveTab } = useTabBarConfig()
+  const [showMoreSheet, setShowMoreSheet] = useState(false)
+  const [customizing, setCustomizing] = useState(false)
+
+  const orderedTabs = useMemo(
+    () => tabOrder.map((key) => TABS.find((t) => t.key === key)).filter((t): t is (typeof TABS)[number] => !!t),
+    [tabOrder]
+  )
+  const pinnedTabs = orderedTabs.slice(0, PINNED_TAB_COUNT)
+  const overflowTabs = orderedTabs.slice(PINNED_TAB_COUNT)
+  const isOverflowActive = overflowTabs.some((t) => t.key === view)
+
   const { mutate: createTask, isPending } = useCreateTask(checklistId)
   const toast = useToast()
   const { activeChecklistId } = useActiveChecklist()
@@ -754,7 +740,7 @@ const { view, setView, focusedTaskId } = useTaskView()
             elevation: 12,
           }}
         >
-          {TABS.map(({ key, icon: Icon, label }) => {
+          {pinnedTabs.map(({ key, icon: Icon, label }) => {
             const active = view === key
             return (
               <Pressable
@@ -779,7 +765,105 @@ const { view, setView, focusedTaskId } = useTaskView()
               </Pressable>
             )
           })}
+
+          {/* More tab — opens sheet with remaining + customizable order */}
+          <Pressable
+            onPress={() => setShowMoreSheet(true)}
+            className="flex-1 items-center justify-center gap-0.5"
+            style={{ paddingBottom: 6 }}
+          >
+            <MoreHorizontal size={22} color={isOverflowActive ? BLUE : INACTIVE} />
+            <Text
+              className="text-xs font-medium"
+              style={{ color: isOverflowActive ? BLUE : INACTIVE, fontSize: 10 }}
+            >
+              More
+            </Text>
+            {isOverflowActive && (
+              <View
+                className="absolute top-0 rounded-b-full"
+                style={{ height: 3, width: 28, backgroundColor: BLUE }}
+              />
+            )}
+          </Pressable>
         </View>
+      )}
+
+      {/* ── More / customize tabs sheet (mobile only) ───────────── */}
+      {isMobile && (
+        <BottomSheet
+          open={showMoreSheet}
+          onClose={() => { setShowMoreSheet(false); setCustomizing(false) }}
+          title={customizing ? 'Reorder tabs' : 'More'}
+        >
+          <View style={{ gap: 4 }}>
+            {orderedTabs.map(({ key, icon: Icon, label }, idx) => {
+              const active = view === key
+              const pinned = idx < PINNED_TAB_COUNT
+              return (
+                <Pressable
+                  key={key}
+                  onPress={() => {
+                    if (customizing) return
+                    setView(key)
+                    if (showFabInput) setShowFabInput(false)
+                    setShowMoreSheet(false)
+                  }}
+                  className="flex-row items-center px-3 py-2.5 rounded-xl"
+                  style={{ backgroundColor: active && !customizing ? '#EEF2FF' : 'transparent', gap: 12 }}
+                >
+                  {customizing && <GripVertical size={16} color="#D1D5DB" />}
+                  <Icon size={20} color={active && !customizing ? BLUE : '#666'} />
+                  <Text
+                    className="flex-1 text-sm font-medium"
+                    style={{ color: active && !customizing ? BLUE : '#333' }}
+                  >
+                    {label}
+                  </Text>
+                  {!customizing && pinned && (
+                    <Text className="text-xs" style={{ color: '#9ca3af' }}>Pinned</Text>
+                  )}
+                  {customizing && (
+                    <View className="flex-row items-center" style={{ gap: 4 }}>
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => moveTab(key, 'up')}
+                        disabled={idx === 0}
+                        style={{ opacity: idx === 0 ? 0.3 : 1, padding: 4 }}
+                      >
+                        <ChevronUp size={18} color="#666" />
+                      </Pressable>
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => moveTab(key, 'down')}
+                        disabled={idx === orderedTabs.length - 1}
+                        style={{ opacity: idx === orderedTabs.length - 1 ? 0.3 : 1, padding: 4 }}
+                      >
+                        <ChevronDown size={18} color="#666" />
+                      </Pressable>
+                    </View>
+                  )}
+                </Pressable>
+              )
+            })}
+          </View>
+
+          {customizing && (
+            <Text className="text-xs mt-2 px-1" style={{ color: '#9ca3af' }}>
+              The first {PINNED_TAB_COUNT} tabs appear in the bottom bar. Reorder to change which ones are pinned.
+            </Text>
+          )}
+
+          <Pressable
+            onPress={() => setCustomizing((v) => !v)}
+            className="items-center justify-center mt-3 py-2.5 rounded-xl"
+            style={{ backgroundColor: '#F5F5F5' }}
+          >
+            <Text className="text-sm font-semibold" style={{ color: BLUE }}>
+              {customizing ? 'Done' : 'Customize tab order'}
+            </Text>
+          </Pressable>
+        </BottomSheet>
       )}
     </View>
   )
