@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { View, Text, Pressable, ScrollView, TextInput, useWindowDimensions, Platform, Modal } from 'react-native'
-import Svg, { Path, Rect, Text as SvgText } from 'react-native-svg'
+import Svg, { Path, Rect, Text as SvgText, TSpan } from 'react-native-svg'
 import type { CheckvistTask } from '@/api/types'
 import type { TaskNode } from '@/lib/taskTree'
 import { buildTaskTree } from '@/lib/taskTree'
@@ -30,6 +30,50 @@ const CHAR_W_NODE = 6.0 // approx proportional char width at NODE_FONT
 const CHAR_W_ROOT = 6.8 // approx proportional char width at ROOT_FONT
 
 const MAX_LINES = 3
+
+// ─── Markdown SVG spans ───────────────────────────────────────────────────────
+// Parse a single line of markdown into styled TSpan segments
+type MdSpan = { text: string; bold?: boolean; italic?: boolean; strike?: boolean }
+
+function parseMdLine(line: string): MdSpan[] {
+  const spans: MdSpan[] = []
+  // Regex: bold (**), italic (*), strikethrough (~~)
+  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|~~(.+?)~~|([^*~]+))/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(line)) !== null) {
+    if (m[2] != null)      spans.push({ text: m[2], bold: true })
+    else if (m[3] != null) spans.push({ text: m[3], italic: true })
+    else if (m[4] != null) spans.push({ text: m[4], strike: true })
+    else if (m[5] != null) spans.push({ text: m[5] })
+  }
+  return spans.length ? spans : [{ text: line }]
+}
+
+// Render a single SVG text line with inline markdown styling
+function MdSvgLine({ line, x, y, fontSize, baseFill }: {
+  line: string; x: number; y: number; fontSize: number; baseFill: string
+}) {
+  const spans = parseMdLine(line)
+  if (spans.length === 1 && !spans[0].bold && !spans[0].italic && !spans[0].strike) {
+    return (
+      <SvgText x={x} y={y} textAnchor="middle" fontSize={fontSize} fill={baseFill}>
+        {spans[0].text}
+      </SvgText>
+    )
+  }
+  return (
+    <SvgText x={x} y={y} textAnchor="middle" fontSize={fontSize} fill={baseFill}>
+      {spans.map((s, i) => (
+        <TSpan
+          key={i}
+          fontWeight={s.bold ? 'bold' : 'normal'}
+          fontStyle={s.italic ? 'italic' : 'normal'}
+          textDecoration={s.strike ? 'line-through' : 'none'}
+        >{s.text}</TSpan>
+      ))}
+    </SvgText>
+  )
+}
 
 function wrapText(text: string, boxWidth: number, charW: number): string[] {
   const maxChars = Math.max(1, Math.floor((boxWidth - NODE_PAD_H * 2) / charW))
@@ -168,6 +212,16 @@ function bezierPath({ x1, y1, x2, y2 }: PlacedEdge): string {
   return `M ${x1} ${y1} C ${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`
 }
 
+// Tapered filled polygon: thick at origin, thin at target
+function taperedPath({ x1, y1, x2, y2 }: PlacedEdge, thickW = 4.5, thinW = 1): string {
+  const mx = (x1 + x2) / 2
+  const hw1 = thickW / 2
+  const hw2 = thinW / 2
+  const top = `M ${x1} ${y1 - hw1} C ${mx} ${y1 - hw1} ${mx} ${y2 - hw2} ${x2} ${y2 - hw2}`
+  const bot = `L ${x2} ${y2 + hw2} C ${mx} ${y2 + hw2} ${mx} ${y1 + hw1} ${x1} ${y1 + hw1} Z`
+  return top + ' ' + bot
+}
+
 // ─── Toolbar button ───────────────────────────────────────────────────────────
 function ToolbarBtn({
   label, onPress, disabled, active, icon,
@@ -197,9 +251,10 @@ interface MindMapViewProps {
   checklistId: number
   focusedId: number | null
   setFocusedId: (id: number | null) => void
+  initialFocusId?: number | null
 }
 
-export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: MindMapViewProps) {
+export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initialFocusId }: MindMapViewProps) {
   const { width: screenW, height: screenH } = useWindowDimensions()
   const { activeChecklistId } = useActiveChecklist()
   const { data: checklists } = useChecklists()
@@ -215,6 +270,12 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
   const [newChildParentId, setNewChildParentId] = useState<number | null>(null)
   const [newChildText, setNewChildText] = useState('')
   const newChildInputRef = useRef<TextInput>(null)
+
+  // Inline editing on double-click
+  const [editingNodeId, setEditingNodeId] = useState<number | null>(null)
+  const [editingText, setEditingText] = useState('')
+  const editInputRef = useRef<TextInput>(null)
+  const lastPressTimes = useRef<Map<number, number>>(new Map())
   const { mutateAsync: createTask } = useCreateTask(checklistId)
   const { mutateAsync: deleteTask } = useDeleteTask(checklistId)
   const deleteTaskRef = useRef(deleteTask)
@@ -277,6 +338,33 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
     const tree = buildTaskTree(tasks)
     return new Set(tree.allNodes.filter((n) => n.children.length > 0).map((n) => n.id))
   })
+
+  // On mount, drill into the parent of initialFocusId so the task is visible and focused
+  const didInitialFocus = useRef(false)
+  useEffect(() => {
+    if (didInitialFocus.current || !initialFocusId || nodeMap.size === 0) return
+    didInitialFocus.current = true
+
+    // Build ancestor chain: walk up via parentId
+    const ancestorPath: number[] = []
+    let cur = nodeMap.get(initialFocusId)
+    while (cur?.parent_id != null) {
+      ancestorPath.unshift(cur.parent_id)
+      cur = nodeMap.get(cur.parent_id)
+    }
+
+    // Drill into the direct parent so the task appears as a top-level node in the drilled view
+    if (ancestorPath.length > 0) {
+      setDrillPath(ancestorPath)
+      // Uncollapse every node along the ancestor path
+      setCollapsed((prev) => {
+        const next = new Set(prev)
+        ancestorPath.forEach((id) => next.delete(id))
+        return next
+      })
+    }
+    setFocusedId(initialFocusId)
+  }, [initialFocusId, nodeMap, setFocusedId])
 
   const { visibleRoots, rootLabel } = useMemo(() => {
     if (drillPath.length === 0) return { visibleRoots: roots, rootLabel: checklistName }
@@ -355,7 +443,16 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
     if (drillPath.length > 0) drillOut()
   }, [drillPath.length, drillOut])
 
-  // Node press: single-click focuses, double-click opens detail/edit, Ctrl+click multi-selects
+  const submitEdit = useCallback(async () => {
+    if (editingNodeId == null) return
+    const text = editingText.trim()
+    setEditingNodeId(null)
+    if (text && text !== nodeMap.get(editingNodeId)?.content) {
+      updateTaskRef.current({ taskId: editingNodeId, payload: { content: text } })
+    }
+  }, [editingNodeId, editingText, nodeMap])
+
+  // Node press: single-click focuses, double-click opens inline edit, Ctrl+click multi-selects
   const handleNodePress = useCallback((id: number) => {
     if (ctrlHeld.current) {
       setSelectedIds((prev) => {
@@ -365,8 +462,17 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
       })
       return
     }
+    const now = Date.now()
+    const last = lastPressTimes.current.get(id) ?? 0
+    lastPressTimes.current.set(id, now)
+    if (now - last < 400) {
+      // double-click: open inline edit
+      const node = nodeMap.get(id)
+      if (node) { setEditingText(node.content); setEditingNodeId(id) }
+      return
+    }
     setFocusedId(id)
-  }, [setFocusedId])
+  }, [setFocusedId, nodeMap])
 
   // ─── Keyboard navigation (web only) ──────────────────────────────────────
   useEffect(() => {
@@ -388,8 +494,17 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
 
-      const realNodes = nodes.filter((n) => n.id !== -1).sort((a, b) => a.y - b.y)
-      const orderedIds = realNodes.map((n) => n.id)
+      // Pre-order DFS traversal so parent always precedes children and siblings are consecutive
+      const nodeIdSet = new Set(nodes.filter((n) => n.id !== -1).map((n) => n.id))
+      const orderedIds: number[] = []
+      function preOrder(tasks: typeof visibleRoots) {
+        for (const t of tasks) {
+          if (!nodeIdSet.has(t.id)) continue
+          orderedIds.push(t.id)
+          if (!collapsed.has(t.id) && t.children.length > 0) preOrder(t.children)
+        }
+      }
+      preOrder(visibleRoots)
       const currentIdx = focusedId != null ? orderedIds.indexOf(focusedId) : -1
 
       if (e.key === 'ArrowDown') {
@@ -443,6 +558,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
           return (ZOOM_PRESETS[Math.min(i + 1, ZOOM_PRESETS.length - 1)] ?? ZOOM_PRESETS[ZOOM_PRESETS.length - 1]) / 100
         })
       } else if (e.key === 'Escape') {
+        if (editingNodeId != null) { setEditingNodeId(null); return }
         if (showShortcuts) { setShowShortcuts(false) }
         else if (selectedIds.size > 0) setSelectedIds(new Set())
         else if (fullScreen) setFullScreen(false)
@@ -857,7 +973,7 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
             <Svg width={scaledW} height={scaledH} viewBox={`0 0 ${canvasW} ${canvasH}`} style={{ margin: 40 }}>
               {edges.map((edge, i) => {
                 const c = depthColor(edge.depth)
-                return <Path key={i} d={bezierPath(edge)} stroke={c.stroke} strokeWidth={1.5} fill="none" opacity={0.5} />
+                return <Path key={i} d={taperedPath(edge)} fill={c.stroke} stroke="none" opacity={0.45} />
               })}
               {nodes.map((node) => {
                 const isVirtualRoot = node.id === -1
@@ -892,16 +1008,14 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
                         fill="none" stroke="#7c3aed" strokeWidth={1} opacity={0.4} />
                     )}
                     {node.lines.map((line, li) => (
-                      <SvgText
+                      <MdSvgLine
                         key={li}
+                        line={line}
                         x={node.x + (node.hasChildren && !isVirtualRoot ? (node.w - INDICATOR_W) / 2 : node.w / 2)}
                         y={node.y + NODE_PAD_V + (li + 0.82) * LINE_H}
-                        textAnchor="middle"
                         fontSize={isVirtualRoot ? ROOT_FONT : NODE_FONT}
-                        fontWeight={isVirtualRoot ? 'bold' : isFocused ? 'bold' : 'normal'}
-                        fill={col.text}
-                        onPress={() => { if (isVirtualRoot) { handleRootPress(); return } handleNodePress(node.id) }}
-                      >{line}</SvgText>
+                        baseFill={col.text}
+                      />
                     ))}
                     {node.hasChildren && !isVirtualRoot && (
                       <>
@@ -1197,13 +1311,31 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
         </Modal>
       )}
 
-      {/* ── New child input (Tab) ──────────────────────────────────── */}
-      {newChildParentId != null && (
+      {/* ── New child input (Tab) — anchored near the parent node ─── */}
+      {newChildParentId != null && (() => {
+        // Compute canvas position of the parent node → screen coords
+        const parentNode = newChildParentId === -1 ? null : nodes.find((n) => n.id === newChildParentId)
+        const scrollEl = canvasContainerRef.current as unknown as HTMLElement | null
+        const containerRect = scrollEl?.getBoundingClientRect()
+        const canvasX = parentNode ? parentNode.x * scale : 100
+        const canvasY = parentNode ? (parentNode.y + parentNode.h) * scale : 100
+        const screenX = containerRect ? canvasX - (scrollEl?.scrollLeft ?? 0) + containerRect.left : canvasX
+        const screenY = containerRect ? canvasY - (scrollEl?.scrollTop ?? 0) + containerRect.top + 8 : canvasY
+        const inputW = 300
+        const vpW = typeof window !== 'undefined' ? window.innerWidth : 800
+        const vpH = typeof window !== 'undefined' ? window.innerHeight : 600
+        const clampedX = Math.min(Math.max(screenX, 8), vpW - inputW - 8)
+        const clampedY = screenY + 130 > vpH ? screenY - 145 : screenY
+        return (
         <View
-          className="absolute bottom-6 bg-white rounded-xl border-2 border-violet-400"
           style={{
-            left: '50%', transform: [{ translateX: -160 }], width: 320,
-            shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, elevation: 12,
+            position: 'fixed' as never,
+            left: clampedX, top: clampedY,
+            width: inputW,
+            backgroundColor: 'white',
+            borderRadius: 12, borderWidth: 2, borderColor: '#7c3aed',
+            shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 16, elevation: 16,
+            zIndex: 9998,
           }}
         >
           <Text className="text-xs text-violet-500 font-semibold px-3 pt-2">
@@ -1236,7 +1368,63 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId }: Min
             </Pressable>
           </View>
         </View>
-      )}
+        )
+      })()}
+
+      {/* ── Inline edit popup (double-click) — anchored near the node ── */}
+      {editingNodeId != null && Platform.OS === 'web' && (() => {
+        const editNode = nodes.find((n) => n.id === editingNodeId)
+        const scrollEl = canvasContainerRef.current as unknown as HTMLElement | null
+        const containerRect = scrollEl?.getBoundingClientRect()
+        const canvasX = editNode ? editNode.x * scale : 100
+        const canvasY = editNode ? (editNode.y + editNode.h) * scale : 100
+        const screenX = containerRect ? canvasX - (scrollEl?.scrollLeft ?? 0) + containerRect.left : canvasX
+        const screenY = containerRect ? canvasY - (scrollEl?.scrollTop ?? 0) + containerRect.top + 8 : canvasY
+        const inputW = 320
+        const vpW = typeof window !== 'undefined' ? window.innerWidth : 800
+        const vpH = typeof window !== 'undefined' ? window.innerHeight : 600
+        const clampedX = Math.min(Math.max(screenX, 8), vpW - inputW - 8)
+        const clampedY = screenY + 110 > vpH ? screenY - 120 : screenY
+        return (
+          <View style={{
+            position: 'fixed' as never,
+            left: clampedX, top: clampedY,
+            width: inputW,
+            backgroundColor: 'white',
+            borderRadius: 12, borderWidth: 2, borderColor: '#7c3aed',
+            shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 16, elevation: 16,
+            zIndex: 9999,
+          }}>
+            <Text style={{ fontSize: 11, color: '#7c3aed', fontWeight: '600', paddingHorizontal: 12, paddingTop: 8 }}>
+              Edit node
+            </Text>
+            <TextInput
+              ref={editInputRef}
+              value={editingText}
+              onChangeText={setEditingText}
+              placeholder="Task name…"
+              placeholderTextColor="#9ca3af"
+              multiline
+              autoFocus
+              style={{ fontSize: 13, color: '#111827', paddingHorizontal: 12, paddingVertical: 6, minHeight: 36 }}
+              onSubmitEditing={submitEdit}
+              onKeyPress={(e) => {
+                if (e.nativeEvent.key === 'Escape') { setEditingNodeId(null) }
+                if (e.nativeEvent.key === 'Enter') { submitEdit() }
+              }}
+              blurOnSubmit={false}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>
+              <Pressable onPress={() => setEditingNodeId(null)}>
+                <Text style={{ fontSize: 11, color: '#9ca3af', paddingVertical: 4 }}>Esc to cancel</Text>
+              </Pressable>
+              <Pressable onPress={submitEdit} style={{ paddingHorizontal: 12, paddingVertical: 4, backgroundColor: '#7c3aed', borderRadius: 8 }}>
+                <Text style={{ fontSize: 11, color: 'white', fontWeight: '600' }}>Save ↵</Text>
+              </Pressable>
+            </View>
+          </View>
+        )
+      })()}
     </View>
   )
 

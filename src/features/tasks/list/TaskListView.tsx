@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback } from 'react-native'
-import { LayoutList, AlignLeft, Network, Search, Plus, Sun, Calendar, Flag, Tag, ArrowRight, Target, Globe, Timer, RefreshCw, ClipboardList } from 'lucide-react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X } from 'lucide-react-native'
 import { useTasksQuery } from './useTasksQuery'
 import { buildTaskTree } from '@/lib/taskTree'
 import { groupTasksByDate } from '@/lib/dateSort'
@@ -15,10 +16,11 @@ import { useTaskView } from './useTaskView'
 import { ChecklistSwitcher } from '@/features/checklists/ChecklistSwitcher'
 import { useCreateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
-import { PlanYourDayModal } from '@/features/tasks/planday/PlanYourDayModal'
 import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList } from '@/features/tasks/execute/ExecuteModeView'
 import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
+import { EisenhowerMatrixView } from './EisenhowerMatrixView'
+import { RoutinesView } from '@/features/tasks/routines/RoutinesView'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
 
@@ -32,25 +34,58 @@ interface ExecuteRawSplitViewProps {
   onClose: () => void
 }
 
+type RightPanel = { type: 'raw'; taskId: number } | { type: 'mindmap'; taskId: number } | null
+
 function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitViewProps) {
-  const [rawTaskId, setRawTaskId] = useState<number | null>(null)
+  const [rightPanel, setRightPanel] = useState<RightPanel>(null)
+  const [focusedId, setFocusedId] = useState<number | null>(null)
+
+  function openRaw(taskId: number) {
+    setRightPanel({ type: 'raw', taskId })
+  }
+
+  function openMindmap(taskId: number) {
+    setFocusedId(taskId)
+    setRightPanel({ type: 'mindmap', taskId })
+  }
+
+  const hasPanel = rightPanel !== null
 
   return (
-    <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={setRawTaskId}>
+    <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={openRaw} onJumpToMindmap={openMindmap}>
       <View style={{ flex: 1, flexDirection: 'column' }}>
         {/* Full-width horizontal control bar */}
         <ExecuteControlBar onClose={onClose} />
 
         {/* Left / right split below the bar */}
         <View style={{ flex: 1, flexDirection: 'row' }}>
-          <View style={{ width: rawTaskId !== null ? '25%' : '100%' }}>
+          <View style={{ width: hasPanel ? '25%' : '100%' }}>
             <ExecuteTaskList />
           </View>
-          {rawTaskId !== null && (
+          {hasPanel && (
             <>
               <View style={{ width: 1, backgroundColor: '#E5E7EB' }} />
-              <View style={{ flex: 1 }}>
-                <RawView checklistId={checklistId} taskId={rawTaskId} />
+              <View style={{ flex: 1, position: 'relative' }}>
+                {/* Close panel button */}
+                <Pressable
+                  hitSlop={8}
+                  onPress={() => setRightPanel(null)}
+                  style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, padding: 4, borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.06)' }}
+                >
+                  <X size={14} color="#6B7280" />
+                </Pressable>
+                {rightPanel.type === 'raw' && (
+                  <RawView checklistId={checklistId} taskId={rightPanel.taskId} />
+                )}
+                {rightPanel.type === 'mindmap' && (
+                  <MindMapView
+                    tasks={tasks}
+                    checklistId={checklistId}
+                    focusedId={focusedId}
+                    setFocusedId={setFocusedId}
+                    initialFocusId={rightPanel.taskId}
+                  />
+                )}
               </View>
             </>
           )}
@@ -260,7 +295,7 @@ function DailyProgressBar() {
   const minutes = now.getMinutes()
   const ampm = hours >= 12 ? 'PM' : 'AM'
   const displayHour = hours % 12 || 12
-  const timeStr = `${displayHour}:${String(minutes).padStart(2, '0')} ${ampm}`
+  const timeStr = `${displayHour}:${String(minutes).padStart(2, '0')} ${ampm} (${pct.toFixed(2)}%)`
 
   const beforeDay = elapsedSeconds < 0
   const afterDay = elapsedSeconds >= totalSeconds
@@ -383,8 +418,10 @@ const INACTIVE = '#9ca3af'
 
 const TABS = [
   { key: 'date',    icon: LayoutList,    label: 'Tasks'   },
+  { key: 'matrix',  icon: LayoutGrid,    label: 'Matrix'  },
   { key: 'execute', icon: Timer,         label: 'Execute' },
-  { key: 'log',     icon: ClipboardList, label: 'Log'     },
+  { key: 'log',      icon: ClipboardList, label: 'Log'      },
+  { key: 'routines', icon: Repeat,        label: 'Routines' },
   { key: 'list',    icon: AlignLeft,     label: 'Outline' },
   { key: 'mindmap', icon: Network,       label: 'Map'     },
   { key: 'search',  icon: Search,        label: 'Search'  },
@@ -398,9 +435,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
   const [showFabInput, setShowFabInput] = useState(false)
   const [newTaskText, setNewTaskText] = useState('')
   const [focusedId, setFocusedId] = useState<number | null>(null)
-  const [showPlanMenu, setShowPlanMenu] = useState(false)
-  const [showPlanYourDay, setShowPlanYourDay] = useState(false)
-  const { view, setView, focusedTaskId } = useTaskView()
+const { view, setView, focusedTaskId } = useTaskView()
   const { mutate: createTask, isPending } = useCreateTask(checklistId)
   const toast = useToast()
   const { activeChecklistId } = useActiveChecklist()
@@ -422,6 +457,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
     return map
   }, [tasks])
 
+  const insets = useSafeAreaInsets()
   const tabBarH = isMobile ? 64 : 0
 
   const submitNewTask = () => {
@@ -449,8 +485,8 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
       <View
         className="flex-row items-center bg-white px-4"
         style={{
-          paddingTop: Platform.OS === 'android' ? 44 : 52,
-          paddingBottom: 14,
+          paddingTop: insets.top + 8,
+          paddingBottom: 10,
           gap: 12,
           borderBottomWidth: 1,
           borderBottomColor: '#EFEFEF',
@@ -495,10 +531,6 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
           <RefreshCw size={20} color="#666" />
         </Pressable>
 
-        {/* Sun icon — Plan Your Day entry */}
-        <Pressable hitSlop={8} onPress={() => setShowPlanMenu((v) => !v)}>
-          <Sun size={20} color={showPlanMenu ? BLUE : '#666'} />
-        </Pressable>
 
       </View>
 
@@ -543,48 +575,11 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
       {/* Daily time progress bar */}
       <DailyProgressBar />
 
-      {/* Plan menu dropdown — rendered as Modal so it floats above all content on Android */}
-      <Modal
-        visible={showPlanMenu}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowPlanMenu(false)}
-      >
-        <Pressable
-          style={{ flex: 1 }}
-          onPress={() => setShowPlanMenu(false)}
-        >
-          {/* Position the card in the top-right corner below the header */}
-          <View style={{
-            position: 'absolute',
-            top: Platform.OS === 'android' ? 100 : 108,
-            right: 16,
-            backgroundColor: 'white',
-            borderRadius: 14,
-            paddingVertical: 6,
-            minWidth: 190,
-            shadowColor: '#000', shadowOpacity: 0.16, shadowRadius: 20,
-            shadowOffset: { width: 0, height: 6 }, elevation: 24,
-          }}>
-            <Pressable
-              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 13, gap: 12 }}
-              onPress={() => { setShowPlanMenu(false); setShowPlanYourDay(true) }}
-            >
-              <Target size={17} color={BLUE} />
-              <Text style={{ fontSize: 14, color: '#222', fontWeight: '500' }}>Plan Your Day</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Modal>
-
-      {/* Plan Your Day modal */}
-      {showPlanYourDay && tasks && (
-        <PlanYourDayModal
-          tasks={tasks}
-          checklistId={checklistId}
-          checklistName={checklistName}
-          onClose={() => setShowPlanYourDay(false)}
-        />
+      {/* ── Eisenhower Matrix view ──────────────────────────────── */}
+      {view === 'matrix' && tasks && (
+        <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
+          <EisenhowerMatrixView tasks={tasks} checklistId={checklistId} isMobile={isMobile} />
+        </View>
       )}
 
       {/* ── Execute view ────────────────────────────────────────── */}
@@ -595,6 +590,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
               tasks={tasks}
               checklistId={checklistId}
               onClose={() => setView('date')}
+              onJumpToMindmap={(id) => { setView('mindmap', id) }}
             />
           </View>
         ) : (
@@ -606,6 +602,13 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
       {view === 'log' && (
         <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
           <ExecutionLogView checklistId={checklistId} taskNames={taskNames} />
+        </View>
+      )}
+
+      {/* ── Routines view ───────────────────────────────────────── */}
+      {view === 'routines' && (
+        <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
+          <RoutinesView checklistId={checklistId} />
         </View>
       )}
 
@@ -622,7 +625,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
       )}
 
       {/* ── Task views ──────────────────────────────────────────── */}
-      {view !== 'raw' && view !== 'execute' && view !== 'log' && !isSearch && (
+      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'matrix' && !isSearch && (
         <>
           {isLoading && <TaskSkeleton count={8} />}
 
@@ -652,7 +655,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
               )}
               {view === 'mindmap' && (
                 <ErrorBoundary>
-                  <MindMapView tasks={tasks} checklistId={checklistId} focusedId={focusedId} setFocusedId={setFocusedId} />
+                  <MindMapView tasks={tasks} checklistId={checklistId} focusedId={focusedId} setFocusedId={setFocusedId} initialFocusId={focusedTaskId} />
                 </ErrorBoundary>
               )}
             </View>
@@ -662,7 +665,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
       )}
 
       {/* Mobile FAB — shown on all views except raw/search */}
-      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && !showFabInput && (
+      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && view !== 'routines' && !showFabInput && (
         <Pressable
           onPress={() => setShowFabInput(true)}
           className="absolute right-5 items-center justify-center rounded-full"

@@ -111,6 +111,8 @@ interface SystemLogStore {
   ensureDayTask: (systemListId: number, dateStr: string) => Promise<number>
   syncSession: (key: string, taskName: string, entry: ExecuteLogEntry) => Promise<void>
   fetchTodaySessions: () => Promise<void>
+  /** Manually add a time block (not tied to a task), persists to Checkvist */
+  addManualSession: (checklistId: number, dateStr: string, taskName: string, startMinutes: number, durationMin: number) => Promise<void>
 }
 
 const storage = Platform.OS === 'web'
@@ -186,6 +188,44 @@ export const useSystemLog = create<SystemLogStore>()(
         } catch (e) {
           // Non-fatal — local data is still in useExecuteLog
           console.warn('[SystemLog] sync failed:', e)
+        }
+      },
+
+      addManualSession: async (checklistId, dateStr, taskName, startMinutes, durationMin) => {
+        try {
+          const uid = Date.now().toString(36)
+          const key = `${checklistId}:${dateStr}:manual:${uid}`
+          // Build ISO start time from dateStr + startMinutes
+          const [y, mo, d] = dateStr.split('-').map(Number)
+          const startDate = new Date(y, mo - 1, d, Math.floor(startMinutes / 60), Math.round(startMinutes % 60))
+          const endDate = new Date(startDate.getTime() + durationMin * 60 * 1000)
+          const entry: ExecuteLogEntry = {
+            taskId: 0,
+            estimateMin: durationMin,
+            startedAt: startDate.toISOString(),
+            actualSeconds: durationMin * 60,
+            completedAt: endDate.toISOString(),
+          }
+          // Add to local remoteSessions immediately for instant render
+          const session: SyncedSession = {
+            key,
+            taskId: 0,
+            checklistId,
+            taskName,
+            startedAt: startDate.toISOString(),
+            actualSeconds: durationMin * 60,
+            completedAt: endDate.toISOString(),
+          }
+          set((s) => ({ remoteSessions: { ...s.remoteSessions, [key]: session } }))
+
+          // Sync to Checkvist
+          const systemListId = await get().ensureSystemList()
+          const dayTaskId = await get().ensureDayTask(systemListId, dateStr)
+          const content = `${EXLOG_PREFIX} ${taskName} | ${format(startDate, 'h:mm a')}–${format(endDate, 'h:mm a')} | ${durationMin}m | key=${key} sec=${entry.actualSeconds} s=${entry.startedAt} done=${entry.completedAt}`
+          const created = await createTask(systemListId, { content, parent_id: dayTaskId })
+          set((s) => ({ sessionTaskIds: { ...s.sessionTaskIds, [key]: created.id } }))
+        } catch (e) {
+          console.warn('[SystemLog] addManualSession failed:', e)
         }
       },
 

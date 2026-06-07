@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { View, Text, Pressable } from 'react-native'
+import { useState, useEffect } from 'react'
+import { View, Text, Pressable, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
@@ -8,8 +8,10 @@ import { useToast } from '@/components/Toast'
 import { hapticSuccess, hapticMedium } from '@/platform/haptics'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { PriorityPicker } from '@/features/tasks/shared/PriorityPicker'
+import { DurationPicker } from '@/features/tasks/shared/DurationPicker'
 import { BottomSheet } from '@/components/BottomSheet'
 import { ContextMenu } from '@/features/tasks/shared/ContextMenu'
+import { updateDurationTag } from '@/lib/durationTagUtils'
 import { useTaskView } from './useTaskView'
 import { isPast, isToday } from 'date-fns'
 import { priorityDisplay, priorityTextColor, priorityRowBg } from '@/features/tasks/shared/PriorityPicker'
@@ -21,6 +23,8 @@ interface PriorityTaskRowProps {
   checkColor: string
   focusedId: number | null
   isLast: boolean
+  onMoveUp?: () => void
+  onMoveDown?: () => void
 }
 
 export function PriorityTaskRow({
@@ -30,11 +34,14 @@ export function PriorityTaskRow({
   checkColor,
   focusedId,
   isLast,
+  onMoveUp,
+  onMoveDown,
 }: PriorityTaskRowProps) {
   const router = useRouter()
   const setView = useTaskView((s) => s.setView)
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
+  const [showDurationPicker, setShowDurationPicker] = useState(false)
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
 
   const { mutate: closeTask } = useCloseTask(checklistId)
@@ -42,6 +49,17 @@ export function PriorityTaskRow({
   const toast = useToast()
 
   const isFocused = focusedId === task.id
+
+  // Keyboard move (Shift+ArrowUp / Shift+ArrowDown) when this row is focused
+  useEffect(() => {
+    if (!isFocused || Platform.OS !== 'web') return
+    const handler = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.key === 'ArrowUp') { e.preventDefault(); onMoveUp?.() }
+      if (e.shiftKey && e.key === 'ArrowDown') { e.preventDefault(); onMoveDown?.() }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [isFocused, onMoveUp, onMoveDown])
 
   const handleCheck = () => {
     hapticSuccess()
@@ -128,6 +146,20 @@ export function PriorityTaskRow({
           </Text>
         </Pressable>
 
+        {/* Duration badge */}
+        <Pressable
+          onPress={() => setShowDurationPicker(true)}
+          hitSlop={6}
+          style={{
+            paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
+            backgroundColor: task.duration ? '#F3E8FF' : '#F9FAFB',
+          }}
+        >
+          <Text style={{ fontSize: 11, fontWeight: '600', color: task.duration ? '#7C3AED' : '#D1D5DB' }}>
+            {task.duration?.formatted ?? '—'}
+          </Text>
+        </Pressable>
+
         {/* Due date */}
         {task.due ? (
           <Pressable onPress={() => setShowDatePicker(true)} hitSlop={6}>
@@ -174,6 +206,19 @@ export function PriorityTaskRow({
           isMobile
         />
       )}
+
+      {/* Duration picker */}
+      <BottomSheet open={showDurationPicker} onClose={() => setShowDurationPicker(false)} title="Set Duration">
+        <DurationPicker
+          value={task.duration}
+          onChange={(dur) => {
+            const newTags = updateDurationTag(task.tags_as_text, dur?.formatted ?? null)
+            updateTask({ taskId: task.id, payload: { tags_as_text: newTags } })
+            setShowDurationPicker(false)
+          }}
+          onClose={() => setShowDurationPicker(false)}
+        />
+      </BottomSheet>
     </>
   )
 }

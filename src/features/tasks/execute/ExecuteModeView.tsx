@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react'
-import { View, Text, Pressable, ScrollView, Platform, TextInput, Animated } from 'react-native'
-import { Play, Pause, Minus, Plus, Check, RotateCcw, Circle, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft } from 'lucide-react-native'
+import { View, Text, Pressable, ScrollView, Platform, TextInput, Animated, Modal } from 'react-native'
+import { Play, Pause, Minus, Plus, Check, RotateCcw, Circle, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft, Maximize2, Network } from 'lucide-react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import type { CheckvistTask } from '@/api/types'
 import { buildTaskTree } from '@/lib/taskTree'
@@ -63,7 +63,7 @@ function fmtClock(totalSeconds: number): string {
 
 // ─── Flip clock ───────────────────────────────────────────────────────────────
 
-function FlipDigit({ digit, size }: { digit: string; size: 'sm' | 'lg' }) {
+function FlipDigit({ digit, size }: { digit: string; size: 'sm' | 'lg' | 'xl' }) {
   const prevDigit = useRef(digit)
   const flipAnim = useRef(new Animated.Value(0)).current
   const [flipping, setFlipping] = useState(false)
@@ -84,9 +84,9 @@ function FlipDigit({ digit, size }: { digit: string; size: 'sm' | 'lg' }) {
     }).start(() => setFlipping(false))
   }, [digit, flipAnim])
 
-  const cardW = size === 'lg' ? 52 : 28
-  const cardH = size === 'lg' ? 72 : 40
-  const fontSize = size === 'lg' ? 44 : 24
+  const cardW = size === 'xl' ? 80 : size === 'lg' ? 52 : 28
+  const cardH = size === 'xl' ? 110 : size === 'lg' ? 72 : 40
+  const fontSize = size === 'xl' ? 68 : size === 'lg' ? 44 : 24
 
   // Top half rotates away (0 → -90deg), bottom half reveals (90 → 0deg)
   const topRotate = flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-90deg'] })
@@ -158,15 +158,15 @@ function FlipDigit({ digit, size }: { digit: string; size: 'sm' | 'lg' }) {
   )
 }
 
-function FlipClock({ totalSeconds, color, size = 'lg' }: { totalSeconds: number; color?: string; size?: 'sm' | 'lg' }) {
+function FlipClock({ totalSeconds, color, size = 'lg' }: { totalSeconds: number; color?: string; size?: 'sm' | 'lg' | 'xl' }) {
   const m = Math.floor(totalSeconds / 60)
   const s = totalSeconds % 60
   const m0 = String(Math.floor(m / 10))
   const m1 = String(m % 10)
   const s0 = String(Math.floor(s / 10))
   const s1 = String(s % 10)
-  const gap = size === 'lg' ? 5 : 3
-  const sepSize = size === 'lg' ? 28 : 16
+  const gap = size === 'xl' ? 8 : size === 'lg' ? 5 : 3
+  const sepSize = size === 'xl' ? 44 : size === 'lg' ? 28 : 16
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap }}>
       <FlipDigit digit={m0} size={size} />
@@ -181,6 +181,71 @@ function FlipClock({ totalSeconds, color, size = 'lg' }: { totalSeconds: number;
 function fmtMins(seconds: number): string {
   const m = Math.round(seconds / 60)
   return `${m}m`
+}
+
+// ─── Full-screen counter modal ────────────────────────────────────────────────
+
+function FullScreenCounterModal({ onClose }: { onClose: () => void }) {
+  const { currentTask, currentSeconds, isRunning, togglePlay, adjust, complete, resetCurrent } = useExecCtx()
+
+  return (
+    <Modal visible animationType="fade" transparent statusBarTranslucent>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.93)', alignItems: 'center', justifyContent: 'center', gap: 36 }}>
+        {/* Close */}
+        <Pressable
+          hitSlop={16}
+          onPress={onClose}
+          style={{ position: 'absolute', top: 52, right: 28, zIndex: 10 }}
+        >
+          <X size={26} color="rgba(255,255,255,0.45)" />
+        </Pressable>
+
+        {/* Task name */}
+        {currentTask && (
+          <Text style={{ fontSize: 17, color: 'rgba(255,255,255,0.65)', textAlign: 'center', paddingHorizontal: 48, lineHeight: 24 }} numberOfLines={2}>
+            {currentTask.content}
+          </Text>
+        )}
+
+        {/* Giant flip clock */}
+        <FlipClock totalSeconds={currentSeconds} color={isRunning ? '#4772FA' : '#DC2626'} size="xl" />
+
+        {/* Controls */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 28 }}>
+          <Pressable hitSlop={14} onPress={resetCurrent}>
+            <RotateCcw size={26} color="rgba(255,255,255,0.35)" />
+          </Pressable>
+          <Pressable hitSlop={14} onPress={() => adjust(-ESTIMATE_STEP)}>
+            <Minus size={30} color="rgba(255,255,255,0.55)" />
+          </Pressable>
+          <Pressable
+            onPress={togglePlay}
+            style={{
+              width: 80, height: 80, borderRadius: 40,
+              backgroundColor: isRunning ? BLUE : '#1f2937',
+              alignItems: 'center', justifyContent: 'center',
+              borderWidth: 2, borderColor: isRunning ? BLUE : 'rgba(255,255,255,0.15)',
+              shadowColor: isRunning ? BLUE : '#000',
+              shadowOpacity: 0.5, shadowRadius: 12,
+              shadowOffset: { width: 0, height: 4 }, elevation: 8,
+            }}
+          >
+            {isRunning ? <Pause size={34} color="white" /> : <Play size={34} color="white" />}
+          </Pressable>
+          <Pressable hitSlop={14} onPress={() => adjust(ESTIMATE_STEP)}>
+            <Plus size={30} color="rgba(255,255,255,0.55)" />
+          </Pressable>
+          <Pressable
+            hitSlop={14}
+            onPress={() => { complete(); onClose() }}
+            style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#16A34A', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Check size={26} color="white" />
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  )
 }
 
 function reorder<T>(arr: T[], from: number, to: number): T[] {
@@ -237,6 +302,7 @@ interface ExecCtxValue {
   // Config
   checklistId: number
   onJumpToRaw?: (taskId: number) => void
+  onJumpToMindmap?: (taskId: number) => void
 }
 
 const ExecCtx = createContext<ExecCtxValue | null>(null)
@@ -253,10 +319,11 @@ interface ProviderProps {
   tasks: CheckvistTask[]
   checklistId: number
   onJumpToRaw?: (taskId: number) => void
+  onJumpToMindmap?: (taskId: number) => void
   children: ReactNode
 }
 
-export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children }: ProviderProps) {
+export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpToMindmap, children }: ProviderProps) {
   const todayTasks = useMemo(() => {
     const { allNodes } = buildTaskTree(tasks)
     const groups = groupTasksByDate(allNodes)
@@ -396,7 +463,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, children
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
     togglePlay, adjust, setEstimateDirect, complete, resetCurrent, jumpTo, prevTask, nextTask, persistOrder, updateTask,
-    checklistId, onJumpToRaw,
+    checklistId, onJumpToRaw, onJumpToMindmap,
   }
 
   return <ExecCtx.Provider value={value}>{children}</ExecCtx.Provider>
@@ -416,6 +483,7 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
 
   const [editingEstimate, setEditingEstimate] = useState(false)
   const [estimateDraft, setEstimateDraft] = useState('')
+  const [showFullScreen, setShowFullScreen] = useState(false)
 
   function commitEstimate() {
     const v = parseInt(estimateDraft, 10)
@@ -454,15 +522,22 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
           </Pressable>
         </View>
 
-        {/* Timer */}
-        <View style={{
-          backgroundColor: isRunning ? '#EEF2FF' : '#FEF2F2',
-          borderRadius: 10,
-          paddingHorizontal: 8,
-          paddingVertical: 4,
-        }}>
-          <FlipClock totalSeconds={currentSeconds} color={timerColor} size="sm" />
+        {/* Timer + fullscreen toggle */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{
+            backgroundColor: isRunning ? '#EEF2FF' : '#FEF2F2',
+            borderRadius: 10,
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+          }}>
+            <FlipClock totalSeconds={currentSeconds} color={timerColor} size="sm" />
+          </View>
+          <Pressable hitSlop={10} onPress={() => setShowFullScreen(true)} style={{ padding: 4, opacity: 0.45 }}>
+            <Maximize2 size={13} color="#374151" />
+          </Pressable>
         </View>
+
+        {showFullScreen && <FullScreenCounterModal onClose={() => setShowFullScreen(false)} />}
 
         {/* Task title */}
         <View style={{ flex: 1, minWidth: 0 }}>
@@ -591,7 +666,7 @@ export function ExecuteTaskList() {
   const {
     orderedTasks, orderedIds, setOrderedIds, currentIndex, setCurrentIndex,
     isRunning, getEntry, entries, timerRunningKey, timerStartedAt,
-    jumpTo, persistOrder, checklistId, onJumpToRaw,
+    jumpTo, persistOrder, checklistId, onJumpToRaw, onJumpToMindmap,
   } = useExecCtx()
 
   // Drag state — local to this panel
@@ -858,6 +933,7 @@ export function ExecuteTaskList() {
         const rows = collapsed ? null : items.map(({ task: t, index }) => {
           const entry = getEntry(t.id)
           const isDone = !!entry?.completedAt
+          const hasExecution = !!entry && (entry.actualSeconds > 0 || !!entry.completedAt)
           const isCurrent = index === currentIndex
           const isSelected = selectedIndices.has(index)
           const isDragging = draggingIdx === index
@@ -889,8 +965,11 @@ export function ExecuteTaskList() {
                   <View hitSlop={8} style={{ opacity: 0.3 }}><GripVertical size={13} color="#9CA3AF" /></View>
                 </GestureDetector>
               )}
-              {/* Index */}
-              <Text style={{ fontSize: 10, color: '#C4C4C4', width: 16, textAlign: 'right', fontWeight: '500' }}>{index + 1}</Text>
+              {/* Index + play indicator */}
+              <View style={{ width: 28, alignItems: 'flex-end', flexDirection: 'row', gap: 2, justifyContent: 'flex-end' }}>
+                {hasExecution && !isDone && <Play size={8} color={BLUE} fill={BLUE} />}
+                <Text style={{ fontSize: 10, color: '#C4C4C4', fontWeight: '500' }}>{index + 1}</Text>
+              </View>
               {/* Status icon */}
               {isDone
                 ? <CheckCircle2 size={15} color="#22c55e" />
@@ -916,6 +995,11 @@ export function ExecuteTaskList() {
               {onJumpToRaw && (
                 <Pressable hitSlop={8} onPress={(e) => { e.stopPropagation?.(); onJumpToRaw(t.id) }}>
                   <AlignLeft size={12} color="#D1D5DB" />
+                </Pressable>
+              )}
+              {onJumpToMindmap && (
+                <Pressable hitSlop={8} onPress={(e) => { e.stopPropagation?.(); onJumpToMindmap(t.id) }}>
+                  <Network size={12} color="#D1D5DB" />
                 </Pressable>
               )}
             </Pressable>
@@ -979,6 +1063,7 @@ interface ExecuteModeViewProps {
   checklistId: number
   onClose: () => void
   onJumpToRaw?: (taskId: number) => void
+  onJumpToMindmap?: (taskId: number) => void
 }
 
 // ─── Animated day progress bar ────────────────────────────────────────────────
@@ -1034,25 +1119,27 @@ function DayProgressBar({ pct }: { pct: number }) {
   )
 }
 
-export function ExecuteModeView({ tasks, checklistId, onClose, onJumpToRaw }: ExecuteModeViewProps) {
+export function ExecuteModeView({ tasks, checklistId, onClose, onJumpToRaw, onJumpToMindmap }: ExecuteModeViewProps) {
   return (
-    <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={onJumpToRaw}>
-      <ExecuteViewContent onClose={onClose} onJumpToRaw={onJumpToRaw} />
+    <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={onJumpToRaw} onJumpToMindmap={onJumpToMindmap}>
+      <ExecuteViewContent onClose={onClose} />
     </ExecuteStateProvider>
   )
 }
 
-function ExecuteViewContent({ onClose, onJumpToRaw }: { onClose: () => void; onJumpToRaw?: (taskId: number) => void }) {
+function ExecuteViewContent({ onClose }: { onClose: () => void }) {
   const {
     currentTask, currentSeconds, isRunning, currentEntry, orderedTasks,
     completedCount, totalActualSeconds, totalEstimateSeconds, dayProgressPct, currentIndex,
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
     togglePlay, adjust, setEstimateDirect, complete, resetCurrent, prevTask, nextTask, updateTask, checklistId,
+    onJumpToRaw,
   } = useExecCtx()
 
   const [editingEstimate, setEditingEstimate] = useState(false)
   const [estimateDraft, setEstimateDraft] = useState('')
+  const [showFullScreen, setShowFullScreen] = useState(false)
 
   function commitEstimate() {
     const v = parseInt(estimateDraft, 10)
@@ -1081,11 +1168,14 @@ function ExecuteViewContent({ onClose, onJumpToRaw }: { onClose: () => void; onJ
             <Pressable hitSlop={12} onPress={prevTask} style={{ opacity: currentIndex === 0 ? 0.25 : 1 }}>
               <ChevronLeft size={24} color="#6B7280" />
             </Pressable>
-            <FlipClock totalSeconds={currentSeconds} color={isRunning ? '#1a1a1a' : '#DC2626'} size="lg" />
+            <Pressable onPress={() => setShowFullScreen(true)}>
+              <FlipClock totalSeconds={currentSeconds} color={isRunning ? '#1a1a1a' : '#DC2626'} size="lg" />
+            </Pressable>
             <Pressable hitSlop={12} onPress={nextTask} style={{ opacity: currentIndex >= orderedTasks.length - 1 ? 0.25 : 1 }}>
               <ChevronRight size={24} color="#6B7280" />
             </Pressable>
           </View>
+          {showFullScreen && <FullScreenCounterModal onClose={() => setShowFullScreen(false)} />}
           <Text style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', marginTop: -8 }}>
             {currentIndex + 1} of {orderedTasks.length}
           </Text>

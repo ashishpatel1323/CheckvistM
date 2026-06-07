@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>01 Task List</title>
+    <dateModified>Sun, 07 Jun 2026 10:48:54 +0530</dateModified>
+    <ownerName>Ashish</ownerName>
+  </head>
+  <body>
+    <outline text="Project checkvist" due="2026-06-07" due_user_ids="184028" tags="30m" priority="4">
+      <outline text="Overall">
+        <outline text="Top Progess Bar">
+          <outline text="Change the format of the time short to include percentage of the day elapsed, e.g., 10:18 AM (X%)     where X is % of day elapsed to two two decimal points"/>
+        </outline>
+        <outline text="Use teh Lottie JSON provided ."/>
+        <outline text="Plan Mode">
+          <outline text="Deprecator plan mode: I don't need it anymore."/>
+        </outline>
+      </outline>
+      <outline text="Tasks Tab">
+        <outline text="Listig page Should also show the estimated time beside priority. S similar to priority, the estimated time can be edited."/>
+        <outline text="The set timr duration pop-up in the task detail page should have possible values of:">
+          <outline text="5 minutes"/>
+          <outline text="10 minutes"/>
+          <outline text="30 minutes"/>
+          <outline text="45 minutes"/>
+          <outline text="1 hour"/>
+        </outline>
+        <outline text="In task listing page Inside a grouping of tasks of priorities, you should be able to move items up and down by using both the mouse and the keyboard. For keyboard use, the same keyboard shortcut as in execute."/>
+      </outline>
+      <outline text="Matrix Tab">
+        <outline text="On the top right, there should be a date selector with options similar to the date groupings that are available in the tasks tab, which are:">
+          <outline text="today"/>
+          <outline text="tomorrow"/>
+          <outline text="this week"/>
+          <outline text="later and overdue, etc."/>
+        </outline>
+      </outline>
+      <outline text="Exceute Tab">
+        <outline text="All the items which have some work which was already executed should show that using an icon, a play kind of icon, next to the Number  in the task listing tab."/>
+        <outline text="There should be two options to see against each step:">
+          <outline text="1.  The raw version, which opens the i-frame"/>
+          <outline text="2.  The mind map version, which opens the mind map for that particular task and drills down to that particular task"/>
+        </outline>
+        <outline text="Next to the counter, there should be an option to zoom up and show the counter as a full screen counter with play, pause, time taken, and everything. Then again, you can zoom in."/>
+      </outline>
+      <outline text="Log Tab">
+        <outline text="There should be an option to add a task by clicking on an empty location on the calendar. The location where it is clicked is the start time. The pop-up should allow duration. We can save it, and it will show it as an executed log for a given day."/>
+      </outline>
+      <outline text="Routines Tab">
+        <outline text="Routine 1">
+          <outline text="In the routine flow, the timer start should not be per section. IT should be at a global level."/>
+          <outline text="The other thing is, at the start of the day, any task in any of the routine which is not then should be considered as failed. There is a binary success and failure, right, and we start the day with everything failed. When you click on the timer, it goes to only items that are failed."/>
+          <outline text="When you pause and abandon the routine, pause and then start again, it should start only through the failed items. It should give an opportunity to do the failed items again."/>
+          <outline text="When you click on skip, it actually marks that the item is failed, and once it succeeds, you don't have to show it in the timer mode."/>
+        </outline>
+        <outline text="The date selector of the routine tab should exactly be similar to the date selector of the log tab."/>
+        <outline text="When I edit a routine, the steps can be moved up and down using the mouse."/>
+      </outline>
+      <outline text="Outlines Tab"/>
+      <outline text="Mindmap">
+        <outline text="The keyboard navigation is weird when I go inside a node and I click keyboard down. It goes from the node from the leaf to the node instead of going to the sibling leaf."/>
+        <outline text="When I right click on a node, I should get a delete option."/>
+        <outline text="When I click on Tab and it's supposed to create a new node, show that option by creating that new node and give an edit option inline. Don't show it at the bottom of the screen."/>
+        <outline text="The line connecting two nodes should be thick from the point of origination and become thin at the point of termination. It should not be of equal width."/>
+      </outline>
+      <outline text="Search" priority="3">
+        <outline text="No new feature"/>
+      </outline>
+      <outline text="Raw" priority="3">
+        <outline text="No new feature"/>
+      </outline>
+      <outline text="Generic phone notification">
+        <outline text="They execute the items that are currently supposed to be walked on. That is shown as a notification as a persistent notification on an Android phone and the timer and all of those things should be persistently visible on an Android phone. Similarly the routine, the play and pause of the routine, should be visible in the Android phone lock screen in the notification"/>
+      </outline>
+      <outline text="Phone tabs">
+        <outline text="Not everything on the web version should be visible in the mobile native Android mobile version or in the web app and it should be a little more responsive and should not feel very crowded. There should be an ability to see more tabs. Don't make all the tabs fit the available screen. Show some of the tabs and then go to More. What should not be there in the mobile version is the raw version. Raw version should not be there. I will let you know about other things"/>
+      </outline>
+      <outline text="Project RoutineFlow" tags="30m" priority="1"/>
+    </outline>
+  </body>
+</opml>

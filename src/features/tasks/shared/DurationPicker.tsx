@@ -13,16 +13,11 @@ interface DurationPickerProps {
 }
 
 const QUICK_DURATIONS = [
-  { minutes: 15, formatted: '15m', label: '15m' },
+  { minutes: 5,  formatted: '5m',  label: '5m'  },
+  { minutes: 10, formatted: '10m', label: '10m' },
   { minutes: 30, formatted: '30m', label: '30m' },
   { minutes: 45, formatted: '45m', label: '45m' },
-  { minutes: 60, formatted: '1h', label: '1h' },
-  { minutes: 90, formatted: '1h 30m', label: '1h 30m' },
-  { minutes: 120, formatted: '2h', label: '2h' },
-  { minutes: 180, formatted: '3h', label: '3h' },
-  { minutes: 240, formatted: '4h', label: '4h' },
-  { minutes: 300, formatted: '5h', label: '5h' },
-  { minutes: 480, formatted: '8h', label: '8h' },
+  { minutes: 60, formatted: '1h',  label: '1h'  },
 ]
 
 function formatDuration(minutes: number): string {

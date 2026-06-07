@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react'
-import { View, Text, Pressable, ScrollView } from 'react-native'
-import { ChevronDown, ChevronRight } from 'lucide-react-native'
+import { View, Text, Pressable, ScrollView, Platform } from 'react-native'
+import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import type { GroupedTasks, DateGroup } from '@/lib/dateSort'
 import { PriorityTaskRow } from './PriorityTaskRow'
 import { classifyPriority } from '@/features/tasks/shared/PriorityPicker'
 import type { PriorityBucket } from '@/features/tasks/shared/PriorityPicker'
+import { useUpdateTask } from './useTasksQuery'
 
 export type { PriorityBucket }
 
@@ -17,6 +18,7 @@ interface PriorityDateViewProps {
   setFocusedId: (id: number | null) => void
   checklistName?: string
 }
+
 
 // ─── Priority bucket metadata ─────────────────────────────────────────────────
 
@@ -60,6 +62,7 @@ function PrioritySubSection({
   checklistId,
   checklistName,
   focusedId,
+  setFocusedId,
   isMobile,
 }: {
   bucket: PriorityBucket
@@ -67,10 +70,34 @@ function PrioritySubSection({
   checklistId: number
   checklistName?: string
   focusedId: number | null
+  setFocusedId: (id: number | null) => void
   isMobile: boolean
 }) {
   const [collapsed, setCollapsed] = useState(false)
+  const [localOrder, setLocalOrder] = useState<number[] | null>(null)
+  const { mutate: updateTask } = useUpdateTask(checklistId)
   const meta = PRIORITY_META[bucket]
+
+  const orderedTasks = localOrder
+    ? localOrder.map((id) => tasks.find((t) => t.id === id)).filter(Boolean) as TaskNode[]
+    : tasks
+
+  const moveTask = (idx: number, dir: -1 | 1) => {
+    const base = localOrder ?? tasks.map((t) => t.id)
+    const next = [...base]
+    const swap = idx + dir
+    if (swap < 0 || swap >= next.length) return
+    ;[next[idx], next[swap]] = [next[swap], next[idx]]
+    setLocalOrder(next)
+    // Sync positions to API: assign positions based on new order
+    next.forEach((id, pos) => {
+      updateTask({ taskId: id, payload: { position: pos + 1 } })
+    })
+  }
+
+  // Keyboard: ArrowUp/ArrowDown moves focused task within this bucket
+  // Handled via focusedId + useEffect to detect keyboard
+  const focusedIdx = orderedTasks.findIndex((t) => t.id === focusedId)
 
   return (
     <View>
@@ -104,16 +131,32 @@ function PrioritySubSection({
           : <ChevronDown size={14} color="#9CA3AF" />}
       </Pressable>
 
-      {!collapsed && tasks.map((task, i) => (
-        <PriorityTaskRow
-          key={task.id}
-          task={task}
-          checklistId={checklistId}
-          checklistName={checklistName}
-          checkColor={meta.color}
-          focusedId={focusedId}
-          isLast={i === tasks.length - 1}
-        />
+      {!collapsed && orderedTasks.map((task, i) => (
+        <View key={task.id} style={{ flexDirection: 'row', alignItems: 'stretch' }}>
+          {/* Move up/down controls — always visible on web, hidden on mobile */}
+          {Platform.OS === 'web' && (
+            <View style={{ width: 22, flexDirection: 'column', justifyContent: 'center', backgroundColor: meta.bg, borderBottomWidth: i === orderedTasks.length - 1 ? 0 : 1, borderBottomColor: '#F3F4F6' }}>
+              <Pressable onPress={() => moveTask(i, -1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: i === 0 ? 0.2 : 0.6 }}>
+                <ChevronUp size={10} color={meta.color} />
+              </Pressable>
+              <Pressable onPress={() => moveTask(i, 1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: i === orderedTasks.length - 1 ? 0.2 : 0.6 }}>
+                <ChevronDown size={10} color={meta.color} />
+              </Pressable>
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <PriorityTaskRow
+              task={task}
+              checklistId={checklistId}
+              checklistName={checklistName}
+              checkColor={meta.color}
+              focusedId={focusedId}
+              isLast={i === orderedTasks.length - 1}
+              onMoveUp={focusedIdx === i ? () => moveTask(i, -1) : undefined}
+              onMoveDown={focusedIdx === i ? () => moveTask(i, 1) : undefined}
+            />
+          </View>
+        </View>
       ))}
     </View>
   )
@@ -126,12 +169,14 @@ function DateGroupCard({
   checklistId,
   checklistName,
   focusedId,
+  setFocusedId,
   isMobile,
 }: {
   group: GroupedTasks
   checklistId: number
   checklistName?: string
   focusedId: number | null
+  setFocusedId: (id: number | null) => void
   isMobile: boolean
 }) {
   const [collapsed, setCollapsed] = useState(!DATE_GROUP_DEFAULT_OPEN[group.group])
@@ -193,6 +238,7 @@ function DateGroupCard({
           checklistId={checklistId}
           checklistName={checklistName}
           focusedId={focusedId}
+          setFocusedId={setFocusedId}
           isMobile={isMobile}
         />
       ))}
@@ -207,6 +253,7 @@ export function PriorityDateView({
   checklistId,
   isMobile,
   focusedId,
+  setFocusedId,
   checklistName,
 }: PriorityDateViewProps) {
   if (groups.length === 0) return null
@@ -224,6 +271,7 @@ export function PriorityDateView({
           checklistId={checklistId}
           checklistName={checklistName}
           focusedId={focusedId}
+          setFocusedId={setFocusedId}
           isMobile={isMobile}
         />
       ))}
