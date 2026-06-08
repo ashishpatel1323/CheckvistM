@@ -1,11 +1,14 @@
 import { useState, useMemo } from 'react'
 import { View, Text, Pressable, Modal, ScrollView, Platform } from 'react-native'
 import {
-  X, Calendar, CheckCheck,
+  X, Calendar, CheckCheck, ChevronLeft, ChevronRight,
   CalendarDays, Sunrise, RotateCw, CalendarPlus, XSquare,
   type LucideProps,
 } from 'lucide-react-native'
-import { addDays, differenceInDays, isPast, isToday } from 'date-fns'
+import {
+  addDays, addMonths, subMonths, startOfMonth, endOfMonth,
+  eachDayOfInterval, isSameMonth, differenceInDays, isPast, isToday, format,
+} from 'date-fns'
 import type { ForwardRefExoticComponent } from 'react'
 import type { CheckvistTask } from '@/api/types'
 import { toApiDate, getUpcomingSaturday, parseApiDate, humanizeDueDate } from '@/lib/dateUtils'
@@ -81,6 +84,8 @@ export function PlanYourDayModal({ tasks, checklistId, checklistName, onClose }:
   const [pendingPriority, setPendingPriority] = useState<number | null>(null)
   const [pendingTime, setPendingTime] = useState<string | null>(null)
   const [pendingDate, setPendingDate] = useState<string | null | undefined>(undefined) // undefined = not yet changed
+  const [showCalendar, setShowCalendar] = useState(false)
+  const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()))
 
   const { mutate: updateTask } = useUpdateTask(checklistId)
   const { mutate: closeTask } = useCloseTask(checklistId)
@@ -109,12 +114,29 @@ export function PlanYourDayModal({ tasks, checklistId, checklistName, onClose }:
   }
 
   const applyDateAndAdvance = (key: string) => {
-    if (!current || key === 'pick') return
+    if (!current) return
     hapticMedium()
     const due_date = resolveDateKey(key)
     const payload: { due_date?: string | null; priority?: number } = { due_date }
     if (pendingPriority !== null) payload.priority = pendingPriority
     setPendingDate(due_date)
+    updateTask(
+      { taskId: current.id, payload },
+      {
+        onSuccess: () => advance(),
+        onError: () => toast.error('Failed to update task'),
+      }
+    )
+  }
+
+  const applyPickedDateAndAdvance = (date: Date) => {
+    if (!current) return
+    hapticMedium()
+    const due_date = toApiDate(date)
+    const payload: { due_date?: string | null; priority?: number } = { due_date }
+    if (pendingPriority !== null) payload.priority = pendingPriority
+    setPendingDate(due_date)
+    setShowCalendar(false)
     updateTask(
       { taskId: current.id, payload },
       {
@@ -333,7 +355,7 @@ export function PlanYourDayModal({ tasks, checklistId, checklistName, onClose }:
                   return (
                     <Pressable
                       key={tile.key}
-                      onPress={() => applyDateAndAdvance(tile.key)}
+                      onPress={() => (tile.key === 'pick' ? setShowCalendar(true) : applyDateAndAdvance(tile.key))}
                       style={({ pressed }) => ({
                         width: '30%', alignItems: 'center', gap: 6,
                         paddingVertical: 12, paddingHorizontal: 8,
@@ -394,6 +416,64 @@ export function PlanYourDayModal({ tasks, checklistId, checklistName, onClose }:
             </Pressable>
           </View>
         )}
+
+        {/* ── Pick date overlay ───────────────────────────────── */}
+        {showCalendar && (() => {
+          const calDays = eachDayOfInterval({ start: startOfMonth(calMonth), end: endOfMonth(calMonth) })
+          const startDow = (startOfMonth(calMonth).getDay() + 6) % 7 // Mon=0
+          return (
+            <Modal transparent animationType="fade" onRequestClose={() => setShowCalendar(false)}>
+              <Pressable
+                style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' }}
+                onPress={() => setShowCalendar(false)}
+              >
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={{ width: 320, backgroundColor: 'white', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, elevation: 10 }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                    <Pressable onPress={() => setCalMonth((m) => subMonths(m, 1))} style={{ padding: 6 }}>
+                      <ChevronLeft size={18} color="#374151" />
+                    </Pressable>
+                    <Text style={{ flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: '#111827' }}>
+                      {format(calMonth, 'MMMM yyyy')}
+                    </Text>
+                    <Pressable onPress={() => setCalMonth((m) => addMonths(m, 1))} style={{ padding: 6 }}>
+                      <ChevronRight size={18} color="#374151" />
+                    </Pressable>
+                  </View>
+                  <View style={{ flexDirection: 'row', marginBottom: 6 }}>
+                    {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+                      <Text key={i} style={{ flex: 1, textAlign: 'center', fontSize: 11, color: '#9CA3AF', fontWeight: '600' }}>{d}</Text>
+                    ))}
+                  </View>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                    {Array.from({ length: startDow }).map((_, i) => (
+                      <View key={`empty-${i}`} style={{ width: `${100 / 7}%` }} />
+                    ))}
+                    {calDays.map((day) => {
+                      const isTod = isToday(day)
+                      const inMonth = isSameMonth(day, calMonth)
+                      return (
+                        <Pressable
+                          key={day.toISOString()}
+                          onPress={() => applyPickedDateAndAdvance(day)}
+                          style={{ width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <View style={{ width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: isTod ? ORANGE : 'transparent' }}>
+                            <Text style={{ fontSize: 14, fontWeight: isTod ? '700' : '400', color: isTod ? 'white' : inMonth ? '#111827' : '#D1D5DB' }}>
+                              {format(day, 'd')}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      )
+                    })}
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+          )
+        })()}
       </View>
     </Modal>
   )
