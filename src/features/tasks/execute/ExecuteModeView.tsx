@@ -17,10 +17,12 @@ import {
 import { priorityTextColor, priorityDisplay, priorityRowBg, PriorityPicker } from '@/features/tasks/shared/PriorityPicker'
 import { useSystemLog } from './useSystemLog'
 import { hapticMedium } from '@/platform/haptics'
+import { playBeep } from '@/platform/sound'
 import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
 import { InlineMarkdown } from '@/components/InlineMarkdown'
+import { BottomSheet } from '@/components/BottomSheet'
 import { isToday, isPast, format } from 'date-fns'
 
 const BLUE = '#4772FA'
@@ -195,61 +197,100 @@ function fmtDuration(seconds: number): string {
 // ─── Full-screen counter modal ────────────────────────────────────────────────
 
 function FullScreenCounterModal({ onClose }: { onClose: () => void }) {
-  const { currentTask, currentSeconds, isRunning, togglePlay, adjust, complete, resetCurrent } = useExecCtx()
+  const { currentTask, currentEntry, currentSeconds, isRunning, togglePlay, adjust, complete, resetCurrent } = useExecCtx()
+
+  const estimateSeconds = (currentEntry?.estimateMin ?? DEFAULT_ESTIMATE) * 60
+  const isOverrun = isRunning && currentSeconds >= estimateSeconds
+  const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Beep every 5s once the running timer overruns its estimate, until extended or stopped
+  useEffect(() => {
+    if (isOverrun) {
+      playBeep()
+      beepIntervalRef.current = setInterval(() => playBeep(), 5000)
+    }
+    return () => {
+      if (beepIntervalRef.current) {
+        clearInterval(beepIntervalRef.current)
+        beepIntervalRef.current = null
+      }
+    }
+  }, [isOverrun])
 
   return (
-    <Modal visible animationType="fade" transparent statusBarTranslucent>
-      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.93)', alignItems: 'center', justifyContent: 'center', gap: 36 }}>
+    <Modal visible animationType="fade" presentationStyle="fullScreen">
+      <View style={{ flex: 1, backgroundColor: '#FAFAFA' }}>
         {/* Close */}
-        <Pressable
-          hitSlop={16}
-          onPress={onClose}
-          style={{ position: 'absolute', top: 52, right: 28, zIndex: 10 }}
-        >
-          <X size={26} color="rgba(255,255,255,0.45)" />
-        </Pressable>
+        <View style={{ paddingHorizontal: 20, paddingTop: 52, paddingBottom: 16 }}>
+          <Pressable hitSlop={8} onPress={onClose}>
+            <X size={22} color="#6B7280" />
+          </Pressable>
+        </View>
 
-        {/* Task name */}
-        {currentTask && (
-          <Text style={{ fontSize: 17, color: 'rgba(255,255,255,0.65)', textAlign: 'center', paddingHorizontal: 48, lineHeight: 24 }} numberOfLines={2}>
-            <InlineMarkdown content={currentTask.content} />
-          </Text>
-        )}
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 24, paddingHorizontal: 24 }}>
+          {/* Task name */}
+          {currentTask && (
+            <Text style={{ fontSize: 17, color: '#374151', textAlign: 'center', paddingHorizontal: 24, lineHeight: 24 }} numberOfLines={2}>
+              <InlineMarkdown content={currentTask.content} />
+            </Text>
+          )}
 
-        {/* Giant flip clock */}
-        <FlipClock totalSeconds={currentSeconds} color={isRunning ? '#4772FA' : '#DC2626'} size="xl" />
+          {/* Giant flip clock */}
+          <FlipClock totalSeconds={currentSeconds} color={isRunning ? BLUE : '#DC2626'} size="xl" />
+
+          {/* Extend control — shown once the running timer overruns its estimate */}
+          {isOverrun && (
+            <Pressable
+              onPress={() => adjust(ESTIMATE_STEP)}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 6,
+                backgroundColor: '#FEF2F2', borderRadius: 20,
+                paddingVertical: 8, paddingHorizontal: 16,
+              }}
+            >
+              <Plus size={16} color="#EF4444" />
+              <Text style={{ fontSize: 13, fontWeight: '600', color: '#EF4444' }}>Extend +{ESTIMATE_STEP} min</Text>
+            </Pressable>
+          )}
+        </View>
 
         {/* Controls */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 28 }}>
-          <Pressable hitSlop={14} onPress={resetCurrent}>
-            <RotateCcw size={26} color="rgba(255,255,255,0.35)" />
+        <View
+          style={{
+            flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center',
+            paddingHorizontal: 24, paddingBottom: 48, paddingTop: 16,
+            borderTopWidth: 1, borderTopColor: '#F0F0F0',
+          }}
+        >
+          <Pressable
+            hitSlop={10} onPress={resetCurrent}
+            style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <RotateCcw size={20} color="#374151" />
           </Pressable>
-          <Pressable hitSlop={14} onPress={() => adjust(-ESTIMATE_STEP)}>
-            <Minus size={30} color="rgba(255,255,255,0.55)" />
+          <Pressable hitSlop={10} onPress={() => adjust(-ESTIMATE_STEP)}>
+            <Minus size={24} color="#9CA3AF" />
           </Pressable>
           <Pressable
             onPress={togglePlay}
             style={{
-              width: 80, height: 80, borderRadius: 40,
-              backgroundColor: isRunning ? BLUE : '#1f2937',
+              width: 72, height: 72, borderRadius: 36,
+              backgroundColor: isRunning ? BLUE : '#111827',
               alignItems: 'center', justifyContent: 'center',
-              borderWidth: 2, borderColor: isRunning ? BLUE : 'rgba(255,255,255,0.15)',
-              shadowColor: isRunning ? BLUE : '#000',
-              shadowOpacity: 0.5, shadowRadius: 12,
-              shadowOffset: { width: 0, height: 4 }, elevation: 8,
+              shadowColor: isRunning ? BLUE : '#000', shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
             }}
           >
-            {isRunning ? <Pause size={34} color="white" /> : <Play size={34} color="white" />}
+            {isRunning ? <Pause size={30} color="white" /> : <Play size={30} color="white" />}
           </Pressable>
-          <Pressable hitSlop={14} onPress={() => adjust(ESTIMATE_STEP)}>
-            <Plus size={30} color="rgba(255,255,255,0.55)" />
+          <Pressable hitSlop={10} onPress={() => adjust(ESTIMATE_STEP)}>
+            <Plus size={24} color="#9CA3AF" />
           </Pressable>
           <Pressable
-            hitSlop={14}
+            hitSlop={10}
             onPress={() => { complete(); onClose() }}
-            style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#16A34A', alignItems: 'center', justifyContent: 'center' }}
+            style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#16A34A', alignItems: 'center', justifyContent: 'center' }}
           >
-            <Check size={26} color="white" />
+            <Check size={22} color="white" strokeWidth={3} />
           </Pressable>
         </View>
       </View>
@@ -654,14 +695,17 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
 
       {/* Pickers */}
       {showDatePicker && currentTask && (
-        <View style={{ paddingHorizontal: 12, paddingBottom: 8 }}>
-          <QuickDatePicker taskId={currentTask.id} onSelect={(d) => { setShowDatePicker(false); updateTask({ taskId: currentTask.id, payload: { due_date: d } }) }} onClose={() => setShowDatePicker(false)} isMobile={false} />
-        </View>
+        <QuickDatePicker
+          taskId={currentTask.id}
+          onSelect={(d) => { setShowDatePicker(false); updateTask({ taskId: currentTask.id, payload: { due_date: d } }) }}
+          onClose={() => setShowDatePicker(false)}
+          isMobile
+        />
       )}
       {showPriorityPicker && currentTask && (
-        <View style={{ paddingHorizontal: 12, paddingBottom: 8 }}>
+        <BottomSheet open onClose={() => setShowPriorityPicker(false)} title="Set Priority">
           <PriorityPicker value={currentTask.priority} onChange={(p) => { setShowPriorityPicker(false); updateTask({ taskId: currentTask.id, payload: { priority: p } }) }} />
-        </View>
+        </BottomSheet>
       )}
     </View>
   )
@@ -673,8 +717,14 @@ export function ExecuteTaskList() {
   const {
     orderedTasks, orderedIds, setOrderedIds, currentIndex, setCurrentIndex,
     isRunning, getEntry, entries, timerRunningKey, timerStartedAt,
-    jumpTo, persistOrder, checklistId, onJumpToRaw, onJumpToMindmap,
+    jumpTo, persistOrder, checklistId, onJumpToRaw, onJumpToMindmap, updateTask,
   } = useExecCtx()
+
+  // Per-row date/priority picker state — local to this panel
+  const [dateEditTaskId, setDateEditTaskId] = useState<number | null>(null)
+  const [priorityEditTaskId, setPriorityEditTaskId] = useState<number | null>(null)
+  const dateEditTask = orderedTasks.find((t) => t.id === dateEditTaskId) ?? null
+  const priorityEditTask = orderedTasks.find((t) => t.id === priorityEditTaskId) ?? null
 
   // Drag state — local to this panel
   const [draggingIdx, setDraggingIdx] = useState<number | null>(null)
@@ -999,6 +1049,43 @@ export function ExecuteTaskList() {
                   {timeLabel}
                 </Text>
               </View>
+              {/* Date chip */}
+              <Pressable
+                hitSlop={6}
+                onPress={(e) => { e.stopPropagation?.(); setPriorityEditTaskId(null); setDateEditTaskId(t.id) }}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 2,
+                  borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2,
+                  backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB',
+                }}
+              >
+                <Calendar
+                  size={9}
+                  color={t.due ? (isPast(parseApiDate(t.due)!) && !isToday(parseApiDate(t.due)!) ? '#DC2626' : '#6B7280') : '#9ca3af'}
+                />
+                <Text style={{
+                  fontSize: 9, fontWeight: '500',
+                  color: t.due ? (isPast(parseApiDate(t.due)!) && !isToday(parseApiDate(t.due)!) ? '#DC2626' : '#6B7280') : '#9ca3af',
+                }}>
+                  {t.due ? humanizeDueDate(t.due) : 'Date'}
+                </Text>
+              </Pressable>
+              {/* Priority chip */}
+              <Pressable
+                hitSlop={6}
+                onPress={(e) => { e.stopPropagation?.(); setDateEditTaskId(null); setPriorityEditTaskId(t.id) }}
+                style={{
+                  borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2,
+                  backgroundColor: t.priority > 0 && t.priority <= 10 ? (priorityRowBg(t.priority) ?? '#F3F4F6') : '#F3F4F6',
+                }}
+              >
+                <Text style={{
+                  fontSize: 9, fontWeight: '700',
+                  color: t.priority > 0 && t.priority <= 10 ? priorityTextColor(t.priority) : '#9ca3af',
+                }}>
+                  {t.priority > 0 && t.priority <= 10 ? priorityDisplay(t.priority) : 'P?'}
+                </Text>
+              </Pressable>
               {onJumpToRaw && (
                 <Pressable hitSlop={8} onPress={(e) => { e.stopPropagation?.(); onJumpToRaw(t.id) }}>
                   <AlignLeft size={12} color="#D1D5DB" />
@@ -1046,21 +1133,45 @@ export function ExecuteTaskList() {
     </ScrollView>
   )
 
+  const pickers = (
+    <>
+      {dateEditTask && (
+        <QuickDatePicker
+          taskId={dateEditTask.id}
+          onSelect={(d) => { setDateEditTaskId(null); updateTask({ taskId: dateEditTask.id, payload: { due_date: d } }) }}
+          onClose={() => setDateEditTaskId(null)}
+          isMobile
+        />
+      )}
+      {priorityEditTask && (
+        <BottomSheet open onClose={() => setPriorityEditTaskId(null)} title="Set Priority">
+          <PriorityPicker
+            value={priorityEditTask.priority}
+            onChange={(p) => { setPriorityEditTaskId(null); updateTask({ taskId: priorityEditTask.id, payload: { priority: p } }) }}
+          />
+        </BottomSheet>
+      )}
+    </>
+  )
+
   if (Platform.OS === 'web') {
     return (
-      <div
-        ref={leftPanelRef}
-        tabIndex={0}
-        onKeyDown={onLeftPanelKeyDown}
-        className="execute-left-panel"
-        style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
-      >
-        {listContent}
-      </div>
+      <>
+        <div
+          ref={leftPanelRef}
+          tabIndex={0}
+          onKeyDown={onLeftPanelKeyDown}
+          className="execute-left-panel"
+          style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+        >
+          {listContent}
+        </div>
+        {pickers}
+      </>
     )
   }
 
-  return listContent
+  return <>{listContent}{pickers}</>
 }
 
 // ─── Full standalone view (mobile / non-split desktop) ───────────────────────
@@ -1295,18 +1406,20 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
                 updateTask({ taskId: currentTask.id, payload: { due_date: dateStr } })
               }}
               onClose={() => setShowDatePicker(false)}
-              isMobile={Platform.OS !== 'web'}
+              isMobile
             />
           )}
 
           {showPriorityPicker && currentTask && (
-            <PriorityPicker
-              value={currentTask.priority}
-              onChange={(p) => {
-                setShowPriorityPicker(false)
-                updateTask({ taskId: currentTask.id, payload: { priority: p } })
-              }}
-            />
+            <BottomSheet open onClose={() => setShowPriorityPicker(false)} title="Set Priority">
+              <PriorityPicker
+                value={currentTask.priority}
+                onChange={(p) => {
+                  setShowPriorityPicker(false)
+                  updateTask({ taskId: currentTask.id, payload: { priority: p } })
+                }}
+              />
+            </BottomSheet>
           )}
         </View>
 

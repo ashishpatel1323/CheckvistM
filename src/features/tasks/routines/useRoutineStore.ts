@@ -16,6 +16,8 @@ export interface ActiveTimer {
   skippedStepIds: string[]
   routineStartedAt: number
   totalElapsedSec: number
+  /** Extra time added to the current step via "extend" while it overruns, in seconds */
+  extensionSec: number
 }
 
 interface RoutineStoreState {
@@ -38,6 +40,8 @@ interface RoutineStoreState {
   startQueue: (routines: RoutineDef[]) => void
   pauseTimer: () => void
   resumeTimer: () => void
+  /** Add extra time (in seconds) to the currently running step's countdown */
+  extendStep: (sec: number) => void
   advanceStep: (action: 'done' | 'skip') => Promise<void>
   stopTimer: () => void
   upsertCheckin: (log: CheckinLog, routineName: string) => Promise<void>
@@ -139,6 +143,7 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
         skippedStepIds: [],
         routineStartedAt: now,
         totalElapsedSec: 0,
+        extensionSec: 0,
       },
     })
   },
@@ -161,6 +166,12 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
     const { activeTimer } = get()
     if (!activeTimer || activeTimer.pausedAt === null) return
     set({ activeTimer: { ...activeTimer, pausedAt: null, stepStartedAt: Date.now() } })
+  },
+
+  extendStep: (sec) => {
+    const { activeTimer } = get()
+    if (!activeTimer) return
+    set({ activeTimer: { ...activeTimer, extensionSec: activeTimer.extensionSec + sec } })
   },
 
   advanceStep: async (action) => {
@@ -216,6 +227,7 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
           stepStartedAt: Date.now(),
           pausedAt: null,
           stepElapsedSec: 0,
+          extensionSec: 0,
           completedStepIds,
           skippedStepIds,
           totalElapsedSec: newTotalElapsed,

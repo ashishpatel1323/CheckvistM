@@ -1,13 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, Modal } from 'react-native'
-import { Pause, Play, SkipForward, Check, X } from 'lucide-react-native'
+import { Pause, Play, SkipForward, Check, X, Plus } from 'lucide-react-native'
 import { useRoutineStore } from './useRoutineStore'
 import { ROUTINE_COLORS } from './routineTypes'
+import { playBeep } from '@/platform/sound'
+
+const EXTEND_SEC = 5 * 60
 
 export function TimerModeView() {
-  const { activeTimer, routines, pauseTimer, resumeTimer, advanceStep, stopTimer } = useRoutineStore()
+  const { activeTimer, routines, pauseTimer, resumeTimer, advanceStep, stopTimer, extendStep } = useRoutineStore()
   const [, setTick] = useState(0)
   const [celebrated, setCelebrated] = useState(false)
+  const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 1000)
@@ -39,9 +43,24 @@ export function TimerModeView() {
   const stepElapsedSec = activeTimer.stepElapsedSec + (
     isPaused ? 0 : (Date.now() - activeTimer.stepStartedAt) / 1000
   )
-  const stepDurationSec = step ? step.durationMin * 60 : 0
+  const stepDurationSec = step ? step.durationMin * 60 + activeTimer.extensionSec : 0
   const remainingSec = Math.max(0, stepDurationSec - stepElapsedSec)
+  const isOverrun = !!step && remainingSec <= 0
   const progressPct = stepDurationSec > 0 ? Math.min(1, stepElapsedSec / stepDurationSec) : 0
+
+  // Beep every 5s while a step has overrun its (extended) duration and isn't paused
+  useEffect(() => {
+    if (isOverrun && !isPaused) {
+      playBeep()
+      beepIntervalRef.current = setInterval(() => playBeep(), 5000)
+    }
+    return () => {
+      if (beepIntervalRef.current) {
+        clearInterval(beepIntervalRef.current)
+        beepIntervalRef.current = null
+      }
+    }
+  }, [isOverrun, isPaused, currentStepId])
 
   const fmtCountdown = (sec: number) => {
     const m = Math.floor(sec / 60)
@@ -163,6 +182,21 @@ export function TimerModeView() {
           >
             {fmtCountdown(remainingSec)}
           </Text>
+
+          {/* Extend control — shown once the step has overrun its time */}
+          {isOverrun && (
+            <Pressable
+              onPress={() => extendStep(EXTEND_SEC)}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 6,
+                backgroundColor: '#FEF2F2', borderRadius: 20,
+                paddingVertical: 8, paddingHorizontal: 16, marginBottom: 16,
+              }}
+            >
+              <Plus size={16} color="#EF4444" />
+              <Text style={{ fontSize: 13, fontWeight: '600', color: '#EF4444' }}>Extend +5 min</Text>
+            </Pressable>
+          )}
 
           {/* Step name */}
           <Text style={{ fontSize: 32 }}>{step?.emoji}</Text>
