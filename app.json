@@ -3,6 +3,15 @@
     "name": "Checkvist",
     "slug": "checkvist-app",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/f0c7beb2-284a-4eea-b8ca-0f04229e0bb9",
+      "enabled": true,
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    },
     "orientation": "portrait",
     "icon": "./public/icons/icon-512.png",
     "userInterfaceStyle": "light",
