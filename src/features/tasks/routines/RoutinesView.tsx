@@ -17,6 +17,13 @@ const BLUE = '#4772FA'
 const FAILURE_RED = '#DC2626'
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+function fmtTime12(hhmm: string) {
+  const [h, m] = hhmm.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
 // ─── Streak helpers ───────────────────────────────────────────────────────────
 
 function computeStepStats(
@@ -149,16 +156,25 @@ interface HabitRowProps {
   circleSize: number
   onToggle: (stepId: string, date: string) => void
   checkinsByDate: Record<string, string[]> // date → completedStepIds
+  completionTimeByDate: Record<string, string> // date → HH:MM
 }
 
-function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleSize, onToggle, checkinsByDate }: HabitRowProps) {
+function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleSize, onToggle, checkinsByDate, completionTimeByDate }: HabitRowProps) {
   const accentColor = ROUTINE_COLORS[routine.color]
+  const getLast7CompletionTimes = useRoutineStore((s) => s.getLast7CompletionTimes)
   const allLogs = Object.entries(checkinsByDate).map(([date, completedStepIds]) => ({ date, completedStepIds }))
   const { totalDone, currentStreak } = useMemo(
     () => computeStepStats(step.id, step.scheduledDays, allLogs),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [step.id, step.scheduledDays, JSON.stringify(checkinsByDate)],
   )
+  const completionTimes = getLast7CompletionTimes(routine.taskId)
+  const sortedTimes = [...completionTimes].sort()
+  const usuallyText = sortedTimes.length === 0
+    ? null
+    : sortedTimes.length === 1
+      ? `Usually at ${fmtTime12(sortedTimes[0])}`
+      : `Usually ${fmtTime12(sortedTimes[0])}–${fmtTime12(sortedTimes[sortedTimes.length - 1])}`
 
   return (
     <View style={{
@@ -182,13 +198,16 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
         <Text style={{ fontSize: 14, fontWeight: '600', color: '#111' }} numberOfLines={1}>
           {step.name}
         </Text>
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 2 }}>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 2, flexWrap: 'wrap', alignItems: 'center' }}>
           <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
             ⚡{totalDone}d
           </Text>
           <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
             🔥{currentStreak}d
           </Text>
+          {usuallyText && (
+            <Text style={{ fontSize: 11, color: '#9CA3AF' }}>{usuallyText}</Text>
+          )}
         </View>
       </View>
 
@@ -221,6 +240,11 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
                 onPress={() => onToggle(step.id, ds)}
                 size={circleSize}
               />
+              {isDone && completionTimeByDate[ds] && (
+                <Text style={{ fontSize: 8, color: accentColor, marginTop: 2, textAlign: 'center', opacity: 0.8 }} numberOfLines={1}>
+                  {fmtTime12(completionTimeByDate[ds]).replace(' AM', 'a').replace(' PM', 'p')}
+                </Text>
+              )}
             </View>
           )
         })}
@@ -239,7 +263,7 @@ interface RoutineGroupProps {
   colWidth: number
   circleSize: number
   onToggle: (stepId: string, date: string) => void
-  checkins: { date: string; completedStepIds: string[] }[]
+  checkins: { date: string; completedStepIds: string[]; completionTime?: string }[]
   onEdit: () => void
   onDelete: () => void
 }
@@ -251,9 +275,13 @@ function RoutineGroup({
   const [collapsed, setCollapsed] = useState(false)
   const accentColor = ROUTINE_COLORS[routine.color]
 
-  // Build date → completedStepIds map
+  // Build date → completedStepIds and date → completionTime maps
   const checkinsByDate: Record<string, string[]> = {}
-  for (const c of checkins) checkinsByDate[c.date] = c.completedStepIds
+  const completionTimeByDate: Record<string, string> = {}
+  for (const c of checkins) {
+    checkinsByDate[c.date] = c.completedStepIds
+    if (c.completionTime) completionTimeByDate[c.date] = c.completionTime
+  }
 
   const selectedDs = format(selectedDate, 'yyyy-MM-dd')
   const selectedDow = selectedDate.getDay()
@@ -311,6 +339,7 @@ function RoutineGroup({
           circleSize={circleSize}
           onToggle={onToggle}
           checkinsByDate={checkinsByDate}
+          completionTimeByDate={completionTimeByDate}
         />
       ))}
     </View>
