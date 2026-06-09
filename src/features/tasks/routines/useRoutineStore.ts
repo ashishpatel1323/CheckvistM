@@ -33,6 +33,10 @@ interface RoutineStoreState {
   getCheckinForDate: (routineTaskId: number, date: string) => CheckinLog | undefined
   getTodayCheckin: (routineTaskId: number) => CheckinLog | undefined
   getLast7Days: (routineTaskId: number) => { date: string; done: boolean }[]
+  /** Last ≤7 HH:MM completion times across actual completions (most-recent first) */
+  getLast7CompletionTimes: (routineTaskId: number) => string[]
+  /** Overwrite the recorded completion time for a checkin and persist it */
+  updateCheckinTime: (routineTaskId: number, date: string, newTime: string) => Promise<void>
   /** Toggle a single step done/undone for a given date (defaults to today) */
   toggleStep: (routine: RoutineDef, stepId: string, date?: string) => Promise<void>
   startTimer: (routine: RoutineDef) => void
@@ -90,6 +94,32 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
     })
   },
 
+  getLast7CompletionTimes: (routineTaskId) => {
+    const logs = get().checkins[routineTaskId] ?? []
+    return logs
+      .filter((l) => l.completionTime && l.completedStepIds.length > 0)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 7)
+      .map((l) => l.completionTime!)
+  },
+
+  updateCheckinTime: async (routineTaskId, date, newTime) => {
+    const existing = get().getCheckinForDate(routineTaskId, date)
+    if (!existing) return
+    const updated: CheckinLog = { ...existing, completionTime: newTime }
+    set((s) => {
+      const arr = s.checkins[routineTaskId] ?? []
+      return {
+        checkins: {
+          ...s.checkins,
+          [routineTaskId]: arr.map((c) => (c.date === date ? updated : c)),
+        },
+      }
+    })
+    const routineName = get().routines.find((r) => r.taskId === routineTaskId)?.name ?? ''
+    await get().upsertCheckin(updated, routineName)
+  },
+
   toggleStep: async (routine, stepId, date?) => {
     const targetDate = date ?? todayStr()
     const existing = get().getCheckinForDate(routine.taskId, targetDate)
@@ -105,11 +135,15 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
       completedStepIds = [stepId]
     }
 
+    const isToday = targetDate === todayStr()
     const log: CheckinLog = {
       routineTaskId: routine.taskId,
       date: targetDate,
       completedStepIds,
       durationSec: existing?.durationSec ?? 0,
+      completionTime:
+        existing?.completionTime ??
+        (isToday && completedStepIds.length > 0 ? format(new Date(), 'HH:mm') : undefined),
       systemTaskId: existing?.systemTaskId,
     }
 
@@ -208,6 +242,7 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
         date: today,
         completedStepIds: mergedCompleted,
         durationSec: Math.round(newTotalElapsed),
+        completionTime: existingCheckin?.completionTime ?? format(new Date(), 'HH:mm'),
         systemTaskId: existingCheckin?.systemTaskId,
       }
       set((s) => {

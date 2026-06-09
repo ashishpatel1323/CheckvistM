@@ -66,7 +66,8 @@ export function decodeRoutineDef(content: string, taskId: number): RoutineDef | 
 }
 
 export function encodeCheckin(routineName: string, log: Omit<CheckinLog, 'systemTaskId'>): string {
-  return `${ROUTINE_LOG_PREFIX} ${routineName} | ${log.date} | steps=${log.completedStepIds.join(',')} dur=${log.durationSec}`
+  const timePart = log.completionTime ? ` time=${log.completionTime}` : ''
+  return `${ROUTINE_LOG_PREFIX} ${routineName} | ${log.date} | steps=${log.completedStepIds.join(',')} dur=${log.durationSec}${timePart}`
 }
 
 export function decodeCheckin(content: string, systemTaskId: number, parentId: number): CheckinLog | null {
@@ -79,12 +80,14 @@ export function decodeCheckin(content: string, systemTaskId: number, parentId: n
     if (!dateM) return null
 
     const completedStepIds = stepsM?.[1] ? stepsM[1].split(',').filter(Boolean) : []
+    const timeM = content.match(/time=(\d{2}:\d{2})/)
 
     return {
       routineTaskId: parentId,
       date: dateM[1],
       completedStepIds,
       durationSec: Number(durM?.[1] ?? 0),
+      completionTime: timeM?.[1],
       systemTaskId,
     }
   } catch {

@@ -23,6 +23,8 @@ export interface CheckinLog {
   date: string  // YYYY-MM-DD
   completedStepIds: string[]
   durationSec: number
+  /** HH:MM (24h) — wall-clock time when the routine was marked complete */
+  completionTime?: string
   systemTaskId?: number
 }
 
