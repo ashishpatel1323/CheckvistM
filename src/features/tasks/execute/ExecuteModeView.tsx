@@ -18,6 +18,12 @@ import { priorityTextColor, priorityDisplay, priorityRowBg, PriorityPicker } fro
 import { useSystemLog } from './useSystemLog'
 import { hapticMedium } from '@/platform/haptics'
 import { playBeep } from '@/platform/sound'
+import {
+  setupTimerNotifications,
+  teardownTimerNotifications,
+  showExecuteTimerNotification,
+  dismissExecuteTimerNotification,
+} from '@/platform/timerNotification'
 import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
@@ -406,7 +412,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
 
   const { entries, timerRunningKey, timerStartedAt, seed, setEstimate, play, pause, markCompleted, reset, setTaskName, hydrateFromRemote } = useExecuteLog()
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [, setTick] = useState(0)
+  const [tick, setTick] = useState(0)
   const [now, setNow] = useState(new Date())
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const clockRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -451,6 +457,19 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [timerRunningKey])
 
+  // ── Notification setup / teardown ──────────────────────────────────────────
+  useEffect(() => {
+    const handler = (type: 'execute' | 'routine', action: import('@/platform/timerNotification').TimerNotifAction) => {
+      if (type !== 'execute') return
+      const store = useExecuteLog.getState()
+      if (action === 'pause') store.pause()
+      else if (action === 'resume') { if (store.timerRunningKey) store.play(store.timerRunningKey) }
+      else if (action === 'complete') { if (store.timerRunningKey) store.markCompleted(store.timerRunningKey) }
+    }
+    let unsub = () => {}
+    setupTimerNotifications(handler).then((fn) => { unsub = fn }).catch(() => {})
+    return () => { unsub(); dismissExecuteTimerNotification().catch(() => {}) }
+  }, [])
 
   const currentTask = orderedTasks[currentIndex]
   const currentKey = currentTask ? entryKey(checklistId, currentTask.id) : null
@@ -463,6 +482,25 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
   const currentSeconds = currentEntry && currentKey
     ? liveSeconds(currentEntry, timerRunningKey, timerStartedAt, currentKey)
     : 0
+
+  // ── Update notification every ~5 ticks while timer is active ───────────────
+  const lastNotifTickRef = useRef(-99)
+  useEffect(() => {
+    if (Platform.OS === 'web') return
+    if (!currentTask) {
+      if (!timerRunningKey) dismissExecuteTimerNotification().catch(() => {})
+      return
+    }
+    if (tick - lastNotifTickRef.current < 5 && tick !== 0) return
+    lastNotifTickRef.current = tick
+    showExecuteTimerNotification({
+      taskName: currentTask.content,
+      elapsedSec: currentSeconds,
+      estimateMin: currentEntry?.estimateMin ?? null,
+      isRunning,
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, isRunning, timerRunningKey])
 
   const completedCount = orderedTasks.filter((t) => getEntry(t.id)?.completedAt).length
   const totalActualSeconds = orderedTasks.reduce((sum, t) => {
@@ -492,6 +530,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
   const complete = () => {
     if (!currentKey) return
     markCompleted(currentKey)
+    dismissExecuteTimerNotification().catch(() => {})
     const completedId = orderedIds[currentIndex]
     const newIds = [completedId, ...orderedIds.filter((id) => id !== completedId)]
     setOrderedIds(newIds)

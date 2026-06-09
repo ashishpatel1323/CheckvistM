@@ -1,22 +1,69 @@
 import { useState, useEffect, useRef } from 'react'
-import { View, Text, Pressable, Modal } from 'react-native'
+import { View, Text, Pressable, Modal, Platform } from 'react-native'
 import { Pause, Play, SkipForward, Check, X, Plus } from 'lucide-react-native'
 import { useRoutineStore } from './useRoutineStore'
 import { ROUTINE_COLORS } from './routineTypes'
 import { playBeep } from '@/platform/sound'
+import {
+  setupTimerNotifications,
+  showRoutineTimerNotification,
+  dismissRoutineTimerNotification,
+} from '@/platform/timerNotification'
 
 const EXTEND_SEC = 5 * 60
 
 export function TimerModeView() {
   const { activeTimer, routines, pauseTimer, resumeTimer, advanceStep, stopTimer, extendStep } = useRoutineStore()
-  const [, setTick] = useState(0)
+  const [tick, setTick] = useState(0)
   const [celebrated, setCelebrated] = useState(false)
   const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastNotifTickRef = useRef(-99)
 
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 1000)
     return () => clearInterval(id)
   }, [])
+
+  // ── Notification setup / teardown ──────────────────────────────────────────
+  useEffect(() => {
+    const handler = (type: 'execute' | 'routine', action: import('@/platform/timerNotification').TimerNotifAction) => {
+      if (type !== 'routine') return
+      const store = useRoutineStore.getState()
+      if (action === 'pause') store.pauseTimer()
+      else if (action === 'resume') store.resumeTimer()
+      else if (action === 'skip') store.advanceStep('skip')
+      else if (action === 'stop') store.stopTimer()
+    }
+    let unsub = () => {}
+    if (Platform.OS !== 'web') {
+      setupTimerNotifications(handler).then((fn) => { unsub = fn }).catch(() => {})
+    }
+    return () => { unsub(); dismissRoutineTimerNotification().catch(() => {}) }
+  }, [])
+
+  // ── Update notification every ~5 ticks ─────────────────────────────────────
+  useEffect(() => {
+    if (Platform.OS === 'web' || !activeTimer) return
+    if (tick - lastNotifTickRef.current < 5 && tick !== 0) return
+    lastNotifTickRef.current = tick
+    const rt = routines.find((r) => r.taskId === activeTimer.routineTaskId)
+    if (!rt) return
+    const { pendingStepIds, stepIndex } = activeTimer
+    if (stepIndex >= pendingStepIds.length) return
+    const st = rt.steps.find((s) => s.id === pendingStepIds[stepIndex])
+    if (!st) return
+    const paused = activeTimer.pausedAt !== null
+    const elapsed = activeTimer.stepElapsedSec + (paused ? 0 : (Date.now() - activeTimer.stepStartedAt) / 1000)
+    const durSec = st.durationMin * 60 + activeTimer.extensionSec
+    showRoutineTimerNotification({
+      stepName: `${st.emoji ?? ''} ${st.name}`.trim(),
+      stepIndex,
+      totalSteps: pendingStepIds.length,
+      remainingSec: durSec - elapsed,
+      isRunning: !paused,
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, activeTimer])
 
   if (!activeTimer) return null
 
