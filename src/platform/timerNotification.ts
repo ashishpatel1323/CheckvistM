@@ -26,25 +26,24 @@ async function _ensureInitialized(): Promise<boolean> {
   if (_initialized) return true
   if (Platform.OS === 'web') return false
 
-  const perms = await Notifications.requestPermissionsAsync()
-  const p = perms as unknown as { granted?: boolean; status?: string }
-  const granted = p.granted ?? (p.status === 'granted')
-  if (!granted) return false
+  const { status } = await Notifications.requestPermissionsAsync()
+  if (status !== 'granted') return false
 
+  // Show notifications as banners when app is in foreground too
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: false,
+      shouldShowAlert: true,
       shouldPlaySound: false,
       shouldSetBadge: false,
-      shouldShowBanner: false,
-      shouldShowList: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
     }),
   })
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync(EXECUTE_CHANNEL, {
       name: 'Execute Timer',
-      importance: Notifications.AndroidImportance.DEFAULT,
+      importance: Notifications.AndroidImportance.HIGH,
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       sound: null,
       enableVibrate: false,
@@ -52,7 +51,7 @@ async function _ensureInitialized(): Promise<boolean> {
     })
     await Notifications.setNotificationChannelAsync(ROUTINE_CHANNEL, {
       name: 'Routine Timer',
-      importance: Notifications.AndroidImportance.DEFAULT,
+      importance: Notifications.AndroidImportance.HIGH,
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       sound: null,
       enableVibrate: false,
@@ -130,10 +129,13 @@ export async function showExecuteTimerNotification({
       body: `${icon}  ${progress}`,
       categoryIdentifier: isRunning ? CAT_EXECUTE_RUNNING : CAT_EXECUTE_PAUSED,
       data: { type: 'execute-timer' },
-      sticky: true,
       ...(Platform.OS === 'android' && {
         color: '#E8632A',
-        android: { channelId: EXECUTE_CHANNEL, ongoing: true, priority: 'max', color: '#E8632A' },
+        android: {
+          channelId: EXECUTE_CHANNEL,
+          color: '#E8632A',
+          priority: Notifications.AndroidNotificationPriority.MAX,
+        },
       }),
     } as Notifications.NotificationContentInput,
     trigger: null,
@@ -174,10 +176,13 @@ export async function showRoutineTimerNotification({
       body: `${icon}  ${timeLabel}  ·  ${stepIndex + 1}/${totalSteps}`,
       categoryIdentifier: isRunning ? CAT_ROUTINE_RUNNING : CAT_ROUTINE_PAUSED,
       data: { type: 'routine-timer' },
-      sticky: true,
       ...(Platform.OS === 'android' && {
         color: '#4772FA',
-        android: { channelId: ROUTINE_CHANNEL, ongoing: true, priority: 'max', color: '#4772FA' },
+        android: {
+          channelId: ROUTINE_CHANNEL,
+          color: '#4772FA',
+          priority: Notifications.AndroidNotificationPriority.MAX,
+        },
       }),
     } as Notifications.NotificationContentInput,
     trigger: null,
