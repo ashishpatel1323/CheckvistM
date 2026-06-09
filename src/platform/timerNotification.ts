@@ -1,19 +1,17 @@
 import { Platform } from 'react-native'
 import * as Notifications from 'expo-notifications'
 
-// Notification IDs
 const EXECUTE_ID = 'checkvist-execute-timer'
 const ROUTINE_ID = 'checkvist-routine-timer'
 
-// Android channel IDs
 const EXECUTE_CHANNEL = 'execute-timer'
 const ROUTINE_CHANNEL = 'routine-timer'
 
-// Category identifiers for action buttons
+// Single toggle action per state — keeps the notification clean
 const CAT_EXECUTE_RUNNING = 'execute-running'
-const CAT_EXECUTE_PAUSED = 'execute-paused'
+const CAT_EXECUTE_PAUSED  = 'execute-paused'
 const CAT_ROUTINE_RUNNING = 'routine-running'
-const CAT_ROUTINE_PAUSED = 'routine-paused'
+const CAT_ROUTINE_PAUSED  = 'routine-paused'
 
 export type TimerNotifAction = 'pause' | 'resume' | 'complete' | 'skip' | 'stop'
 type ActionHandler = (type: 'execute' | 'routine', action: TimerNotifAction) => void
@@ -29,21 +27,22 @@ async function _ensureInitialized(): Promise<boolean> {
   const { status } = await Notifications.requestPermissionsAsync()
   if (status !== 'granted') return false
 
-  // Show notifications as banners when app is in foreground too
+  // Only show as banner when app is backgrounded (foreground = user is already watching)
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
+      shouldShowAlert: false,
       shouldPlaySound: false,
       shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
+      shouldShowBanner: false,
+      shouldShowList: false,
     }),
   })
 
   if (Platform.OS === 'android') {
+    // LOW importance = persistent in tray, no sound/vibration, no heads-up pop-up
     await Notifications.setNotificationChannelAsync(EXECUTE_CHANNEL, {
       name: 'Execute Timer',
-      importance: Notifications.AndroidImportance.HIGH,
+      importance: Notifications.AndroidImportance.LOW,
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       sound: null,
       enableVibrate: false,
@@ -51,7 +50,7 @@ async function _ensureInitialized(): Promise<boolean> {
     })
     await Notifications.setNotificationChannelAsync(ROUTINE_CHANNEL, {
       name: 'Routine Timer',
-      importance: Notifications.AndroidImportance.HIGH,
+      importance: Notifications.AndroidImportance.LOW,
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       sound: null,
       enableVibrate: false,
@@ -59,23 +58,18 @@ async function _ensureInitialized(): Promise<boolean> {
     })
   }
 
+  // Single action per state — just the play/pause toggle
   await Notifications.setNotificationCategoryAsync(CAT_EXECUTE_RUNNING, [
-    { identifier: 'pause',    buttonTitle: '⏸ Pause',    options: { opensAppToForeground: false } },
-    { identifier: 'complete', buttonTitle: '✓ Done',     options: { opensAppToForeground: true  } },
+    { identifier: 'pause',  buttonTitle: '⏸  Pause',  options: { opensAppToForeground: false } },
   ])
   await Notifications.setNotificationCategoryAsync(CAT_EXECUTE_PAUSED, [
-    { identifier: 'resume',   buttonTitle: '▶ Resume',   options: { opensAppToForeground: false } },
-    { identifier: 'complete', buttonTitle: '✓ Done',     options: { opensAppToForeground: true  } },
+    { identifier: 'resume', buttonTitle: '▶  Resume', options: { opensAppToForeground: false } },
   ])
   await Notifications.setNotificationCategoryAsync(CAT_ROUTINE_RUNNING, [
-    { identifier: 'pause',    buttonTitle: '⏸ Pause',    options: { opensAppToForeground: false } },
-    { identifier: 'skip',     buttonTitle: '⏭ Skip',     options: { opensAppToForeground: false } },
-    { identifier: 'stop',     buttonTitle: '⏹ Stop',     options: { opensAppToForeground: true  } },
+    { identifier: 'pause',  buttonTitle: '⏸  Pause',  options: { opensAppToForeground: false } },
   ])
   await Notifications.setNotificationCategoryAsync(CAT_ROUTINE_PAUSED, [
-    { identifier: 'resume',   buttonTitle: '▶ Resume',   options: { opensAppToForeground: false } },
-    { identifier: 'skip',     buttonTitle: '⏭ Skip',     options: { opensAppToForeground: false } },
-    { identifier: 'stop',     buttonTitle: '⏹ Stop',     options: { opensAppToForeground: true  } },
+    { identifier: 'resume', buttonTitle: '▶  Resume', options: { opensAppToForeground: false } },
   ])
 
   _responseListener = Notifications.addNotificationResponseReceivedListener((response) => {
@@ -91,7 +85,6 @@ async function _ensureInitialized(): Promise<boolean> {
   return true
 }
 
-/** Register a handler for notification action buttons. Returns an unsubscribe function. */
 export async function setupTimerNotifications(onAction: ActionHandler): Promise<() => void> {
   const ok = await _ensureInitialized()
   if (!ok) return () => {}
@@ -119,22 +112,28 @@ export async function showExecuteTimerNotification({
   if (Platform.OS === 'web') return
 
   const elapsed = fmtDuration(elapsedSec)
-  const progress = estimateMin ? `${elapsed} / ${estimateMin}m` : elapsed
-  const icon = isRunning ? '▶' : '⏸'
+  const over = estimateMin && elapsedSec > estimateMin * 60
+  const progress = estimateMin
+    ? over
+      ? `+${fmtDuration(elapsedSec - estimateMin * 60)} over ${estimateMin}m`
+      : `${elapsed} / ${estimateMin}m`
+    : elapsed
+  const statusDot = isRunning ? '🟠' : '⏸'
 
   await Notifications.scheduleNotificationAsync({
     identifier: EXECUTE_ID,
     content: {
-      title: taskName,
-      body: `${icon}  ${progress}`,
+      title: `${statusDot}  ${taskName}`,
+      body: progress,
       categoryIdentifier: isRunning ? CAT_EXECUTE_RUNNING : CAT_EXECUTE_PAUSED,
       data: { type: 'execute-timer' },
+      color: '#E8632A',
       ...(Platform.OS === 'android' && {
-        color: '#E8632A',
         android: {
           channelId: EXECUTE_CHANNEL,
           color: '#E8632A',
-          priority: Notifications.AndroidNotificationPriority.MAX,
+          ongoing: true,
+          priority: Notifications.AndroidNotificationPriority.DEFAULT,
         },
       }),
     } as Notifications.NotificationContentInput,
@@ -166,22 +165,24 @@ export async function showRoutineTimerNotification({
 
   const overrun = remainingSec < 0
   const timeStr = fmtDuration(Math.abs(remainingSec))
-  const timeLabel = overrun ? `+${timeStr} overtime` : `${timeStr} left`
-  const icon = isRunning ? '▶' : '⏸'
+  const timeLabel = overrun ? `+${timeStr} over` : `${timeStr} left`
+  const progress = `${stepIndex + 1} / ${totalSteps}  ·  ${timeLabel}`
+  const statusDot = isRunning ? (overrun ? '🔴' : '🟢') : '⏸'
 
   await Notifications.scheduleNotificationAsync({
     identifier: ROUTINE_ID,
     content: {
-      title: stepName,
-      body: `${icon}  ${timeLabel}  ·  ${stepIndex + 1}/${totalSteps}`,
+      title: `${statusDot}  ${stepName}`,
+      body: progress,
       categoryIdentifier: isRunning ? CAT_ROUTINE_RUNNING : CAT_ROUTINE_PAUSED,
       data: { type: 'routine-timer' },
+      color: '#4772FA',
       ...(Platform.OS === 'android' && {
-        color: '#4772FA',
         android: {
           channelId: ROUTINE_CHANNEL,
           color: '#4772FA',
-          priority: Notifications.AndroidNotificationPriority.MAX,
+          ongoing: true,
+          priority: Notifications.AndroidNotificationPriority.DEFAULT,
         },
       }),
     } as Notifications.NotificationContentInput,
