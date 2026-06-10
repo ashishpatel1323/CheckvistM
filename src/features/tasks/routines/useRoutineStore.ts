@@ -49,6 +49,8 @@ interface RoutineStoreState {
   /** Add extra time (in seconds) to the currently running step's countdown */
   extendStep: (sec: number) => void
   advanceStep: (action: 'done' | 'skip') => Promise<void>
+  /** Go back to the previous pending step, un-doing its done/skip so it can be re-attempted */
+  goBack: () => void
   stopTimer: () => void
   upsertCheckin: (log: CheckinLog, routineName: string) => Promise<void>
 }
@@ -293,6 +295,31 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
         },
       })
     }
+  },
+
+  goBack: () => {
+    const { activeTimer } = get()
+    if (!activeTimer || activeTimer.stepIndex === 0) return
+    const prevIndex = activeTimer.stepIndex - 1
+    const prevStepId = activeTimer.pendingStepIds[prevIndex]
+    // Un-do the previous step's done/skip and clear its recorded time
+    const completedStepIds = activeTimer.completedStepIds.filter((id) => id !== prevStepId)
+    const skippedStepIds = activeTimer.skippedStepIds.filter((id) => id !== prevStepId)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { [prevStepId]: _dropped, ...stepCompletionTimes } = activeTimer.stepCompletionTimes
+    set({
+      activeTimer: {
+        ...activeTimer,
+        stepIndex: prevIndex,
+        stepStartedAt: Date.now(),
+        pausedAt: null,
+        stepElapsedSec: 0,
+        extensionSec: 0,
+        completedStepIds,
+        skippedStepIds,
+        stepCompletionTimes,
+      },
+    })
   },
 
   stopTimer: () => {

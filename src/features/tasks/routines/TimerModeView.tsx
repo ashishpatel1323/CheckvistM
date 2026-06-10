@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, Modal, Platform, LayoutChangeEvent } from 'react-native'
-import { Pause, Play, SkipForward, Check, X, Plus } from 'lucide-react-native'
+import { Pause, Play, SkipForward, SkipBack, Check, X, Plus } from 'lucide-react-native'
 import { format } from 'date-fns'
 import { useRoutineStore } from './useRoutineStore'
 import { ROUTINE_COLORS } from './routineTypes'
@@ -141,7 +141,7 @@ function CompletionTimeBar({ times, accentColor }: { times: string[]; accentColo
 export function TimerModeView() {
   const {
     activeTimer, routines,
-    pauseTimer, resumeTimer, advanceStep, stopTimer, extendStep,
+    pauseTimer, resumeTimer, advanceStep, goBack, stopTimer, extendStep,
     getLast7CompletionTimes,
   } = useRoutineStore()
   const [tick, setTick] = useState(0)
@@ -425,6 +425,18 @@ export function TimerModeView() {
             borderTopWidth: 1, borderTopColor: '#F0F0F0',
           }}
         >
+          {/* Back — go to previous pending step (only shown when one exists) */}
+          <Pressable
+            onPress={stepIndex > 0 ? goBack : undefined}
+            style={{
+              width: 44, height: 44, borderRadius: 22,
+              backgroundColor: stepIndex > 0 ? '#F3F4F6' : 'transparent',
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <SkipBack size={20} color={stepIndex > 0 ? '#374151' : 'transparent'} />
+          </Pressable>
+
           {/* Pause / Resume */}
           <Pressable
             onPress={isPaused ? resumeTimer : pauseTimer}
