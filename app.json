@@ -35,6 +35,7 @@
     },
     "web": {
       "bundler": "metro",
+      "favicon": "./public/favicon.svg",
       "name": "Checkvist",
       "shortName": "Checkvist",
       "description": "Checkvist task manager",

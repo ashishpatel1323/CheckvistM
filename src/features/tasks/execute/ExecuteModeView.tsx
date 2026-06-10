@@ -345,6 +345,7 @@ interface ExecCtxValue {
   setShowPriorityPicker: Dispatch<SetStateAction<boolean>>
   // Actions
   togglePlay: () => void
+  playTask: (index: number) => void
   adjust: (delta: number) => void
   setEstimateDirect: (mins: number) => void
   complete: () => void
@@ -525,6 +526,14 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
   }
 
   const togglePlay = () => { if (!currentKey) return; isRunning ? pause() : play(currentKey) }
+  const playTask = (index: number) => {
+    setCurrentIndex(index)
+    const taskId = orderedIds[index]
+    if (!taskId) return
+    const key = entryKey(checklistId, taskId)
+    pause()
+    play(key)
+  }
   const adjust = (delta: number) => { if (!currentKey || !currentEntry) return; setEstimate(currentKey, currentEntry.estimateMin + delta) }
   const setEstimateDirect = (mins: number) => { if (!currentKey) return; setEstimate(currentKey, Math.max(1, mins)) }
   const complete = () => {
@@ -549,7 +558,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
     entries, timerRunningKey, timerStartedAt,
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
-    togglePlay, adjust, setEstimateDirect, complete, resetCurrent, jumpTo, prevTask, nextTask, persistOrder, updateTask,
+    togglePlay, playTask, adjust, setEstimateDirect, complete, resetCurrent, jumpTo, prevTask, nextTask, persistOrder, updateTask,
     checklistId, onJumpToRaw, onJumpToMindmap,
   }
 
@@ -756,7 +765,7 @@ export function ExecuteTaskList() {
   const {
     orderedTasks, orderedIds, setOrderedIds, currentIndex, setCurrentIndex,
     isRunning, getEntry, entries, timerRunningKey, timerStartedAt,
-    jumpTo, persistOrder, checklistId, onJumpToRaw, onJumpToMindmap, updateTask,
+    togglePlay, playTask, jumpTo, persistOrder, checklistId, onJumpToRaw, onJumpToMindmap, updateTask,
   } = useExecCtx()
 
   // Per-row date/priority picker state — local to this panel
@@ -1061,11 +1070,27 @@ export function ExecuteTaskList() {
                   <View hitSlop={8} style={{ opacity: 0.3 }}><GripVertical size={13} color="#9CA3AF" /></View>
                 </GestureDetector>
               )}
-              {/* Index + play indicator */}
-              <View style={{ width: 28, alignItems: 'flex-end', flexDirection: 'row', gap: 2, justifyContent: 'flex-end' }}>
-                {hasExecution && !isDone && <Play size={8} color={BLUE} fill={BLUE} />}
-                <Text style={{ fontSize: 10, color: '#C4C4C4', fontWeight: '500' }}>{index + 1}</Text>
-              </View>
+              {/* Play/pause button */}
+              <Pressable
+                hitSlop={6}
+                onPress={(e) => {
+                  e.stopPropagation?.()
+                  if (isCurrent) togglePlay()
+                  else playTask(index)
+                }}
+                style={{
+                  width: 26, height: 26, borderRadius: 13,
+                  alignItems: 'center', justifyContent: 'center',
+                  backgroundColor: isCurrent ? BLUE : (hasExecution && !isDone ? '#EEF2FF' : '#F3F4F6'),
+                }}
+              >
+                {isCurrent && isRunning
+                  ? <Pause size={11} color="white" fill="white" />
+                  : <Play size={11} color={isCurrent ? 'white' : (hasExecution && !isDone ? BLUE : '#D1D5DB')} fill={isCurrent ? 'white' : (hasExecution && !isDone ? BLUE : '#D1D5DB')} />
+                }
+              </Pressable>
+              {/* Row index */}
+              <Text style={{ fontSize: 10, color: '#C4C4C4', fontWeight: '500', width: 16, textAlign: 'right' }}>{index + 1}</Text>
               {/* Status icon */}
               {isDone
                 ? <CheckCircle2 size={15} color="#22c55e" />
