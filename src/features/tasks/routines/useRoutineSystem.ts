@@ -66,8 +66,11 @@ export function decodeRoutineDef(content: string, taskId: number): RoutineDef | 
 }
 
 export function encodeCheckin(routineName: string, log: Omit<CheckinLog, 'systemTaskId'>): string {
-  const timePart = log.completionTime ? ` time=${log.completionTime}` : ''
-  return `${ROUTINE_LOG_PREFIX} ${routineName} | ${log.date} | steps=${log.completedStepIds.join(',')} dur=${log.durationSec}${timePart}`
+  const stimes = log.stepCompletionTimes
+  const stimesPart = stimes && Object.keys(stimes).length > 0
+    ? ` stimes=${Object.entries(stimes).map(([id, t]) => `${id}@${t}`).join(',')}`
+    : ''
+  return `${ROUTINE_LOG_PREFIX} ${routineName} | ${log.date} | steps=${log.completedStepIds.join(',')} dur=${log.durationSec}${stimesPart}`
 }
 
 export function decodeCheckin(content: string, systemTaskId: number, parentId: number): CheckinLog | null {
@@ -76,18 +79,30 @@ export function decodeCheckin(content: string, systemTaskId: number, parentId: n
     const dateM = content.match(/\| (\d{4}-\d{2}-\d{2}) \|/)
     const stepsM = content.match(/steps=([^\s|]*)/)
     const durM = content.match(/dur=(\d+)/)
+    const stimesM = content.match(/stimes=(\S+)/)
 
     if (!dateM) return null
 
     const completedStepIds = stepsM?.[1] ? stepsM[1].split(',').filter(Boolean) : []
-    const timeM = content.match(/time=(\d{2}:\d{2})/)
+
+    const stepCompletionTimes: Record<string, string> = {}
+    if (stimesM?.[1]) {
+      for (const pair of stimesM[1].split(',')) {
+        const atIdx = pair.lastIndexOf('@')
+        if (atIdx > 0) {
+          stepCompletionTimes[pair.slice(0, atIdx)] = pair.slice(atIdx + 1)
+        }
+      }
+    }
+    // Migrate old single `time=HH:MM` — if no per-step times but an old time= exists,
+    // we just drop it (it was incorrectly shared across all steps anyway).
 
     return {
       routineTaskId: parentId,
       date: dateM[1],
       completedStepIds,
       durationSec: Number(durM?.[1] ?? 0),
-      completionTime: timeM?.[1],
+      stepCompletionTimes: Object.keys(stepCompletionTimes).length > 0 ? stepCompletionTimes : undefined,
       systemTaskId,
     }
   } catch {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { View, Text, Pressable, Modal, Platform, TextInput, LayoutChangeEvent } from 'react-native'
-import { Pause, Play, SkipForward, Check, X, Plus, Pencil } from 'lucide-react-native'
+import { View, Text, Pressable, Modal, Platform, LayoutChangeEvent } from 'react-native'
+import { Pause, Play, SkipForward, Check, X, Plus } from 'lucide-react-native'
 import { format } from 'date-fns'
 import { useRoutineStore } from './useRoutineStore'
 import { ROUTINE_COLORS } from './routineTypes'
@@ -69,8 +69,11 @@ function CompletionTimeBar({ times, accentColor }: { times: string[]; accentColo
 
   return (
     <View style={{ marginVertical: 10 }}>
-      <Text style={{ fontSize: 11, color: '#9CA3AF', textAlign: 'center', marginBottom: 6 }}>
-        Completion time · last {times.length}
+      <Text style={{ fontSize: 11, color: '#9CA3AF', textAlign: 'center', marginBottom: 2 }}>
+        Usually between {fmtTime12(sorted[0])} and {fmtTime12(sorted[sorted.length - 1])} · Now: {fmtTime12(currentHHMM)}
+      </Text>
+      <Text style={{ fontSize: 10, color: '#9CA3AF', textAlign: 'center', marginBottom: 6 }}>
+        last {times.length} completions
       </Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Text style={{ fontSize: 10, color: '#6B7280', width: 56, textAlign: 'right' }}>
@@ -137,14 +140,12 @@ function CompletionTimeBar({ times, accentColor }: { times: string[]; accentColo
 
 export function TimerModeView() {
   const {
-    activeTimer, routines, checkins,
+    activeTimer, routines,
     pauseTimer, resumeTimer, advanceStep, stopTimer, extendStep,
-    getLast7CompletionTimes, updateCheckinTime,
+    getLast7CompletionTimes,
   } = useRoutineStore()
   const [tick, setTick] = useState(0)
   const [celebrated, setCelebrated] = useState(false)
-  const [editingTime, setEditingTime] = useState(false)
-  const [editTimeVal, setEditTimeVal] = useState('')
   const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastNotifTickRef = useRef(-99)
 
@@ -199,9 +200,6 @@ export function TimerModeView() {
   const routine = routines.find((r) => r.taskId === activeTimer.routineTaskId)
   if (!routine) return null
 
-  const todayCheckin = checkins[activeTimer.routineTaskId]?.find((c) => c.date === todayStr())
-  const completionTimes = getLast7CompletionTimes(activeTimer.routineTaskId)
-
   const { pendingStepIds, stepIndex } = activeTimer
   const isComplete = stepIndex >= pendingStepIds.length
 
@@ -215,6 +213,8 @@ export function TimerModeView() {
   const nextStepId = !isComplete && stepIndex < pendingStepIds.length - 1 ? pendingStepIds[stepIndex + 1] : null
 
   const step = currentStepId ? routine.steps.find((s) => s.id === currentStepId) ?? null : null
+  // Historical completion times for the CURRENT step (used by the time bar)
+  const completionTimes = currentStepId ? getLast7CompletionTimes(activeTimer.routineTaskId, currentStepId) : []
   const prevStep = prevStepId ? routine.steps.find((s) => s.id === prevStepId) ?? null : null
   const nextStep = nextStepId ? routine.steps.find((s) => s.id === nextStepId) ?? null : null
 
@@ -255,17 +255,6 @@ export function TimerModeView() {
     const totalMin = Math.floor(totalSec / 60)
     const completedCount = activeTimer.completedStepIds.length
     const skippedCount = activeTimer.skippedStepIds.length
-    const recordedTime = todayCheckin?.completionTime
-
-    const handleSaveTime = () => {
-      const valid = /^\d{1,2}:\d{2}$/.test(editTimeVal)
-      if (!valid) { setEditingTime(false); return }
-      const [h, m] = editTimeVal.split(':').map(Number)
-      if (h > 23 || m > 59) { setEditingTime(false); return }
-      const normalised = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-      updateCheckinTime(activeTimer.routineTaskId, todayStr(), normalised)
-      setEditingTime(false)
-    }
 
     return (
       <Modal visible animationType="fade" presentationStyle="fullScreen">
@@ -295,61 +284,10 @@ export function TimerModeView() {
             )}
           </View>
 
-          {/* Completion time — show/edit */}
-          <View style={{ marginTop: 28, alignItems: 'center' }}>
-            {editingTime ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <TextInput
-                  value={editTimeVal}
-                  onChangeText={setEditTimeVal}
-                  placeholder="HH:MM"
-                  placeholderTextColor="rgba(255,255,255,0.5)"
-                  keyboardType="numbers-and-punctuation"
-                  style={{
-                    color: '#fff', fontSize: 18, fontWeight: '700',
-                    borderBottomWidth: 2, borderBottomColor: '#fff',
-                    minWidth: 72, textAlign: 'center', paddingBottom: 2,
-                  }}
-                  autoFocus
-                  onSubmitEditing={handleSaveTime}
-                />
-                <Pressable onPress={handleSaveTime} hitSlop={8}>
-                  <Check size={20} color="#fff" strokeWidth={3} />
-                </Pressable>
-                <Pressable onPress={() => setEditingTime(false)} hitSlop={8}>
-                  <X size={18} color="rgba(255,255,255,0.7)" />
-                </Pressable>
-              </View>
-            ) : (
-              <Pressable
-                onPress={() => {
-                  setEditTimeVal(recordedTime ?? format(new Date(), 'HH:mm'))
-                  setEditingTime(true)
-                }}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-              >
-                <Text style={{ fontSize: 18, fontWeight: '700', color: '#fff' }}>
-                  {recordedTime ? fmtTime12(recordedTime) : '—'}
-                </Text>
-                <Pencil size={14} color="rgba(255,255,255,0.7)" />
-              </Pressable>
-            )}
-            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>
-              Completed at
-            </Text>
-          </View>
-
-          {/* Historical time bar (white tinted) */}
-          {completionTimes.length >= 1 && (
-            <View style={{ width: '100%', marginTop: 20, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 12, padding: 12 }}>
-              <CompletionTimeBar times={completionTimes} accentColor="#fff" />
-            </View>
-          )}
-
           <Pressable
             onPress={() => { setCelebrated(false); stopTimer() }}
             style={{
-              marginTop: 32, backgroundColor: '#fff', borderRadius: 16,
+              marginTop: 48, backgroundColor: '#fff', borderRadius: 16,
               paddingVertical: 16, paddingHorizontal: 40,
             }}
           >

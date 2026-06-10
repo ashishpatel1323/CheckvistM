@@ -231,7 +231,7 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [step.id, step.scheduledDays, JSON.stringify(checkinsByDate)],
   )
-  const completionTimes = getLast7CompletionTimes(routine.taskId)
+  const completionTimes = getLast7CompletionTimes(routine.taskId, step.id)
   const sortedTimes = [...completionTimes].sort()
   const usuallyText = sortedTimes.length === 0
     ? null
@@ -279,7 +279,7 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
           visible={!!editingDate}
           initialTime={completionTimeByDate[editingDate] ?? '00:00'}
           onSave={(hhmm) => {
-            void updateCheckinTime(routine.taskId, editingDate, hhmm)
+            void updateCheckinTime(routine.taskId, editingDate, step.id, hhmm)
             setEditingDate(null)
           }}
           onClose={() => setEditingDate(null)}
@@ -340,7 +340,7 @@ interface RoutineGroupProps {
   colWidth: number
   circleSize: number
   onToggle: (stepId: string, date: string) => void
-  checkins: { date: string; completedStepIds: string[]; completionTime?: string }[]
+  checkins: { date: string; completedStepIds: string[]; stepCompletionTimes?: Record<string, string> }[]
   onEdit: () => void
   onDelete: () => void
 }
@@ -352,12 +352,17 @@ function RoutineGroup({
   const [collapsed, setCollapsed] = useState(false)
   const accentColor = ROUTINE_COLORS[routine.color]
 
-  // Build date → completedStepIds and date → completionTime maps
+  // Build date → completedStepIds and stepId → (date → HH:MM) maps
   const checkinsByDate: Record<string, string[]> = {}
-  const completionTimeByDate: Record<string, string> = {}
+  const stepTimesByStep: Record<string, Record<string, string>> = {}  // stepId → date → HH:MM
   for (const c of checkins) {
     checkinsByDate[c.date] = c.completedStepIds
-    if (c.completionTime) completionTimeByDate[c.date] = c.completionTime
+    if (c.stepCompletionTimes) {
+      for (const [stepId, time] of Object.entries(c.stepCompletionTimes)) {
+        if (!stepTimesByStep[stepId]) stepTimesByStep[stepId] = {}
+        stepTimesByStep[stepId][c.date] = time
+      }
+    }
   }
 
   const selectedDs = format(selectedDate, 'yyyy-MM-dd')
@@ -416,7 +421,7 @@ function RoutineGroup({
           circleSize={circleSize}
           onToggle={onToggle}
           checkinsByDate={checkinsByDate}
-          completionTimeByDate={completionTimeByDate}
+          completionTimeByDate={stepTimesByStep[step.id] ?? {}}
         />
       ))}
     </View>
