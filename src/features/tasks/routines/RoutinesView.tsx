@@ -1,7 +1,7 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import {
   View, Text, Pressable, ScrollView, useWindowDimensions,
-  ActivityIndicator, Modal,
+  ActivityIndicator, Modal, TextInput,
 } from 'react-native'
 import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon, Play } from 'lucide-react-native'
 import { format, addDays, subDays, isToday, isFuture } from 'date-fns'
@@ -22,6 +22,67 @@ function fmtTime12(hhmm: string) {
   const ampm = h >= 12 ? 'PM' : 'AM'
   const h12 = h % 12 || 12
   return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
+// ─── TimeEditModal ────────────────────────────────────────────────────────────
+
+function TimeEditModal({
+  visible, initialTime, onSave, onClose,
+}: { visible: boolean; initialTime: string; onSave: (hhmm: string) => void; onClose: () => void }) {
+  const [text, setText] = useState(initialTime)
+  const inputRef = useRef<TextInput>(null)
+
+  useEffect(() => {
+    if (visible) {
+      setText(initialTime)
+      setTimeout(() => inputRef.current?.focus(), 100)
+    }
+  }, [visible, initialTime])
+
+  function handleSave() {
+    // Accept "H:MM", "HH:MM", "H:MMam/pm" etc.
+    const cleaned = text.trim().toLowerCase()
+    let match = cleaned.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?$/)
+    if (!match) { onClose(); return }
+    let h = parseInt(match[1], 10)
+    const m = parseInt(match[2], 10)
+    const meridiem = match[3]
+    if (meridiem === 'pm' && h < 12) h += 12
+    if (meridiem === 'am' && h === 12) h = 0
+    if (h > 23 || m > 59) { onClose(); return }
+    onSave(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`)
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' }} onPress={onClose}>
+        <Pressable onPress={(e) => e.stopPropagation()}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 20, width: 220, alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, elevation: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 12 }}>Edit completion time</Text>
+            <TextInput
+              ref={inputRef}
+              value={text}
+              onChangeText={setText}
+              placeholder="6:10 AM"
+              style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 18, width: '100%', textAlign: 'center', color: '#111' }}
+              keyboardType="default"
+              returnKeyType="done"
+              onSubmitEditing={handleSave}
+              selectTextOnFocus
+            />
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+              <Pressable onPress={onClose} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, color: '#6B7280' }}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={handleSave} style={{ flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: '#4772FA', alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, color: '#fff', fontWeight: '600' }}>Save</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  )
 }
 
 // ─── Streak helpers ───────────────────────────────────────────────────────────
@@ -162,6 +223,8 @@ interface HabitRowProps {
 function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleSize, onToggle, checkinsByDate, completionTimeByDate }: HabitRowProps) {
   const accentColor = ROUTINE_COLORS[routine.color]
   const getLast7CompletionTimes = useRoutineStore((s) => s.getLast7CompletionTimes)
+  const updateCheckinTime = useRoutineStore((s) => s.updateCheckinTime)
+  const [editingDate, setEditingDate] = useState<string | null>(null)
   const allLogs = Object.entries(checkinsByDate).map(([date, completedStepIds]) => ({ date, completedStepIds }))
   const { totalDone, currentStreak } = useMemo(
     () => computeStepStats(step.id, step.scheduledDays, allLogs),
@@ -211,6 +274,18 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
         </View>
       </View>
 
+      {editingDate && (
+        <TimeEditModal
+          visible={!!editingDate}
+          initialTime={completionTimeByDate[editingDate] ?? '00:00'}
+          onSave={(hhmm) => {
+            void updateCheckinTime(routine.taskId, editingDate, hhmm)
+            setEditingDate(null)
+          }}
+          onClose={() => setEditingDate(null)}
+        />
+      )}
+
       {/* Date circles */}
       <View style={{ flexDirection: 'row', gap: 0 }}>
         {visibleDates.map((date) => {
@@ -241,9 +316,11 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
                 size={circleSize}
               />
               {isDone && completionTimeByDate[ds] && (
-                <Text style={{ fontSize: 8, color: accentColor, marginTop: 2, textAlign: 'center', opacity: 0.8 }} numberOfLines={1}>
-                  {fmtTime12(completionTimeByDate[ds]).replace(' AM', 'a').replace(' PM', 'p')}
-                </Text>
+                <Pressable onPress={() => setEditingDate(ds)} hitSlop={6}>
+                  <Text style={{ fontSize: 8, color: accentColor, marginTop: 2, textAlign: 'center', opacity: 0.8, textDecorationLine: 'underline' }} numberOfLines={1}>
+                    {fmtTime12(completionTimeByDate[ds]).replace(' AM', 'a').replace(' PM', 'p')}
+                  </Text>
+                </Pressable>
               )}
             </View>
           )
