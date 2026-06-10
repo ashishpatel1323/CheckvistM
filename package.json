@@ -8,7 +8,7 @@
     "web": "expo start --web",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "build:web": "EXPO_PUBLIC_GIT_COMMIT=$(git rev-parse --short HEAD) expo export --platform web",
+    "build:web": "EXPO_PUBLIC_GIT_COMMIT=$(git rev-parse --short HEAD) EXPO_PUBLIC_GIT_DATE=$(git log -1 --format=%ci) expo export --platform web",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
