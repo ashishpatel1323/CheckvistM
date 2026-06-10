@@ -34,7 +34,7 @@ async function _ensureInitialized(): Promise<boolean> {
       shouldPlaySound: false,
       shouldSetBadge: false,
       shouldShowBanner: false,
-      shouldShowList: false,
+      shouldShowList: true,
     }),
   })
 
