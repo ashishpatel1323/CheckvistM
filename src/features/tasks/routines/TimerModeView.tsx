@@ -4,7 +4,7 @@ import { Pause, Play, SkipForward, SkipBack, Check, X, Plus } from 'lucide-react
 import { format } from 'date-fns'
 import { useRoutineStore } from './useRoutineStore'
 import { ROUTINE_COLORS } from './routineTypes'
-import { playBeep } from '@/platform/sound'
+import { playBeep, playLoudBeep } from '@/platform/sound'
 import {
   setupTimerNotifications,
   showRoutineTimerNotification,
@@ -147,11 +147,20 @@ export function TimerModeView() {
   const [tick, setTick] = useState(0)
   const [celebrated, setCelebrated] = useState(false)
   const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const minuteBeepRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastNotifTickRef = useRef(-99)
 
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 1000)
     return () => clearInterval(id)
+  }, [])
+
+  // ── Loud beep every 60 s while timer is running ─────────────────────────────
+  useEffect(() => {
+    minuteBeepRef.current = setInterval(() => playLoudBeep(), 60_000)
+    return () => {
+      if (minuteBeepRef.current) clearInterval(minuteBeepRef.current)
+    }
   }, [])
 
   // ── Notification setup / teardown ──────────────────────────────────────────
