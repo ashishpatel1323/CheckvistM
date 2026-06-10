@@ -27,9 +27,12 @@ export function ChecklistSwitcher() {
         className="flex-row items-center gap-1.5 active:opacity-70"
         onPress={() => setOpen(true)}
       >
-        <Text style={{ fontSize: 18, fontWeight: '600', color: '#111' }} numberOfLines={1}>
-          {active?.name ?? (isLoading ? 'Loading…' : 'Select list')}
-        </Text>
+        <View>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: '#111' }} numberOfLines={1}>
+            {active?.name ?? (isLoading ? 'Loading…' : 'Select list')}
+          </Text>
+          <Text style={{ fontSize: 10, color: '#9CA3AF', lineHeight: 12 }}>v1.0.3</Text>
+        </View>
         <ChevronDown size={16} color="#666" />
       </Pressable>
 
