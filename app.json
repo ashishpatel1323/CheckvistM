@@ -19,7 +19,7 @@
     "splash": {
       "image": "./public/icons/icon-512.png",
       "resizeMode": "contain",
-      "backgroundColor": "#E8632A"
+      "backgroundColor": "#1C1C28"
     },
     "ios": {
       "supportsTablet": true,
@@ -27,11 +27,11 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./public/icons/icon-192.png",
-        "backgroundColor": "#E8632A"
+        "foregroundImage": "./public/icons/adaptive-foreground.png",
+        "backgroundColor": "#1C1C28"
       },
       "package": "com.ashishpatel.checkvist",
-      "versionCode": 2
+      "versionCode": 3
     },
     "web": {
       "bundler": "metro",
