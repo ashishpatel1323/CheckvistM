@@ -1,7 +1,8 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical } from 'lucide-react-native'
+import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical, TrendingUp } from 'lucide-react-native'
+import { ProgressTab } from '@/features/progress/ProgressTab'
 import { useTasksQuery } from './useTasksQuery'
 import { buildTaskTree } from '@/lib/taskTree'
 import { groupTasksByDate } from '@/lib/dateSort'
@@ -393,15 +394,16 @@ const BLUE = '#4772FA'
 const INACTIVE = '#9ca3af'
 
 const TABS = [
-  { key: 'date',    icon: LayoutList,    label: 'Tasks'   },
-  { key: 'matrix',  icon: LayoutGrid,    label: 'Matrix'  },
-  { key: 'execute', icon: Timer,         label: 'Execute' },
-  { key: 'log',      icon: ClipboardList, label: 'Log'      },
-  { key: 'routines', icon: Repeat,        label: 'Routines' },
-  { key: 'list',    icon: AlignLeft,     label: 'Outline' },
-  { key: 'mindmap', icon: Network,       label: 'Map'     },
-  { key: 'search',  icon: Search,        label: 'Search'  },
-  { key: 'raw',     icon: Globe,         label: 'Raw'     },
+  { key: 'date',     icon: LayoutList,   label: 'Tasks'    },
+  { key: 'matrix',   icon: LayoutGrid,   label: 'Matrix'   },
+  { key: 'execute',  icon: Timer,        label: 'Execute'  },
+  { key: 'progress', icon: TrendingUp,   label: 'Progress' },
+  { key: 'log',      icon: ClipboardList,label: 'Log'      },
+  { key: 'routines', icon: Repeat,       label: 'Routines' },
+  { key: 'list',     icon: AlignLeft,    label: 'Outline'  },
+  { key: 'mindmap',  icon: Network,      label: 'Map'      },
+  { key: 'search',   icon: Search,       label: 'Search'   },
+  { key: 'raw',      icon: Globe,        label: 'Raw'      },
 ] as const
 
 export function TaskListView({ checklistId }: TaskListViewProps) {
@@ -594,6 +596,13 @@ const { view, setView, focusedTaskId } = useTaskView()
         </View>
       )}
 
+      {/* ── Progress view ───────────────────────────────────────── */}
+      {view === 'progress' && (
+        <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
+          <ProgressTab />
+        </View>
+      )}
+
       {/* ── Routines view ───────────────────────────────────────── */}
       {view === 'routines' && (
         <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
@@ -614,7 +623,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       )}
 
       {/* ── Task views ──────────────────────────────────────────── */}
-      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'matrix' && !isSearch && (
+      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'matrix' && view !== 'progress' && !isSearch && (
         <>
           {isLoading && <TaskSkeleton count={8} />}
 

@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { TaskView } from './useTaskView'
 
 export const DEFAULT_TAB_ORDER: TaskView[] = [
-  'date', 'matrix', 'execute', 'log', 'routines', 'list', 'mindmap', 'search', 'raw',
+  'date', 'matrix', 'execute', 'progress', 'log', 'routines', 'list', 'mindmap', 'search', 'raw',
 ]
 
 export const PINNED_TAB_COUNT = 4

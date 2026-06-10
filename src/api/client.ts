@@ -12,7 +12,7 @@ export const apiClient = axios.create({
   },
 })
 
-// Request interceptor: append token query param
+// Request interceptor: append token query param + bust browser HTTP cache on GETs
 apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const url = config.url ?? ''
   const skip = AUTH_SKIP_PATHS.some((path) => url.includes(path))
@@ -21,6 +21,13 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
     if (token) {
       config.params = { ...config.params, token }
     }
+  }
+  // Prevent browser from serving 304 stale responses — Checkvist uses ETags
+  // which causes newly created tasks to be invisible until the ETag expires.
+  if (config.method === 'get' || config.method === undefined) {
+    config.headers = config.headers ?? {}
+    config.headers['Cache-Control'] = 'no-cache'
+    config.headers['Pragma'] = 'no-cache'
   }
   return config
 })

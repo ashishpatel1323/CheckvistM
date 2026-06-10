@@ -55,6 +55,7 @@
     "react-native-screens": "~4.4.0",
     "react-native-svg": "15.8.0",
     "react-native-web": "~0.19.13",
+    "recharts": "^3.8.1",
     "zod": "^4.4.3",
     "zustand": "^5.0.13"
   },
