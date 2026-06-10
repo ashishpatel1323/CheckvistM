@@ -513,7 +513,7 @@ export function TimerModeView() {
 
 /** Compact bar shown when the timer is minimized — persists across tab switches. */
 export function MiniTimerBar() {
-  const { activeTimer, routines, timerMinimized, expandTimer, pauseTimer, resumeTimer, advanceStep } = useRoutineStore()
+  const { activeTimer, routines, timerMinimized, expandTimer, pauseTimer, resumeTimer, advanceStep, goBack } = useRoutineStore()
   const [tick, setTick] = useState(0)
 
   useEffect(() => {
@@ -526,7 +526,7 @@ export function MiniTimerBar() {
   const routine = routines.find((r) => r.taskId === activeTimer.routineTaskId)
   if (!routine) return null
 
-  const { pendingStepIds, stepIndex } = activeTimer
+  const { pendingStepIds, stepIndex, completedStepIds: timerDone } = activeTimer
   const isComplete = stepIndex >= pendingStepIds.length
   if (isComplete) return null
 
@@ -537,6 +537,7 @@ export function MiniTimerBar() {
   const remaining = Math.max(0, durSec - elapsed)
   const isOverrun = !!step && remaining <= 0
   const accentColor = ROUTINE_COLORS[routine.color]
+  const hasPrevUndone = pendingStepIds.slice(0, stepIndex).some((id) => !timerDone.includes(id))
 
   const fmt = (sec: number) => {
     const m = Math.floor(sec / 60)
@@ -546,6 +547,8 @@ export function MiniTimerBar() {
 
   void tick // consumed for re-render
 
+  const stopProp = (e: { stopPropagation?: () => void }) => e.stopPropagation?.()
+
   return (
     <Pressable
       onPress={expandTimer}
@@ -553,12 +556,13 @@ export function MiniTimerBar() {
         flexDirection: 'row', alignItems: 'center',
         backgroundColor: '#fff',
         borderTopWidth: 2, borderTopColor: accentColor,
-        paddingHorizontal: 16, paddingVertical: 10,
+        paddingHorizontal: 16, paddingVertical: 8,
         shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, elevation: 8,
-        gap: 12,
+        gap: 10,
       }}
     >
-      <Text style={{ fontSize: 22 }}>{step?.emoji ?? '⏱'}</Text>
+      {/* Step info */}
+      <Text style={{ fontSize: 20 }}>{step?.emoji ?? '⏱'}</Text>
       <View style={{ flex: 1 }}>
         <Text style={{ fontSize: 13, fontWeight: '600', color: '#111' }} numberOfLines={1}>
           {step?.name ?? routine.name}
@@ -567,24 +571,38 @@ export function MiniTimerBar() {
           {routine.name} · {stepIndex + 1}/{pendingStepIds.length}
         </Text>
       </View>
-      <Text style={{ fontSize: 20, fontWeight: '700', color: isOverrun ? '#EF4444' : accentColor, fontVariant: ['tabular-nums'] }}>
+
+      {/* Countdown */}
+      <Text style={{ fontSize: 18, fontWeight: '700', color: isOverrun ? '#EF4444' : accentColor, fontVariant: ['tabular-nums'], marginRight: 4 }}>
         {fmt(remaining)}
       </Text>
-      {/* Pause/resume inline */}
-      <Pressable
-        onPress={(e) => { e.stopPropagation?.(); isPaused ? resumeTimer() : pauseTimer() }}
-        hitSlop={8}
-        style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' }}
+
+      {/* Back */}
+      <Pressable onPress={(e) => { stopProp(e); goBack() }} hitSlop={8}
+        style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: hasPrevUndone ? '#F3F4F6' : 'transparent', alignItems: 'center', justifyContent: 'center' }}
+      >
+        <SkipBack size={16} color={hasPrevUndone ? '#374151' : 'transparent'} />
+      </Pressable>
+
+      {/* Pause/Resume */}
+      <Pressable onPress={(e) => { stopProp(e); isPaused ? resumeTimer() : pauseTimer() }} hitSlop={8}
+        style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' }}
       >
         {isPaused ? <Play size={16} color="#374151" fill="#374151" /> : <Pause size={16} color="#374151" />}
       </Pressable>
-      {/* Done inline */}
-      <Pressable
-        onPress={(e) => { e.stopPropagation?.(); void advanceStep('done') }}
-        hitSlop={8}
-        style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: accentColor, alignItems: 'center', justifyContent: 'center' }}
+
+      {/* Done */}
+      <Pressable onPress={(e) => { stopProp(e); void advanceStep('done') }} hitSlop={8}
+        style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: accentColor, alignItems: 'center', justifyContent: 'center', shadowColor: accentColor, shadowOpacity: 0.3, shadowRadius: 6, elevation: 4 }}
       >
-        <Check size={16} color="#fff" strokeWidth={3} />
+        <Check size={18} color="#fff" strokeWidth={3} />
+      </Pressable>
+
+      {/* Skip */}
+      <Pressable onPress={(e) => { stopProp(e); void advanceStep('skip') }} hitSlop={8}
+        style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' }}
+      >
+        <SkipForward size={16} color="#374151" />
       </Pressable>
     </Pressable>
   )
