@@ -22,8 +22,6 @@ interface LogBlock {
   startMin: number
   durationMin: number
   entry: ExecuteLogEntry
-  overrideStartMin?: number
-  overrideDurationMin?: number
 }
 
 // A cluster groups overlapping blocks into columns for side-by-side rendering
@@ -60,8 +58,8 @@ function fmtDur(min: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`
 }
 
-const bStart = (b: LogBlock) => b.overrideStartMin ?? b.startMin
-const bDur   = (b: LogBlock) => b.overrideDurationMin ?? b.durationMin
+const bStart = (b: LogBlock) => b.startMin
+const bDur   = (b: LogBlock) => b.durationMin
 const bEnd   = (b: LogBlock) => bStart(b) + bDur(b)
 const bVisualDur = (b: LogBlock) => Math.max(bDur(b), MIN_TILE_MIN)
 const bVisualEnd = (b: LogBlock) => bStart(b) + bVisualDur(b)
@@ -389,14 +387,13 @@ function AgendaList({ blocks, taskNames, onPressBlock }: {
 }
 
 export function ExecutionLogView({ checklistId, taskNames }: { checklistId: number; taskNames: Record<number, string> }) {
-  const { entries, timerRunningKey, timerStartedAt } = useExecuteLog()
+  const { entries, timerRunningKey, timerStartedAt, updateSessionTimes } = useExecuteLog()
   const { remoteSessions, fetchTodaySessions, systemListId, addManualSession } = useSystemLog()
   const [now, setNow]           = useState(() => new Date())
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [showCalendar, setShowCalendar] = useState(false)
   const [viewMode, setViewMode] = useState<'calendar' | 'agenda'>('calendar')
   const scrollRef               = useRef<ScrollView>(null)
-  const [overrides, setOverrides] = useState<Record<string, { startMin?: number; durationMin?: number }>>({})
   const [editingBlock, setEditingBlock] = useState<LogBlock | null>(null)
   const [addingAt, setAddingAt] = useState<number | null>(null) // minutes from midnight
   const [syncing, setSyncing]   = useState(false)
@@ -436,20 +433,18 @@ export function ExecutionLogView({ checklistId, taskNames }: { checklistId: numb
       seen.add(key)
       const isRunning = timerRunningKey === key && timerStartedAt !== null
       const actualSec = isRunning ? entry.actualSeconds + Math.floor((Date.now() - timerStartedAt) / 1000) : entry.actualSeconds
-      const ov = overrides[key] ?? {}
-      blocks.push({ key, taskId: entry.taskId, startMin: minutesFromMidnight(entry.startedAt), durationMin: Math.max(1, actualSec / 60), entry, overrideStartMin: ov.startMin, overrideDurationMin: ov.durationMin })
+      blocks.push({ key, taskId: entry.taskId, startMin: minutesFromMidnight(entry.startedAt), durationMin: Math.max(1, actualSec / 60), entry })
     }
 
     for (const [key, session] of Object.entries(remoteSessions)) {
       if (seen.has(key) || !session.startedAt) continue
       const parts = key.split(':')
       if (parts.length < 3 || parts[1] !== selectedStr) continue
-      const ov = overrides[key] ?? {}
-      blocks.push({ key, taskId: session.taskId, startMin: minutesFromMidnight(session.startedAt), durationMin: Math.max(1, session.actualSeconds / 60), entry: { taskId: session.taskId, estimateMin: 0, startedAt: session.startedAt, actualSeconds: session.actualSeconds, completedAt: session.completedAt }, overrideStartMin: ov.startMin, overrideDurationMin: ov.durationMin })
+      blocks.push({ key, taskId: session.taskId, startMin: minutesFromMidnight(session.startedAt), durationMin: Math.max(1, session.actualSeconds / 60), entry: { taskId: session.taskId, estimateMin: 0, startedAt: session.startedAt, actualSeconds: session.actualSeconds, completedAt: session.completedAt } })
     }
 
     return blocks
-  }, [entries, remoteSessions, selectedStr, timerRunningKey, timerStartedAt, overrides])
+  }, [entries, remoteSessions, selectedStr, timerRunningKey, timerStartedAt])
 
   // Build per-day summary for the 7-day strip (±3 days around selected)
   const dayStrip = useMemo(() => {
@@ -480,8 +475,6 @@ export function ExecutionLogView({ checklistId, taskNames }: { checklistId: numb
   const clusters = useMemo(() => layoutBlocks(allBlocks), [allBlocks])
   const totalDur = allBlocks.reduce((s, b) => s + bDur(b), 0)
 
-  const saveOverride = (key: string, s: number, d: number) =>
-    setOverrides(prev => ({ ...prev, [key]: { startMin: s, durationMin: d } }))
 
   // Build gap segments for each past hour (only when viewing today)
   const gapSegments = useMemo(() => {
@@ -721,7 +714,7 @@ export function ExecutionLogView({ checklistId, taskNames }: { checklistId: numb
         <EditModal
           block={editingBlock}
           taskName={taskNames[editingBlock.taskId] ?? `Task ${editingBlock.taskId}`}
-          onSave={(s, d) => saveOverride(editingBlock.key, s, d)}
+          onSave={(s, d) => updateSessionTimes(editingBlock.key, s, d)}
           onClose={() => setEditingBlock(null)}
         />
       )}
