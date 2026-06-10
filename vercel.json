@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pnpm build:web",
+  "buildCommand": "EXPO_PUBLIC_GIT_COMMIT=$(git rev-parse --short HEAD) pnpm build:web",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }

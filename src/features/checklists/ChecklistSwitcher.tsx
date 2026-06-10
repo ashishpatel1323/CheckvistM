@@ -31,7 +31,9 @@ export function ChecklistSwitcher() {
           <Text style={{ fontSize: 18, fontWeight: '600', color: '#111' }} numberOfLines={1}>
             {active?.name ?? (isLoading ? 'Loading…' : 'Select list')}
           </Text>
-          <Text style={{ fontSize: 10, color: '#9CA3AF', lineHeight: 12 }}>v1.0.3</Text>
+          <Text style={{ fontSize: 10, color: '#9CA3AF', lineHeight: 12 }}>
+            {process.env.EXPO_PUBLIC_GIT_COMMIT ? `build: ${process.env.EXPO_PUBLIC_GIT_COMMIT}` : 'dev'}
+          </Text>
         </View>
         <ChevronDown size={16} color="#666" />
       </Pressable>
