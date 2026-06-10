@@ -67,10 +67,11 @@ function findNextUndone(ids: string[], fromIndex: number, done: string[], skippe
   return ids.length // all remaining are done/skipped — routine finished
 }
 
-/** Returns the index of the nearest previous step (before fromIndex) that is not done or skipped, or -1. */
-function findPrevUndone(ids: string[], fromIndex: number, done: string[], skipped: string[]): number {
+/** Returns the index of the nearest previous step (before fromIndex) that was NOT marked Done.
+ *  Skipped steps ARE included — you can go back and retry a skipped habit. */
+function findPrevUndone(ids: string[], fromIndex: number, done: string[]): number {
   for (let i = fromIndex - 1; i >= 0; i--) {
-    if (!done.includes(ids[i]) && !skipped.includes(ids[i])) return i
+    if (!done.includes(ids[i])) return i
   }
   return -1
 }
@@ -317,7 +318,7 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
     const { pendingStepIds, stepIndex, completedStepIds, skippedStepIds } = activeTimer
     // Navigate back to the nearest previous step that is not yet done or skipped
     // (does NOT un-do any completions — completed steps stay completed)
-    const prevIndex = findPrevUndone(pendingStepIds, stepIndex, completedStepIds, skippedStepIds)
+    const prevIndex = findPrevUndone(pendingStepIds, stepIndex, completedStepIds)
     if (prevIndex < 0) return
     set({
       activeTimer: {

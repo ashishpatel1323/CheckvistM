@@ -207,10 +207,10 @@ export function TimerModeView() {
     if (isComplete) setCelebrated(true)
   }, [isComplete])
 
-  // Nearest previous step that is not yet done or skipped (drives back button visibility)
+  // Back button is available for any previous step not marked Done (skipped = can retry)
   const hasPrevUndone = pendingStepIds
     .slice(0, stepIndex)
-    .some((id) => !timerDone.includes(id) && !timerSkipped.includes(id))
+    .some((id) => !timerDone.includes(id))
 
   // Resolve current/prev/next steps from pendingStepIds
   const currentStepId = !isComplete ? pendingStepIds[stepIndex] : null
