@@ -444,9 +444,10 @@ interface HabitDetailPanelProps {
   step: RoutineStep
   routine: RoutineDef
   checkins: { date: string; completedStepIds: string[]; stepCompletionTimes?: Record<string, string> }[]
+  selectedDate: Date
 }
 
-function HabitDetailPanel({ step, routine, checkins }: HabitDetailPanelProps) {
+function HabitDetailPanel({ step, routine, checkins, selectedDate }: HabitDetailPanelProps) {
   const getLast7CompletionTimes = useRoutineStore((s) => s.getLast7CompletionTimes)
   const [panelMonth, setPanelMonth] = useState(() => new Date())
   const accentColor = ROUTINE_COLORS[routine.color]
@@ -456,6 +457,19 @@ function HabitDetailPanel({ step, routine, checkins }: HabitDetailPanelProps) {
     for (const c of checkins) if (c.completedStepIds.includes(step.id)) s.add(c.date)
     return s
   }, [checkins, step.id])
+
+  // date → HH:MM completion time for this step
+  const timeByDate = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const c of checkins) {
+      const t = c.stepCompletionTimes?.[step.id]
+      if (t) m[c.date] = t
+    }
+    return m
+  }, [checkins, step.id])
+
+  const selectedDs = format(selectedDate, 'yyyy-MM-dd')
+  const selectedCompletionTime = timeByDate[selectedDs]
 
   const { totalDone, currentStreak } = useMemo(() => {
     const allLogs = checkins.map((c) => ({ date: c.date, completedStepIds: c.completedStepIds }))
@@ -534,14 +548,38 @@ function HabitDetailPanel({ step, routine, checkins }: HabitDetailPanelProps) {
         ))}
       </View>
 
-      {/* Usually at */}
-      {usuallyText && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F9FAFB', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#F0F0F0' }}>
-          <Clock size={14} color="#6B7280" />
-          <Text style={{ fontSize: 13, color: '#374151', fontWeight: '600' }}>Usually at</Text>
-          <Text style={{ fontSize: 13, color: accentColor, fontWeight: '700' }}>{usuallyText}</Text>
-        </View>
-      )}
+      {/* Completed at — for the selected date */}
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        {selectedCompletionTime ? (
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: accentColor + '12', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: accentColor + '30' }}>
+            <Clock size={14} color={accentColor} />
+            <View>
+              <Text style={{ fontSize: 10, color: '#6B7280', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Completed at · {isToday(selectedDate) ? 'Today' : format(selectedDate, 'MMM d')}
+              </Text>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: accentColor, marginTop: 1 }}>
+                {fmtTime12(selectedCompletionTime)}
+              </Text>
+            </View>
+          </View>
+        ) : doneDates.has(selectedDs) ? (
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F9FAFB', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#F0F0F0' }}>
+            <Clock size={14} color="#9CA3AF" />
+            <Text style={{ fontSize: 13, color: '#9CA3AF' }}>Done · no time recorded</Text>
+          </View>
+        ) : null}
+
+        {/* Usually at */}
+        {usuallyText && (
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F9FAFB', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#F0F0F0' }}>
+            <Clock size={14} color="#6B7280" />
+            <View>
+              <Text style={{ fontSize: 10, color: '#9CA3AF', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>Usually at</Text>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#374151', marginTop: 1 }}>{usuallyText}</Text>
+            </View>
+          </View>
+        )}
+      </View>
 
       {/* Monthly calendar */}
       <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#F0F0F0' }}>
@@ -574,7 +612,7 @@ function HabitDetailPanel({ step, routine, checkins }: HabitDetailPanelProps) {
             const dow = date.getDay()
             const scheduled = step.scheduledDays.length === 0 || step.scheduledDays.includes(dow)
             return (
-              <View key={ds} style={{ width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center', padding: 2 }}>
+              <View key={ds} style={{ width: `${100 / 7}%`, alignItems: 'center', justifyContent: 'center', padding: 2, paddingBottom: 4 }}>
                 <View style={{
                   width: '80%', aspectRatio: 1, borderRadius: 100,
                   backgroundColor: done ? accentColor : today ? accentColor + '20' : 'transparent',
@@ -587,6 +625,11 @@ function HabitDetailPanel({ step, routine, checkins }: HabitDetailPanelProps) {
                     {format(date, 'd')}
                   </Text>
                 </View>
+                {done && timeByDate[ds] && (
+                  <Text style={{ fontSize: 7, color: accentColor, fontWeight: '600', marginTop: 1, textAlign: 'center' }} numberOfLines={1}>
+                    {fmtTime12(timeByDate[ds]).replace(' AM', 'a').replace(' PM', 'p')}
+                  </Text>
+                )}
               </View>
             )
           })}
@@ -929,6 +972,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
                   step={step}
                   routine={routine}
                   checkins={checkins[routine.taskId] ?? []}
+                  selectedDate={selectedDate}
                 />
               </View>
             )
