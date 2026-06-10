@@ -9,7 +9,6 @@ import { useRoutineStore } from './useRoutineStore'
 import { useRoutineSystem } from './useRoutineSystem'
 import { RoutineDetailView } from './RoutineDetailView'
 import { RoutineEditSheet } from './RoutineEditSheet'
-import { TimerModeView } from './TimerModeView'
 import { ROUTINE_COLORS } from './routineTypes'
 import type { RoutineDef, RoutineStep } from './routineTypes'
 
@@ -745,9 +744,6 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
           onSave={handleSave}
         />
       )}
-
-      {/* Timer mode overlay */}
-      {activeTimer && <TimerModeView />}
 
       {/* Delete confirmation */}
       <Modal

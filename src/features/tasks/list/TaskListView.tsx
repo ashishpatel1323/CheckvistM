@@ -23,6 +23,8 @@ import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
 import { EisenhowerMatrixView } from './EisenhowerMatrixView'
 import { RoutinesView } from '@/features/tasks/routines/RoutinesView'
+import { TimerModeView, MiniTimerBar } from '@/features/tasks/routines/TimerModeView'
+import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
 
@@ -425,6 +427,7 @@ const { view, setView, focusedTaskId } = useTaskView()
   const { mutate: createTask, isPending } = useCreateTask(checklistId)
   const toast = useToast()
   const { activeChecklistId } = useActiveChecklist()
+  const { activeTimer, timerMinimized } = useRoutineStore()
   const { data: checklists } = useChecklists()
   const checklistName = checklists?.find((c) => c.id === activeChecklistId)?.name
 
@@ -727,6 +730,16 @@ const { view, setView, focusedTaskId } = useTaskView()
       )}
 
       {/* ── Bottom tab bar (mobile only) ────────────────────────── */}
+      {/* Mini timer bar — sits above the tab bar when timer is minimized */}
+      {activeTimer && timerMinimized && (
+        <View style={{ position: 'absolute', bottom: isMobile ? tabBarH : 0, left: 0, right: 0, zIndex: 40 }}>
+          <MiniTimerBar />
+        </View>
+      )}
+
+      {/* Full-screen timer — rendered here so it persists across tab switches */}
+      {activeTimer && !timerMinimized && <TimerModeView />}
+
       {isMobile && (
         <View
           className="absolute bottom-0 left-0 right-0 flex-row bg-white"

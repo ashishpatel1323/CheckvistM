@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, Modal, Platform, LayoutChangeEvent } from 'react-native'
-import { Pause, Play, SkipForward, SkipBack, Check, X, Plus } from 'lucide-react-native'
+import { Pause, Play, SkipForward, SkipBack, Check, X, Plus, ChevronDown } from 'lucide-react-native'
 import { format } from 'date-fns'
 import { useRoutineStore } from './useRoutineStore'
 import { ROUTINE_COLORS } from './routineTypes'
@@ -142,7 +142,7 @@ export function TimerModeView() {
   const {
     activeTimer, routines,
     pauseTimer, resumeTimer, advanceStep, goBack, stopTimer, extendStep,
-    getLast7CompletionTimes,
+    getLast7CompletionTimes, minimizeTimer,
   } = useRoutineStore()
   const [tick, setTick] = useState(0)
   const [celebrated, setCelebrated] = useState(false)
@@ -347,7 +347,9 @@ export function TimerModeView() {
               {stepIndex + 1} / {pendingStepIds.length} pending
             </Text>
           </View>
-          <View style={{ width: 22 }} />
+          <Pressable onPress={minimizeTimer} hitSlop={8}>
+            <ChevronDown size={22} color="#6B7280" />
+          </Pressable>
         </View>
 
         {/* Progress dots — only pending steps */}
@@ -506,5 +508,84 @@ export function TimerModeView() {
         </View>
       </View>
     </Modal>
+  )
+}
+
+/** Compact bar shown when the timer is minimized — persists across tab switches. */
+export function MiniTimerBar() {
+  const { activeTimer, routines, timerMinimized, expandTimer, pauseTimer, resumeTimer, advanceStep } = useRoutineStore()
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  if (!activeTimer || !timerMinimized) return null
+
+  const routine = routines.find((r) => r.taskId === activeTimer.routineTaskId)
+  if (!routine) return null
+
+  const { pendingStepIds, stepIndex } = activeTimer
+  const isComplete = stepIndex >= pendingStepIds.length
+  if (isComplete) return null
+
+  const step = routine.steps.find((s) => s.id === pendingStepIds[stepIndex])
+  const isPaused = activeTimer.pausedAt !== null
+  const elapsed = activeTimer.stepElapsedSec + (isPaused ? 0 : (Date.now() - activeTimer.stepStartedAt) / 1000)
+  const durSec = step ? step.durationMin * 60 + activeTimer.extensionSec : 0
+  const remaining = Math.max(0, durSec - elapsed)
+  const isOverrun = !!step && remaining <= 0
+  const accentColor = ROUTINE_COLORS[routine.color]
+
+  const fmt = (sec: number) => {
+    const m = Math.floor(sec / 60)
+    const s = Math.floor(sec % 60)
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+
+  void tick // consumed for re-render
+
+  return (
+    <Pressable
+      onPress={expandTimer}
+      style={{
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: '#fff',
+        borderTopWidth: 2, borderTopColor: accentColor,
+        paddingHorizontal: 16, paddingVertical: 10,
+        shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, elevation: 8,
+        gap: 12,
+      }}
+    >
+      <Text style={{ fontSize: 22 }}>{step?.emoji ?? '⏱'}</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 13, fontWeight: '600', color: '#111' }} numberOfLines={1}>
+          {step?.name ?? routine.name}
+        </Text>
+        <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
+          {routine.name} · {stepIndex + 1}/{pendingStepIds.length}
+        </Text>
+      </View>
+      <Text style={{ fontSize: 20, fontWeight: '700', color: isOverrun ? '#EF4444' : accentColor, fontVariant: ['tabular-nums'] }}>
+        {fmt(remaining)}
+      </Text>
+      {/* Pause/resume inline */}
+      <Pressable
+        onPress={(e) => { e.stopPropagation?.(); isPaused ? resumeTimer() : pauseTimer() }}
+        hitSlop={8}
+        style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' }}
+      >
+        {isPaused ? <Play size={16} color="#374151" fill="#374151" /> : <Pause size={16} color="#374151" />}
+      </Pressable>
+      {/* Done inline */}
+      <Pressable
+        onPress={(e) => { e.stopPropagation?.(); void advanceStep('done') }}
+        hitSlop={8}
+        style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: accentColor, alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Check size={16} color="#fff" strokeWidth={3} />
+      </Pressable>
+    </Pressable>
   )
 }

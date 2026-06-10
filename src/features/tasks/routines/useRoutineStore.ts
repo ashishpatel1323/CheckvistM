@@ -28,9 +28,12 @@ interface RoutineStoreState {
   checkins: Record<number, CheckinLog[]>
   loading: boolean
   activeTimer: ActiveTimer | null
+  timerMinimized: boolean
   /** Remaining routine taskIds to auto-start once the current one finishes */
   routineQueue: number[]
 
+  minimizeTimer: () => void
+  expandTimer: () => void
   loadRoutines: () => Promise<void>
   getCheckinForDate: (routineTaskId: number, date: string) => CheckinLog | undefined
   getTodayCheckin: (routineTaskId: number) => CheckinLog | undefined
@@ -81,7 +84,10 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
   checkins: {},
   loading: false,
   activeTimer: null,
+  timerMinimized: false,
   routineQueue: [],
+  minimizeTimer: () => set({ timerMinimized: true }),
+  expandTimer: () => set({ timerMinimized: false }),
 
   loadRoutines: async () => {
     set({ loading: true })
@@ -347,7 +353,7 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
         return
       }
     }
-    set({ activeTimer: null, routineQueue: [] })
+    set({ activeTimer: null, routineQueue: [], timerMinimized: false })
   },
 
   upsertCheckin: async (log, routineName) => {
