@@ -19,7 +19,7 @@ import { BottomSheet } from '@/components/BottomSheet'
 import { ChecklistSwitcher } from '@/features/checklists/ChecklistSwitcher'
 import { useCreateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
-import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList } from '@/features/tasks/execute/ExecuteModeView'
+import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList, TodaySessionsCard } from '@/features/tasks/execute/ExecuteModeView'
 import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
 import { EisenhowerMatrixView } from './EisenhowerMatrixView'
@@ -61,6 +61,9 @@ function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitVie
       <View style={{ flex: 1, flexDirection: 'column' }}>
         {/* Full-width horizontal control bar */}
         <ExecuteControlBar onClose={onClose} />
+
+        {/* Today's sessions summary */}
+        <TodaySessionsCard />
 
         {/* Left / right split below the bar */}
         <View style={{ flex: 1, flexDirection: 'row' }}>

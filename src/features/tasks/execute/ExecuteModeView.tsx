@@ -15,7 +15,7 @@ import {
   type ExecuteLogEntry,
 } from './useExecuteLog'
 import { priorityTextColor, priorityDisplay, priorityRowBg, PriorityPicker } from '@/features/tasks/shared/PriorityPicker'
-import { useSystemLog } from './useSystemLog'
+import { useSystemLog, type SyncedSession } from './useSystemLog'
 import { hapticMedium } from '@/platform/haptics'
 import { playBeep } from '@/platform/sound'
 import {
@@ -198,6 +198,36 @@ function fmtDuration(seconds: number): string {
   const h = Math.floor(totalMin / 60)
   const m = totalMin % 60
   return m > 0 ? `${h}h ${m}m` : `${h}h`
+}
+
+function summarizeTodaySessionsFromLogSource(
+  entries: Record<string, ExecuteLogEntry>,
+  remoteSessions: Record<string, SyncedSession>,
+  timerRunningKey: string | null,
+  timerStartedAt: number | null,
+): { sessionCount: number; sessionTotalSeconds: number } {
+  const todayStr = format(new Date(), 'yyyy-MM-dd')
+  const seen = new Set<string>()
+  let sessionCount = 0
+  let sessionTotalSeconds = 0
+
+  for (const [key, entry] of Object.entries(entries)) {
+    const parts = key.split(':')
+    if (parts.length < 3 || parts[1] !== todayStr || !entry.startedAt) continue
+    seen.add(key)
+    sessionCount += 1
+    sessionTotalSeconds += liveSeconds(entry, timerRunningKey, timerStartedAt, key)
+  }
+
+  for (const [key, session] of Object.entries(remoteSessions)) {
+    if (seen.has(key) || !session.startedAt) continue
+    const parts = key.split(':')
+    if (parts.length < 3 || parts[1] !== todayStr) continue
+    sessionCount += 1
+    sessionTotalSeconds += session.actualSeconds
+  }
+
+  return { sessionCount, sessionTotalSeconds }
 }
 
 // ─── Full-screen counter modal ────────────────────────────────────────────────
@@ -662,12 +692,6 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
                 </Pressable>
                 {/* Sub-row: chips */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
-                  {/* Done / time */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                    <Text style={{ fontSize: 10, fontWeight: '600', color: '#16A34A' }}>{completedCount}/{orderedTasks.length}</Text>
-                    <Text style={{ fontSize: 10, color: '#D1D5DB' }}>·</Text>
-                    <Text style={{ fontSize: 10, color: BLUE, fontWeight: '500' }}>{fmtMins(totalActualSeconds)}/{fmtMins(totalEstimateSeconds)}</Text>
-                  </View>
                   {/* Est */}
                   {currentEntry && (
                     editingEstimate ? (
@@ -755,6 +779,30 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
           <PriorityPicker value={currentTask.priority} onChange={(p) => { setShowPriorityPicker(false); updateTask({ taskId: currentTask.id, payload: { priority: p } }) }} />
         </BottomSheet>
       )}
+    </View>
+  )
+}
+
+// ─── Today's sessions summary card ───────────────────────────────────────────
+
+export function TodaySessionsCard() {
+  const { entries, timerRunningKey, timerStartedAt } = useExecCtx()
+  const remoteSessions = useSystemLog((s) => s.remoteSessions)
+  const { sessionCount, sessionTotalSeconds } = useMemo(() => {
+    return summarizeTodaySessionsFromLogSource(entries, remoteSessions, timerRunningKey, timerStartedAt)
+  }, [entries, remoteSessions, timerRunningKey, timerStartedAt])
+
+  return (
+    <View style={{ marginHorizontal: 16, marginTop: 12, borderRadius: 16, paddingHorizontal: 20, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', gap: 12 }}>
+      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' }}>
+        <Clock size={16} color={BLUE} />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ fontSize: 11, fontWeight: '500', color: '#9ca3af' }}>Today's sessions</Text>
+        <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151' }}>
+          {sessionCount} {sessionCount === 1 ? 'session' : 'sessions'} · {fmtDuration(sessionTotalSeconds)}
+        </Text>
+      </View>
     </View>
   )
 }
@@ -1267,22 +1315,14 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
     togglePlay, adjust, setEstimateDirect, complete, resetCurrent, prevTask, nextTask, updateTask, checklistId,
     onJumpToRaw, entries, timerRunningKey, timerStartedAt,
   } = useExecCtx()
+  const remoteSessions = useSystemLog((s) => s.remoteSessions)
 
   const { width } = useWindowDimensions()
   const isMobile = width < 768
 
-  const todayStr = useMemo(() => format(new Date(), 'yyyy-MM-dd'), [])
   const { sessionCount, sessionTotalSeconds } = useMemo(() => {
-    let count = 0
-    let total = 0
-    for (const [key, entry] of Object.entries(entries)) {
-      const parts = key.split(':')
-      if (parts.length < 3 || parts[1] !== todayStr || !entry.startedAt) continue
-      count += 1
-      total += liveSeconds(entry, timerRunningKey, timerStartedAt, key)
-    }
-    return { sessionCount: count, sessionTotalSeconds: total }
-  }, [entries, timerRunningKey, timerStartedAt, todayStr])
+    return summarizeTodaySessionsFromLogSource(entries, remoteSessions, timerRunningKey, timerStartedAt)
+  }, [entries, remoteSessions, timerRunningKey, timerStartedAt])
 
   const [editingEstimate, setEditingEstimate] = useState(false)
   const [estimateDraft, setEstimateDraft] = useState('')
