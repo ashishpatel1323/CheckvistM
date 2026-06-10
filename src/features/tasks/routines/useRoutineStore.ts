@@ -47,6 +47,7 @@ interface RoutineStoreState {
   /** Add extra time (in seconds) to the currently running step's countdown */
   extendStep: (sec: number) => void
   advanceStep: (action: 'done' | 'skip') => Promise<void>
+  goToPreviousStep: () => void
   stopTimer: () => void
   upsertCheckin: (log: CheckinLog, routineName: string) => Promise<void>
 }
@@ -269,6 +270,25 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
         },
       })
     }
+  },
+
+  goToPreviousStep: () => {
+    const { activeTimer } = get()
+    if (!activeTimer || activeTimer.stepIndex === 0) return
+    const prevIndex = activeTimer.stepIndex - 1
+    const prevStepId = activeTimer.pendingStepIds[prevIndex]
+    set({
+      activeTimer: {
+        ...activeTimer,
+        stepIndex: prevIndex,
+        stepStartedAt: Date.now(),
+        pausedAt: null,
+        stepElapsedSec: 0,
+        extensionSec: 0,
+        completedStepIds: activeTimer.completedStepIds.filter((id) => id !== prevStepId),
+        skippedStepIds: activeTimer.skippedStepIds.filter((id) => id !== prevStepId),
+      },
+    })
   },
 
   stopTimer: () => {
