@@ -200,17 +200,38 @@ export function TimerModeView() {
   const routine = routines.find((r) => r.taskId === activeTimer.routineTaskId)
   if (!routine) return null
 
-  const { pendingStepIds, stepIndex } = activeTimer
+  const { pendingStepIds, stepIndex, completedStepIds: timerDone, skippedStepIds: timerSkipped } = activeTimer
   const isComplete = stepIndex >= pendingStepIds.length
 
   useEffect(() => {
     if (isComplete) setCelebrated(true)
   }, [isComplete])
 
+  // Nearest previous step that is not yet done or skipped (drives back button visibility)
+  const hasPrevUndone = pendingStepIds
+    .slice(0, stepIndex)
+    .some((id) => !timerDone.includes(id) && !timerSkipped.includes(id))
+
   // Resolve current/prev/next steps from pendingStepIds
   const currentStepId = !isComplete ? pendingStepIds[stepIndex] : null
-  const prevStepId = stepIndex > 0 ? pendingStepIds[stepIndex - 1] : null
-  const nextStepId = !isComplete && stepIndex < pendingStepIds.length - 1 ? pendingStepIds[stepIndex + 1] : null
+  // "Previous" display: find the nearest earlier step that was actually completed/skipped this session
+  const prevStepId = (() => {
+    for (let i = stepIndex - 1; i >= 0; i--) {
+      if (timerDone.includes(pendingStepIds[i]) || timerSkipped.includes(pendingStepIds[i])) {
+        return pendingStepIds[i]
+      }
+    }
+    return null
+  })()
+  // "Next" display: next step that hasn't been done or skipped yet (after current)
+  const nextStepId = (() => {
+    for (let i = stepIndex + 1; i < pendingStepIds.length; i++) {
+      if (!timerDone.includes(pendingStepIds[i]) && !timerSkipped.includes(pendingStepIds[i])) {
+        return pendingStepIds[i]
+      }
+    }
+    return null
+  })()
 
   const step = currentStepId ? routine.steps.find((s) => s.id === currentStepId) ?? null : null
   // Historical completion times for the CURRENT step (used by the time bar)
@@ -425,16 +446,16 @@ export function TimerModeView() {
             borderTopWidth: 1, borderTopColor: '#F0F0F0',
           }}
         >
-          {/* Back — go to previous pending step (only shown when one exists) */}
+          {/* Back — go to nearest previous undone step (hidden when none exists) */}
           <Pressable
-            onPress={stepIndex > 0 ? goBack : undefined}
+            onPress={hasPrevUndone ? goBack : undefined}
             style={{
               width: 44, height: 44, borderRadius: 22,
-              backgroundColor: stepIndex > 0 ? '#F3F4F6' : 'transparent',
+              backgroundColor: hasPrevUndone ? '#F3F4F6' : 'transparent',
               alignItems: 'center', justifyContent: 'center',
             }}
           >
-            <SkipBack size={20} color={stepIndex > 0 ? '#374151' : 'transparent'} />
+            <SkipBack size={20} color={hasPrevUndone ? '#374151' : 'transparent'} />
           </Pressable>
 
           {/* Pause / Resume */}

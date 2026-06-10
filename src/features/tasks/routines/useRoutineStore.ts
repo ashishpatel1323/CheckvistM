@@ -59,6 +59,22 @@ function todayStr() {
   return format(new Date(), 'yyyy-MM-dd')
 }
 
+/** Returns the index of the next step (from fromIndex) that hasn't been done or skipped. */
+function findNextUndone(ids: string[], fromIndex: number, done: string[], skipped: string[]): number {
+  for (let i = fromIndex; i < ids.length; i++) {
+    if (!done.includes(ids[i]) && !skipped.includes(ids[i])) return i
+  }
+  return ids.length // all remaining are done/skipped — routine finished
+}
+
+/** Returns the index of the nearest previous step (before fromIndex) that is not done or skipped, or -1. */
+function findPrevUndone(ids: string[], fromIndex: number, done: string[], skipped: string[]): number {
+  for (let i = fromIndex - 1; i >= 0; i--) {
+    if (!done.includes(ids[i]) && !skipped.includes(ids[i])) return i
+  }
+  return -1
+}
+
 export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
   routines: [],
   checkins: {},
@@ -239,7 +255,6 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
     )
     const newTotalElapsed = activeTimer.totalElapsedSec + stepElapsed
 
-    // Done = succeeded; Skip = stays failed (still in skippedStepIds but not completed)
     const completedStepIds = action === 'done'
       ? [...activeTimer.completedStepIds, currentStepId]
       : activeTimer.completedStepIds
@@ -247,40 +262,37 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
       ? [...activeTimer.skippedStepIds, currentStepId]
       : activeTimer.skippedStepIds
 
-    // Record per-step completion time at the moment Done is tapped
+    // Record per-step completion time immediately when Done is tapped
     const stepCompletionTimes = action === 'done'
       ? { ...activeTimer.stepCompletionTimes, [currentStepId]: format(new Date(), 'HH:mm') }
       : activeTimer.stepCompletionTimes
 
-    const nextIndex = activeTimer.stepIndex + 1
+    // Jump to the next step that hasn't been done or skipped yet
+    const nextIndex = findNextUndone(
+      activeTimer.pendingStepIds, activeTimer.stepIndex + 1, completedStepIds, skippedStepIds,
+    )
     const isFinished = nextIndex >= activeTimer.pendingStepIds.length
 
-    if (isFinished) {
-      const today = todayStr()
-      // Merge with any steps already completed earlier today
-      const existingCheckin = get().getTodayCheckin(routine.taskId)
-      const alreadyCompleted = existingCheckin?.completedStepIds ?? []
-      const mergedCompleted = [...new Set([...alreadyCompleted, ...completedStepIds])]
-      const mergedStepTimes = { ...existingCheckin?.stepCompletionTimes, ...stepCompletionTimes }
-      const log: CheckinLog = {
-        routineTaskId: routine.taskId,
-        date: today,
-        completedStepIds: mergedCompleted,
-        durationSec: Math.round(newTotalElapsed),
-        stepCompletionTimes: Object.keys(mergedStepTimes).length > 0 ? mergedStepTimes : undefined,
-        systemTaskId: existingCheckin?.systemTaskId,
-      }
-      set((s) => {
-        const existing = s.checkins[routine.taskId] ?? []
-        const others = existing.filter((c) => c.date !== today)
-        return {
-          checkins: { ...s.checkins, [routine.taskId]: [...others, log] },
-          activeTimer: { ...activeTimer, completedStepIds, skippedStepIds, stepCompletionTimes, totalElapsedSec: newTotalElapsed, stepIndex: nextIndex },
-        }
-      })
-      await get().upsertCheckin(log, routine.name)
-    } else {
-      set({
+    // Always persist immediately — don't wait for the whole routine to finish
+    const today = todayStr()
+    const existingCheckin = get().getTodayCheckin(routine.taskId)
+    const alreadyCompleted = existingCheckin?.completedStepIds ?? []
+    const mergedCompleted = [...new Set([...alreadyCompleted, ...completedStepIds])]
+    const mergedStepTimes = { ...existingCheckin?.stepCompletionTimes, ...stepCompletionTimes }
+    const log: CheckinLog = {
+      routineTaskId: routine.taskId,
+      date: today,
+      completedStepIds: mergedCompleted,
+      durationSec: Math.round(newTotalElapsed),
+      stepCompletionTimes: Object.keys(mergedStepTimes).length > 0 ? mergedStepTimes : undefined,
+      systemTaskId: existingCheckin?.systemTaskId,
+    }
+
+    set((s) => {
+      const existing = s.checkins[routine.taskId] ?? []
+      const others = existing.filter((c) => c.date !== today)
+      return {
+        checkins: { ...s.checkins, [routine.taskId]: [...others, log] },
         activeTimer: {
           ...activeTimer,
           stepIndex: nextIndex,
@@ -293,20 +305,20 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
           stepCompletionTimes,
           totalElapsedSec: newTotalElapsed,
         },
-      })
-    }
+      }
+    })
+
+    await get().upsertCheckin(log, routine.name)
   },
 
   goBack: () => {
     const { activeTimer } = get()
-    if (!activeTimer || activeTimer.stepIndex === 0) return
-    const prevIndex = activeTimer.stepIndex - 1
-    const prevStepId = activeTimer.pendingStepIds[prevIndex]
-    // Un-do the previous step's done/skip and clear its recorded time
-    const completedStepIds = activeTimer.completedStepIds.filter((id) => id !== prevStepId)
-    const skippedStepIds = activeTimer.skippedStepIds.filter((id) => id !== prevStepId)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { [prevStepId]: _dropped, ...stepCompletionTimes } = activeTimer.stepCompletionTimes
+    if (!activeTimer) return
+    const { pendingStepIds, stepIndex, completedStepIds, skippedStepIds } = activeTimer
+    // Navigate back to the nearest previous step that is not yet done or skipped
+    // (does NOT un-do any completions — completed steps stay completed)
+    const prevIndex = findPrevUndone(pendingStepIds, stepIndex, completedStepIds, skippedStepIds)
+    if (prevIndex < 0) return
     set({
       activeTimer: {
         ...activeTimer,
@@ -315,9 +327,6 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
         pausedAt: null,
         stepElapsedSec: 0,
         extensionSec: 0,
-        completedStepIds,
-        skippedStepIds,
-        stepCompletionTimes,
       },
     })
   },
