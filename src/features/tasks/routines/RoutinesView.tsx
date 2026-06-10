@@ -3,8 +3,8 @@ import {
   View, Text, Pressable, ScrollView, useWindowDimensions,
   ActivityIndicator, Modal, TextInput,
 } from 'react-native'
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon, Play } from 'lucide-react-native'
-import { format, addDays, subDays, isToday, isFuture } from 'date-fns'
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon, Play, Flame, Zap, Clock, CalendarDays } from 'lucide-react-native'
+import { format, addDays, subDays, isToday, isFuture, startOfMonth, endOfMonth, eachDayOfInterval, getDay, getDaysInMonth } from 'date-fns'
 import { useRoutineStore } from './useRoutineStore'
 import { useRoutineSystem } from './useRoutineSystem'
 import { RoutineDetailView } from './RoutineDetailView'
@@ -217,9 +217,11 @@ interface HabitRowProps {
   onToggle: (stepId: string, date: string) => void
   checkinsByDate: Record<string, string[]> // date → completedStepIds
   completionTimeByDate: Record<string, string> // date → HH:MM
+  onSelect?: () => void
+  isSelected?: boolean
 }
 
-function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleSize, onToggle, checkinsByDate, completionTimeByDate }: HabitRowProps) {
+function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleSize, onToggle, checkinsByDate, completionTimeByDate, onSelect, isSelected }: HabitRowProps) {
   const accentColor = ROUTINE_COLORS[routine.color]
   const getLast7CompletionTimes = useRoutineStore((s) => s.getLast7CompletionTimes)
   const updateCheckinTime = useRoutineStore((s) => s.updateCheckinTime)
@@ -239,12 +241,17 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
       : `Usually ${fmtTime12(sortedTimes[0])}–${fmtTime12(sortedTimes[sortedTimes.length - 1])}`
 
   return (
-    <View style={{
-      flexDirection: 'row', alignItems: 'center',
-      paddingVertical: 10, paddingHorizontal: 16,
-      backgroundColor: '#fff',
-      borderBottomWidth: 1, borderBottomColor: '#F5F5F5',
-    }}>
+    <Pressable
+      onPress={onSelect}
+      style={{
+        flexDirection: 'row', alignItems: 'center',
+        paddingVertical: 10, paddingHorizontal: 16,
+        backgroundColor: isSelected ? BLUE + '08' : '#fff',
+        borderBottomWidth: 1, borderBottomColor: '#F5F5F5',
+        borderLeftWidth: isSelected ? 3 : 0,
+        borderLeftColor: isSelected ? ROUTINE_COLORS[routine.color] : 'transparent',
+      }}
+    >
       {/* Emoji icon */}
       <View style={{
         width: 40, height: 40, borderRadius: 20,
@@ -325,7 +332,7 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
           )
         })}
       </View>
-    </View>
+    </Pressable>
   )
 }
 
@@ -342,11 +349,13 @@ interface RoutineGroupProps {
   checkins: { date: string; completedStepIds: string[]; stepCompletionTimes?: Record<string, string> }[]
   onEdit: () => void
   onDelete: () => void
+  selectedStepId?: string
+  onSelectStep?: (stepId: string) => void
 }
 
 function RoutineGroup({
   routine, visibleDates, selectedDate, showOnlyPending, colWidth, circleSize,
-  onToggle, checkins, onEdit, onDelete,
+  onToggle, checkins, onEdit, onDelete, selectedStepId, onSelectStep,
 }: RoutineGroupProps) {
   const [collapsed, setCollapsed] = useState(false)
   const accentColor = ROUTINE_COLORS[routine.color]
@@ -421,9 +430,183 @@ function RoutineGroup({
           onToggle={onToggle}
           checkinsByDate={checkinsByDate}
           completionTimeByDate={stepTimesByStep[step.id] ?? {}}
+          onSelect={onSelectStep ? () => onSelectStep(step.id) : undefined}
+          isSelected={selectedStepId === step.id}
         />
       ))}
     </View>
+  )
+}
+
+// ─── HabitDetailPanel ─────────────────────────────────────────────────────────
+
+interface HabitDetailPanelProps {
+  step: RoutineStep
+  routine: RoutineDef
+  checkins: { date: string; completedStepIds: string[]; stepCompletionTimes?: Record<string, string> }[]
+}
+
+function HabitDetailPanel({ step, routine, checkins }: HabitDetailPanelProps) {
+  const getLast7CompletionTimes = useRoutineStore((s) => s.getLast7CompletionTimes)
+  const [panelMonth, setPanelMonth] = useState(() => new Date())
+  const accentColor = ROUTINE_COLORS[routine.color]
+
+  const doneDates = useMemo(() => {
+    const s = new Set<string>()
+    for (const c of checkins) if (c.completedStepIds.includes(step.id)) s.add(c.date)
+    return s
+  }, [checkins, step.id])
+
+  const { totalDone, currentStreak } = useMemo(() => {
+    const allLogs = checkins.map((c) => ({ date: c.date, completedStepIds: c.completedStepIds }))
+    return computeStepStats(step.id, step.scheduledDays, allLogs)
+  }, [checkins, step.id, step.scheduledDays])
+
+  // Monthly check-in rate
+  const monthlyRate = useMemo(() => {
+    const y = panelMonth.getFullYear()
+    const m = panelMonth.getMonth()
+    const today = new Date()
+    const daysInMonth = getDaysInMonth(panelMonth)
+    const daysPassed = (y === today.getFullYear() && m === today.getMonth())
+      ? today.getDate()
+      : daysInMonth
+    let scheduled = 0; let done = 0
+    for (let d = 1; d <= daysPassed; d++) {
+      const date = new Date(y, m, d)
+      const dow = date.getDay()
+      if (step.scheduledDays.length > 0 && !step.scheduledDays.includes(dow)) continue
+      scheduled++
+      if (doneDates.has(format(date, 'yyyy-MM-dd'))) done++
+    }
+    return scheduled === 0 ? 0 : Math.round((done / scheduled) * 100)
+  }, [panelMonth, doneDates, step.scheduledDays])
+
+  const monthlyDone = useMemo(() => {
+    const y = panelMonth.getFullYear(); const m = panelMonth.getMonth()
+    return checkins.filter((c) => {
+      const [cy, cm] = c.date.split('-').map(Number)
+      return cy === y && cm - 1 === m && c.completedStepIds.includes(step.id)
+    }).length
+  }, [checkins, panelMonth, step.id])
+
+  // Calendar grid
+  const calDays = useMemo(() => {
+    const start = startOfMonth(panelMonth)
+    const end = endOfMonth(panelMonth)
+    const days = eachDayOfInterval({ start, end })
+    const leadingBlanks = getDay(start) // 0=Sun
+    return { days, leadingBlanks }
+  }, [panelMonth])
+
+  const completionTimes = getLast7CompletionTimes(routine.taskId, step.id)
+  const sortedTimes = [...completionTimes].sort()
+  const usuallyText = sortedTimes.length === 0 ? null
+    : sortedTimes.length === 1 ? fmtTime12(sortedTimes[0])
+    : `${fmtTime12(sortedTimes[0])} – ${fmtTime12(sortedTimes[sortedTimes.length - 1])}`
+
+  return (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20, gap: 16 }}>
+      {/* Habit header */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+        <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: accentColor + '20', alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 22 }}>{step.emoji}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: '#111' }}>{step.name}</Text>
+          <Text style={{ fontSize: 12, color: '#9CA3AF' }}>{routine.name}</Text>
+        </View>
+      </View>
+
+      {/* Stats row */}
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        {[
+          { icon: <Zap size={14} color={accentColor} />, label: 'Total Done', value: `${totalDone}d` },
+          { icon: <Flame size={14} color="#F97316" />, label: 'Streak', value: `${currentStreak}d` },
+          { icon: <CalendarDays size={14} color={BLUE} />, label: 'This Month', value: `${monthlyDone}d` },
+          { icon: <Text style={{ fontSize: 12, fontWeight: '700', color: '#10B981' }}>{monthlyRate}%</Text>, label: 'Check-in Rate', value: '' },
+        ].map(({ icon, label, value }) => (
+          <View key={label} style={{ flex: 1, backgroundColor: '#F9FAFB', borderRadius: 10, padding: 10, gap: 4, borderWidth: 1, borderColor: '#F0F0F0' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>{icon}</View>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: '#111' }}>{value}</Text>
+            <Text style={{ fontSize: 10, color: '#9CA3AF' }}>{label}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Usually at */}
+      {usuallyText && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F9FAFB', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#F0F0F0' }}>
+          <Clock size={14} color="#6B7280" />
+          <Text style={{ fontSize: 13, color: '#374151', fontWeight: '600' }}>Usually at</Text>
+          <Text style={{ fontSize: 13, color: accentColor, fontWeight: '700' }}>{usuallyText}</Text>
+        </View>
+      )}
+
+      {/* Monthly calendar */}
+      <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#F0F0F0' }}>
+        {/* Month nav */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <Pressable onPress={() => setPanelMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))} hitSlop={8}>
+            <ChevronLeft size={16} color="#374151" />
+          </Pressable>
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#111' }}>{format(panelMonth, 'MMMM yyyy')}</Text>
+          <Pressable onPress={() => setPanelMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))} hitSlop={8}>
+            <ChevronRight size={16} color="#374151" />
+          </Pressable>
+        </View>
+        {/* Day-of-week labels */}
+        <View style={{ flexDirection: 'row', marginBottom: 6 }}>
+          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+            <Text key={i} style={{ flex: 1, textAlign: 'center', fontSize: 10, fontWeight: '700', color: '#9CA3AF' }}>{d}</Text>
+          ))}
+        </View>
+        {/* Grid */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+          {Array.from({ length: calDays.leadingBlanks }).map((_, i) => (
+            <View key={`blank-${i}`} style={{ width: `${100 / 7}%`, aspectRatio: 1 }} />
+          ))}
+          {calDays.days.map((date) => {
+            const ds = format(date, 'yyyy-MM-dd')
+            const done = doneDates.has(ds)
+            const today = isToday(date)
+            const future = isFuture(date) && !today
+            const dow = date.getDay()
+            const scheduled = step.scheduledDays.length === 0 || step.scheduledDays.includes(dow)
+            return (
+              <View key={ds} style={{ width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center', padding: 2 }}>
+                <View style={{
+                  width: '80%', aspectRatio: 1, borderRadius: 100,
+                  backgroundColor: done ? accentColor : today ? accentColor + '20' : 'transparent',
+                  borderWidth: today ? 1.5 : 0,
+                  borderColor: today ? accentColor : 'transparent',
+                  alignItems: 'center', justifyContent: 'center',
+                  opacity: future ? 0.3 : 1,
+                }}>
+                  <Text style={{ fontSize: 11, fontWeight: done || today ? '700' : '400', color: done ? '#fff' : scheduled ? '#374151' : '#D1D5DB' }}>
+                    {format(date, 'd')}
+                  </Text>
+                </View>
+              </View>
+            )
+          })}
+        </View>
+      </View>
+
+      {/* Recent completion times */}
+      {completionTimes.length > 0 && (
+        <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#F0F0F0' }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 10 }}>Recent completion times</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {[...completionTimes].reverse().map((t, i) => (
+              <View key={i} style={{ backgroundColor: accentColor + '15', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: accentColor }}>{fmtTime12(t)}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+    </ScrollView>
   )
 }
 
@@ -445,6 +628,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   const [showOnlyPending, setShowOnlyPending] = useState(false)
   const [editingRoutine, setEditingRoutine] = useState<RoutineDef | 'new' | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
+  const [selectedHabit, setSelectedHabit] = useState<{ routineTaskId: number; stepId: string } | null>(null)
 
   // Compute pending step counts for today per routine
   const todayPending = useMemo(() => {
@@ -703,23 +887,53 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
-          {routines.map((routine) => (
-            <RoutineGroup
-              key={routine.taskId}
-              routine={routine}
-              visibleDates={visibleDates}
-              selectedDate={selectedDate}
-              showOnlyPending={showOnlyPending}
-              colWidth={COL}
-              circleSize={CIRCLE}
-              checkins={checkins[routine.taskId] ?? []}
-              onToggle={(stepId, date) => handleToggle(routine, stepId, date)}
-              onEdit={() => setEditingRoutine(routine)}
-              onDelete={() => setConfirmDelete(routine.taskId)}
-            />
-          ))}
-        </ScrollView>
+        <View style={{ flex: 1, flexDirection: 'row' }}>
+          {/* Left: habit list */}
+          <ScrollView
+            style={!isMobile && selectedHabit ? { width: '55%' } : { flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 100 }}
+          >
+            {routines.map((routine) => (
+              <RoutineGroup
+                key={routine.taskId}
+                routine={routine}
+                visibleDates={visibleDates}
+                selectedDate={selectedDate}
+                showOnlyPending={showOnlyPending}
+                colWidth={COL}
+                circleSize={CIRCLE}
+                checkins={checkins[routine.taskId] ?? []}
+                onToggle={(stepId, date) => handleToggle(routine, stepId, date)}
+                onEdit={() => setEditingRoutine(routine)}
+                onDelete={() => setConfirmDelete(routine.taskId)}
+                selectedStepId={selectedHabit?.routineTaskId === routine.taskId ? selectedHabit.stepId : undefined}
+                onSelectStep={!isMobile ? (stepId) => setSelectedHabit({ routineTaskId: routine.taskId, stepId }) : undefined}
+              />
+            ))}
+          </ScrollView>
+
+          {/* Right: detail panel (desktop only) */}
+          {!isMobile && selectedHabit && (() => {
+            const routine = routines.find((r) => r.taskId === selectedHabit.routineTaskId)
+            const step = routine?.steps.find((s) => s.id === selectedHabit.stepId)
+            if (!routine || !step) return null
+            return (
+              <View style={{ width: '45%', borderLeftWidth: 1, borderLeftColor: '#EFEFEF', backgroundColor: '#FAFAFA' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EFEFEF', backgroundColor: '#fff' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>Habit Detail</Text>
+                  <Pressable onPress={() => setSelectedHabit(null)} hitSlop={8}>
+                    <Text style={{ fontSize: 18, color: '#9CA3AF' }}>×</Text>
+                  </Pressable>
+                </View>
+                <HabitDetailPanel
+                  step={step}
+                  routine={routine}
+                  checkins={checkins[routine.taskId] ?? []}
+                />
+              </View>
+            )
+          })()}
+        </View>
       )}
 
       {/* FAB */}
