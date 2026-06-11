@@ -245,7 +245,7 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
       onPress={onSelect}
       style={{
         flexDirection: 'row', alignItems: 'center',
-        paddingVertical: 10, paddingHorizontal: 16,
+        paddingVertical: 8, paddingHorizontal: 12,
         backgroundColor: isSelected ? BLUE + '08' : '#fff',
         borderBottomWidth: 1, borderBottomColor: '#F5F5F5',
         borderLeftWidth: isSelected ? 3 : 0,
@@ -254,16 +254,16 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
     >
       {/* Emoji icon */}
       <View style={{
-        width: 40, height: 40, borderRadius: 20,
+        width: 36, height: 36, borderRadius: 18,
         backgroundColor: accentColor + '20',
         alignItems: 'center', justifyContent: 'center',
-        marginRight: 10,
+        marginRight: 8,
       }}>
-        <Text style={{ fontSize: 20 }}>{step.emoji}</Text>
+        <Text style={{ fontSize: 18 }}>{step.emoji}</Text>
       </View>
 
       {/* Name + stats */}
-      <View style={{ flex: 1, marginRight: 8 }}>
+      <View style={{ flex: 1, marginRight: 6 }}>
         <Text style={{ fontSize: 14, fontWeight: '600', color: '#111' }} numberOfLines={1}>
           {step.name}
         </Text>
@@ -321,13 +321,31 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
                 onPress={() => onToggle(step.id, ds)}
                 size={circleSize}
               />
-              {isDone && completionTimeByDate[ds] && (
-                <Pressable onPress={() => setEditingDate(ds)} hitSlop={6}>
-                  <Text style={{ fontSize: 8, color: accentColor, marginTop: 2, textAlign: 'center', opacity: 0.8, textDecorationLine: 'underline' }} numberOfLines={1}>
+              {isDone && completionTimeByDate[ds] ? (
+                <Pressable onPress={() => setEditingDate(ds)} hitSlop={10}
+                  style={circleSize >= 40 ? {
+                    marginTop: 5, paddingHorizontal: 8, paddingVertical: 3,
+                    backgroundColor: accentColor + '18', borderRadius: 8,
+                  } : undefined}
+                >
+                  <Text style={{
+                    fontSize: circleSize >= 40 ? 12 : 8,
+                    color: accentColor,
+                    marginTop: circleSize >= 40 ? 0 : 2,
+                    textAlign: 'center',
+                    fontWeight: circleSize >= 40 ? '700' : '400',
+                    textDecorationLine: circleSize >= 40 ? 'none' : 'underline',
+                  }} numberOfLines={1}>
                     {fmtTime12(completionTimeByDate[ds]).replace(' AM', 'a').replace(' PM', 'p')}
                   </Text>
                 </Pressable>
-              )}
+              ) : isDone && circleSize >= 40 ? (
+                <Pressable onPress={() => setEditingDate(ds)} hitSlop={10}
+                  style={{ marginTop: 5, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#F3F4F6', borderRadius: 8 }}
+                >
+                  <Text style={{ fontSize: 11, color: '#9CA3AF', textAlign: 'center' }}>+ time</Text>
+                </Pressable>
+              ) : null}
             </View>
           )
         })}
@@ -741,10 +759,9 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
     await loadRoutines()
   }
 
-  // Column sizing: 7 circles need to fit after the left section
-  // Left section is ~190px on desktop, flexible on mobile
-  const CIRCLE = isMobile ? 22 : 26
-  const COL = isMobile ? 32 : 38
+  // Day view on mobile gets a larger circle (single column, plenty of room)
+  const CIRCLE = (isMobile && viewMode === 'day') ? 44 : isMobile ? 22 : 26
+  const COL = (isMobile && viewMode === 'day') ? 60 : isMobile ? 32 : 38
 
 
   return (
