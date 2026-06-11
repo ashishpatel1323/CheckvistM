@@ -219,9 +219,10 @@ interface HabitRowProps {
   completionTimeByDate: Record<string, string> // date → HH:MM
   onSelect?: () => void
   isSelected?: boolean
+  onStartStep?: () => void
 }
 
-function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleSize, onToggle, checkinsByDate, completionTimeByDate, onSelect, isSelected }: HabitRowProps) {
+function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleSize, onToggle, checkinsByDate, completionTimeByDate, onSelect, isSelected, onStartStep }: HabitRowProps) {
   const accentColor = ROUTINE_COLORS[routine.color]
   const getLast7CompletionTimes = useRoutineStore((s) => s.getLast7CompletionTimes)
   const updateCheckinTime = useRoutineStore((s) => s.updateCheckinTime)
@@ -279,6 +280,22 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
           )}
         </View>
       </View>
+
+      {/* Single-habit play button */}
+      {onStartStep && (
+        <Pressable
+          onPress={(e) => { e.stopPropagation(); onStartStep() }}
+          hitSlop={8}
+          style={{
+            width: 28, height: 28, borderRadius: 14,
+            backgroundColor: accentColor + '18',
+            alignItems: 'center', justifyContent: 'center',
+            marginRight: 6,
+          }}
+        >
+          <Play size={13} color={accentColor} fill={accentColor} />
+        </Pressable>
+      )}
 
       {editingDate && (
         <TimeEditModal
@@ -369,11 +386,13 @@ interface RoutineGroupProps {
   onDelete: () => void
   selectedStepId?: string
   onSelectStep?: (stepId: string) => void
+  onStartRoutine?: () => void
+  onStartStep?: (stepId: string) => void
 }
 
 function RoutineGroup({
   routine, visibleDates, selectedDate, showOnlyPending, colWidth, circleSize,
-  onToggle, checkins, onEdit, onDelete, selectedStepId, onSelectStep,
+  onToggle, checkins, onEdit, onDelete, selectedStepId, onSelectStep, onStartRoutine, onStartStep,
 }: RoutineGroupProps) {
   const [collapsed, setCollapsed] = useState(false)
   const accentColor = ROUTINE_COLORS[routine.color]
@@ -431,6 +450,20 @@ function RoutineGroup({
         }}>
           {filteredSteps.length}
         </Text>
+        {onStartRoutine && (
+          <Pressable
+            onPress={(e) => { e.stopPropagation(); onStartRoutine() }}
+            hitSlop={8}
+            style={{
+              width: 26, height: 26, borderRadius: 13,
+              backgroundColor: accentColor,
+              alignItems: 'center', justifyContent: 'center',
+              marginRight: 8,
+            }}
+          >
+            <Play size={11} color="#fff" fill="#fff" />
+          </Pressable>
+        )}
         <Pressable onPress={onEdit} hitSlop={8} style={{ marginRight: 8 }}>
           <Text style={{ fontSize: 11, color: '#9CA3AF' }}>Edit</Text>
         </Pressable>
@@ -450,6 +483,7 @@ function RoutineGroup({
           completionTimeByDate={stepTimesByStep[step.id] ?? {}}
           onSelect={onSelectStep ? () => onSelectStep(step.id) : undefined}
           isSelected={selectedStepId === step.id}
+          onStartStep={onStartStep ? () => onStartStep(step.id) : undefined}
         />
       ))}
     </View>
@@ -681,7 +715,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   const { width } = useWindowDimensions()
   const isMobile = width < 768
 
-  const { routines, checkins, loading, activeTimer, loadRoutines, toggleStep, startQueue, getTodayCheckin } = useRoutineStore()
+  const { routines, checkins, loading, activeTimer, loadRoutines, toggleStep, startQueue, startTimer, getTodayCheckin } = useRoutineStore()
   const { saveRoutineDef, deleteRoutineDef } = useRoutineSystem()
 
   const [selectedDate, setSelectedDate] = useState(() => new Date())
@@ -968,6 +1002,11 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
                 onDelete={() => setConfirmDelete(routine.taskId)}
                 selectedStepId={selectedHabit?.routineTaskId === routine.taskId ? selectedHabit.stepId : undefined}
                 onSelectStep={!isMobile ? (stepId) => setSelectedHabit({ routineTaskId: routine.taskId, stepId }) : undefined}
+                onStartRoutine={!activeTimer && (todayPending[routine.taskId] ?? 0) > 0 ? () => startQueue([routine]) : undefined}
+                onStartStep={!activeTimer ? (stepId) => {
+                  const step = routine.steps.find((s) => s.id === stepId)
+                  if (step) startTimer({ ...routine, steps: [step] })
+                } : undefined}
               />
             ))}
           </ScrollView>
