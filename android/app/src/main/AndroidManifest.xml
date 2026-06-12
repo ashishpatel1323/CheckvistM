@@ -25,6 +25,25 @@
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATE_URL" android:value="https://u.expo.dev/f0c7beb2-284a-4eea-b8ca-0f04229e0bb9"/>
+    <!-- Pending Habits home-screen widget -->
+    <receiver
+        android:name=".widget.PendingHabitsWidget"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        <action android:name="com.ashishpatel.checkvist.widget.ACTION_REFRESH" />
+        <action android:name="com.ashishpatel.checkvist.widget.DATA_UPDATED" />
+      </intent-filter>
+      <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/pending_habits_widget_info" />
+    </receiver>
+
+    <service
+        android:name=".widget.PendingHabitsWidgetService"
+        android:exported="false"
+        android:permission="android.permission.BIND_REMOTEVIEWS" />
+
     <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>

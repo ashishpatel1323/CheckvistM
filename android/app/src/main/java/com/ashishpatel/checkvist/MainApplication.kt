@@ -3,6 +3,7 @@ package com.ashishpatel.checkvist
 import android.app.Application
 import android.content.res.Configuration
 
+import com.ashishpatel.checkvist.widget.WidgetDataPackage
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactNativeHost
@@ -23,8 +24,7 @@ class MainApplication : Application(), ReactApplication {
         object : DefaultReactNativeHost(this) {
           override fun getPackages(): List<ReactPackage> {
             val packages = PackageList(this).packages
-            // Packages that cannot be autolinked yet can be added manually here, for example:
-            // packages.add(new MyReactNativePackage());
+            packages.add(WidgetDataPackage())
             return packages
           }
 

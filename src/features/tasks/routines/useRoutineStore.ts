@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { format } from 'date-fns'
 import { useRoutineSystem } from './useRoutineSystem'
 import type { RoutineDef, CheckinLog } from './routineTypes'
+import { syncWidget } from '@/lib/widgetBridge'
 
 export interface ActiveTimer {
   routineTaskId: number
@@ -95,6 +96,7 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
       const { fetchAll } = useRoutineSystem.getState()
       const { routines, checkinsByRoutine } = await fetchAll()
       set({ routines, checkins: checkinsByRoutine, loading: false })
+      syncWidget(routines, checkinsByRoutine)
     } catch (e) {
       console.warn('[RoutineStore] load failed:', e)
       set({ loading: false })
@@ -367,15 +369,18 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
       if (newId && !log.systemTaskId) {
         set((s) => {
           const arr = s.checkins[log.routineTaskId] ?? []
-          return {
-            checkins: {
-              ...s.checkins,
-              [log.routineTaskId]: arr.map((c) =>
-                c.date === log.date ? { ...c, systemTaskId: newId } : c
-              ),
-            },
+          const updatedCheckins = {
+            ...s.checkins,
+            [log.routineTaskId]: arr.map((c) =>
+              c.date === log.date ? { ...c, systemTaskId: newId } : c
+            ),
           }
+          syncWidget(s.routines, updatedCheckins)
+          return { checkins: updatedCheckins }
         })
+      } else {
+        const { routines, checkins } = get()
+        syncWidget(routines, checkins)
       }
     } catch (e) {
       console.warn('[RoutineStore] upsertCheckin failed:', e)
