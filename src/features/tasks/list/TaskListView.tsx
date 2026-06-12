@@ -28,6 +28,7 @@ import { TimerModeView, MiniTimerBar } from '@/features/tasks/routines/TimerMode
 import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
+import { MuteButton } from '@/features/tasks/shared/MuteButton'
 
 interface TaskListViewProps {
   checklistId: number
@@ -397,16 +398,16 @@ const BLUE = '#4772FA'
 const INACTIVE = '#9ca3af'
 
 const TABS = [
-  { key: 'date',     icon: LayoutList,   label: 'Tasks'    },
-  { key: 'matrix',   icon: LayoutGrid,   label: 'Matrix'   },
-  { key: 'execute',  icon: Timer,        label: 'Execute'  },
-  { key: 'progress', icon: TrendingUp,   label: 'Progress' },
-  { key: 'log',      icon: ClipboardList,label: 'Log'      },
-  { key: 'routines', icon: Repeat,       label: 'Routines' },
-  { key: 'list',     icon: AlignLeft,    label: 'Outline'  },
-  { key: 'mindmap',  icon: Network,      label: 'Map'      },
-  { key: 'search',   icon: Search,       label: 'Search'   },
-  { key: 'raw',      icon: Globe,        label: 'Raw'      },
+  { key: 'date',     icon: LayoutList,   label: 'Tasks',    shortcut: 'T' },
+  { key: 'matrix',   icon: LayoutGrid,   label: 'Matrix',   shortcut: 'X' },
+  { key: 'execute',  icon: Timer,        label: 'Execute',  shortcut: 'E' },
+  { key: 'progress', icon: TrendingUp,   label: 'Progress', shortcut: 'P' },
+  { key: 'log',      icon: ClipboardList,label: 'Log',      shortcut: 'L' },
+  { key: 'routines', icon: Repeat,       label: 'Routines', shortcut: 'R' },
+  { key: 'list',     icon: AlignLeft,    label: 'Outline',  shortcut: 'O' },
+  { key: 'mindmap',  icon: Network,      label: 'Map',      shortcut: 'M' },
+  { key: 'search',   icon: Search,       label: 'Search',   shortcut: 'S' },
+  { key: 'raw',      icon: Globe,        label: 'Raw',      shortcut: 'W' },
 ] as const
 
 export function TaskListView({ checklistId }: TaskListViewProps) {
@@ -416,6 +417,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
   const [showFabInput, setShowFabInput] = useState(false)
   const [newTaskText, setNewTaskText] = useState('')
   const [focusedId, setFocusedId] = useState<number | null>(null)
+  const [showShortcuts, setShowShortcuts] = useState(false)
 const { view, setView, focusedTaskId } = useTaskView()
   const { order: tabOrder, moveTab } = useTabBarConfig()
   const [showMoreSheet, setShowMoreSheet] = useState(false)
@@ -472,6 +474,33 @@ const { view, setView, focusedTaskId } = useTaskView()
     )
   }
 
+  // Ctrl-key tab shortcuts (web desktop only)
+  useEffect(() => {
+    if (Platform.OS !== 'web' || isMobile) return
+    const shortcutMap: Record<string, string> = {}
+    for (const tab of TABS) shortcutMap[tab.shortcut.toLowerCase()] = tab.key
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Control') { setShowShortcuts(true); return }
+      if (!e.ctrlKey) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
+      const tabKey = shortcutMap[e.key.toLowerCase()]
+      if (tabKey) { e.preventDefault(); setView(tabKey as Parameters<typeof setView>[0]); setShowShortcuts(false) }
+    }
+    const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Control') setShowShortcuts(false) }
+    const onBlur = () => setShowShortcuts(false)
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [isMobile, setView])
+
   return (
     <View className="flex-1" style={{ backgroundColor: '#F5F5F5' }}>
 
@@ -495,20 +524,37 @@ const { view, setView, focusedTaskId } = useTaskView()
         </View>
 
         {/* Web: show tabs inline in header */}
-        {!isMobile && TABS.map(({ key, icon: Icon, label }) => {
+        {!isMobile && TABS.map(({ key, icon: Icon, label, shortcut }) => {
           const active = view === key
           return (
             <Pressable
               key={key}
               onPress={() => setView(key)}
               hitSlop={6}
-              className="flex-row items-center gap-1 px-2 py-1 rounded-lg"
-              style={{ backgroundColor: active ? '#EEF2FF' : 'transparent' }}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 4,
+                paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+                backgroundColor: active ? '#EEF2FF' : 'transparent',
+                position: 'relative',
+              }}
             >
               <Icon size={16} color={active ? BLUE : '#666'} style={{ opacity: active ? 1 : 0.7 }} />
               <Text className="text-xs font-medium" style={{ color: active ? BLUE : '#666', opacity: active ? 1 : 0.8 }}>
                 {label}
               </Text>
+              {showShortcuts && (
+                <View style={{
+                  position: 'absolute', top: -8, right: -4,
+                  backgroundColor: '#1C1C1E',
+                  borderRadius: 4,
+                  paddingHorizontal: 4, paddingVertical: 1,
+                  minWidth: 16, alignItems: 'center',
+                }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.5 }}>
+                    {shortcut}
+                  </Text>
+                </View>
+              )}
             </Pressable>
           )
         })}
@@ -519,6 +565,9 @@ const { view, setView, focusedTaskId } = useTaskView()
             <Plus size={20} color={showFabInput ? BLUE : '#666'} />
           </Pressable>
         )}
+
+        {/* TTS mute/unmute */}
+        <MuteButton />
 
         {/* Refresh button */}
         <Pressable hitSlop={8} onPress={() => refetch()} disabled={isFetching} style={{ opacity: isFetching ? 0.4 : 1 }}>

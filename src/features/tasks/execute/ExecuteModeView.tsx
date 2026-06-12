@@ -27,7 +27,8 @@ import {
 import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
-import { InlineMarkdown } from '@/components/InlineMarkdown'
+import { InlineMarkdown, stripMarkdown } from '@/components/InlineMarkdown'
+import { useTTSBroadcast } from '@/features/tasks/shared/useTTS'
 import { BottomSheet } from '@/components/BottomSheet'
 import { isToday, isPast, format } from 'date-fns'
 
@@ -393,7 +394,7 @@ interface ExecCtxValue {
 
 const ExecCtx = createContext<ExecCtxValue | null>(null)
 
-function useExecCtx(): ExecCtxValue {
+export function useExecCtx(): ExecCtxValue {
   const ctx = useContext(ExecCtx)
   if (!ctx) throw new Error('useExecCtx must be used inside ExecuteStateProvider')
   return ctx
@@ -522,7 +523,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
       if (!timerRunningKey) dismissExecuteTimerNotification().catch(() => {})
       return
     }
-    if (tick - lastNotifTickRef.current < 5 && tick !== 0) return
+    if (tick - lastNotifTickRef.current < 1 && tick !== 0) return
     lastNotifTickRef.current = tick
     showExecuteTimerNotification({
       taskName: currentTask.content,
@@ -606,6 +607,9 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
     currentIndex,
     togglePlay, adjust, setEstimateDirect, complete, resetCurrent, prevTask, nextTask, updateTask, checklistId,
   } = useExecCtx()
+
+  // Broadcast active task name to TTS system
+  useTTSBroadcast(isRunning && currentTask ? stripMarkdown(currentTask.content) : null)
 
   const [editingEstimate, setEditingEstimate] = useState(false)
   const [estimateDraft, setEstimateDraft] = useState('')

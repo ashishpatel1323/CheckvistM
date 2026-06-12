@@ -37,6 +37,7 @@
     "expo-notifications": "^0.29.14",
     "expo-router": "~4.0.0",
     "expo-secure-store": "~14.0.1",
+    "expo-speech": "^56.0.3",
     "expo-splash-screen": "~0.29.21",
     "expo-status-bar": "~2.0.1",
     "expo-task-manager": "^12.0.6",

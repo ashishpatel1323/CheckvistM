@@ -14,6 +14,26 @@ import type { RoutineDef, RoutineStep } from './routineTypes'
 
 const BLUE = '#4772FA'
 const FAILURE_RED = '#DC2626'
+
+// Dark red (0%) → amber (50%) → dark green (100%)
+function completionColor(fraction: number): string {
+  const f = Math.max(0, Math.min(1, fraction))
+  if (f <= 0.5) {
+    // red #B91C1C → amber #D97706
+    const t = f * 2
+    const r = Math.round(185 + t * (217 - 185))
+    const g = Math.round(28  + t * (119 - 28))
+    const b = Math.round(28  + t * (6   - 28))
+    return `rgb(${r},${g},${b})`
+  } else {
+    // amber #D97706 → dark green #15803D
+    const t = (f - 0.5) * 2
+    const r = Math.round(217 + t * (21  - 217))
+    const g = Math.round(119 + t * (128 - 119))
+    const b = Math.round(6   + t * (61  - 6))
+    return `rgb(${r},${g},${b})`
+  }
+}
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function fmtTime12(hhmm: string) {
@@ -136,34 +156,33 @@ interface DayColHeaderProps {
 function DayColHeader({ date, completionFraction, doneCount, totalCount, colWidth, selected }: DayColHeaderProps) {
   const today = isToday(date)
   const future = isFuture(date) && !today
-  const R = 15 // circle radius
+  const R = 15
   const C = 2 * R
 
+  const ringColor = future ? '#E5E7EB' : completionColor(completionFraction)
   const activeColor = selected ? BLUE : today ? BLUE : '#374151'
   return (
     <View style={{ width: colWidth, alignItems: 'center', gap: 2 }}>
       <Text style={{ fontSize: 13, fontWeight: '700', color: activeColor }}>
         {format(date, 'd')}
       </Text>
-      {/* SVG-like progress ring using a View trick */}
       <View style={{
         width: C, height: C, borderRadius: R,
         borderWidth: 2.5,
-        borderColor: future ? '#E5E7EB' : completionFraction === 1 ? BLUE : FAILURE_RED,
+        borderColor: ringColor,
         opacity: future ? 0.4 : 1,
         alignItems: 'center', justifyContent: 'center',
         overflow: 'hidden',
       }}>
         {!future && completionFraction > 0 && completionFraction < 1 && (
-          // Partial fill using a clip trick
           <View style={{
             position: 'absolute', bottom: 0, left: 0, right: 0,
             height: `${Math.round(completionFraction * 100)}%`,
-            backgroundColor: FAILURE_RED,
+            backgroundColor: ringColor,
             opacity: 0.15,
           }} />
         )}
-        <Text style={{ fontSize: 8, color: future ? '#9CA3AF' : completionFraction === 1 ? BLUE : FAILURE_RED, fontWeight: '700' }}>
+        <Text style={{ fontSize: 8, color: future ? '#9CA3AF' : ringColor, fontWeight: '700' }}>
           {doneCount}/{totalCount}
         </Text>
       </View>
@@ -720,7 +739,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
 
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day')
-  const [showOnlyPending, setShowOnlyPending] = useState(false)
+  const [showOnlyPending, setShowOnlyPending] = useState(true)
   const [editingRoutine, setEditingRoutine] = useState<RoutineDef | 'new' | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
   const [selectedHabit, setSelectedHabit] = useState<{ routineTaskId: number; stepId: string } | null>(null)
@@ -748,9 +767,11 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   useEffect(() => { loadRoutines() }, [loadRoutines])
 
   // 7 days: ±3 days around selectedDate (same style as log tab)
+  // Last 7 days ending at today
+  const today = useMemo(() => new Date(), [])
   const weekDates = useMemo(() => {
-    return Array.from({ length: 7 }, (_, i) => addDays(selectedDate, i - 3))
-  }, [selectedDate])
+    return Array.from({ length: 7 }, (_, i) => subDays(today, 6 - i))
+  }, [today])
 
   // Per-day overall completion stats across all routines
   const dayStats = useMemo(() => {
@@ -773,7 +794,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
     })
   }, [weekDates, routines, checkins])
 
-  const selectedDayStat = dayStats[3] ?? { done: 0, total: 0, completionFraction: 0 }
+  const selectedDayStat = dayStats[dayStats.length - 1] ?? { done: 0, total: 0, completionFraction: 0 }
   const visibleDates = viewMode === 'week' ? weekDates : [selectedDate]
 
   const handleToggle = useCallback(async (routine: RoutineDef, stepId: string, date: string) => {

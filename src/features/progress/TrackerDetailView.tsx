@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { View, Text, Pressable, ScrollView, useWindowDimensions, Alert } from 'react-native'
+import { View, Text, Pressable, ScrollView, Alert } from 'react-native'
 import {
   addDays, addMonths, addYears,
   startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
@@ -76,7 +76,7 @@ export function TrackerDetailView({ tracker, onBack, onDeleted }: Props) {
   const [historyExpanded, setHistoryExpanded] = useState(true)
   const [trendsExpanded, setTrendsExpanded] = useState(true)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const { width } = useWindowDimensions()
+  const [chartCardWidth, setChartCardWidth] = useState(0)
 
   const { data: entries = [], isLoading } = useTrackerEntries(tracker.taskId)
   const createEntry = useCreateEntry()
@@ -163,7 +163,7 @@ export function TrackerDetailView({ tracker, onBack, onDeleted }: Props) {
     ? Math.min(100, (tracker.currentValue / tracker.meta.targetValue) * 100)
     : 0
 
-  const chartWidth = width - 32
+  const chartWidth = chartCardWidth > 0 ? chartCardWidth - 32 : 0
 
   return (
     <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
@@ -220,7 +220,10 @@ export function TrackerDetailView({ tracker, onBack, onDeleted }: Props) {
 
       <ScrollView style={{ flex: 1 }}>
         {/* Chart card */}
-        <View style={{ margin: 16, backgroundColor: 'white', borderRadius: 16, overflow: 'hidden' }}>
+        <View
+          style={{ margin: 16, backgroundColor: 'white', borderRadius: 16, overflow: 'hidden' }}
+          onLayout={e => setChartCardWidth(e.nativeEvent.layout.width)}
+        >
           {/* Range tabs */}
           <View style={{ flexDirection: 'row', padding: 4, backgroundColor: '#F2F2F7', margin: 8, borderRadius: 10 }}>
             {(['Day', 'Week', 'Month', 'Year', 'All-Time'] as TimeRange[]).map(r => (
@@ -262,9 +265,9 @@ export function TrackerDetailView({ tracker, onBack, onDeleted }: Props) {
             )}
           </View>
 
-          {isLoading ? (
+          {isLoading || chartWidth === 0 ? (
             <View style={{ height: 190, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: '#8E8E93', fontSize: 13 }}>Loading…</Text>
+              <Text style={{ color: '#8E8E93', fontSize: 13 }}>{isLoading ? 'Loading…' : ''}</Text>
             </View>
           ) : (
             <ProgressChart

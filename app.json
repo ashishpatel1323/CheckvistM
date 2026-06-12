@@ -31,7 +31,12 @@
         "backgroundColor": "#1C1C28"
       },
       "package": "com.ashishpatel.checkvist",
-      "versionCode": 3
+      "versionCode": 3,
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -62,7 +67,7 @@
           "defaultChannel": "default",
           "sounds": []
         }
-      ]
+      ],
     ],
     "experiments": {
       "typedRoutes": false

@@ -1,6 +1,5 @@
-import { useMemo, useEffect, useCallback, useRef } from 'react'
-import { ScrollView, Platform, View } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useMemo, useEffect, useCallback, useRef, useState } from 'react'
+import { ScrollView, Platform, View, Text, Pressable } from 'react-native'
 import type { CheckvistTask } from '@/api/types'
 import type { TaskNode } from '@/lib/taskTree'
 import { buildTaskTree } from '@/lib/taskTree'
@@ -8,6 +7,7 @@ import { OutlineRow } from './OutlineRow'
 import { useExpandedIds } from './useExpandedIds'
 import { DragProvider, useDragContext } from './DragContext'
 import { DragGhost } from './DragGhost'
+import { ChevronRight } from 'lucide-react-native'
 
 interface FlatTaskListProps {
   tasks: CheckvistTask[]
@@ -27,10 +27,10 @@ function flattenVisible(roots: TaskNode[], expanded: Set<number>): number[] {
   return ids
 }
 
-function buildNodeMap(roots: TaskNode[]): Map<number, TaskNode> {
+function buildNodeMap(nodes: TaskNode[]): Map<number, TaskNode> {
   const map = new Map<number, TaskNode>()
   function add(task: TaskNode) { map.set(task.id, task); task.children.forEach(add) }
-  roots.forEach(add)
+  nodes.forEach(add)
   return map
 }
 
@@ -41,38 +41,64 @@ function scrollToTask(id: number) {
   }, 30)
 }
 
+interface BreadcrumbItem {
+  id: number | null // null = root
+  label: string
+  children: TaskNode[]
+}
+
 interface InnerProps extends FlatTaskListProps {
   roots: TaskNode[]
   allNodes: TaskNode[]
 }
 
+const BLUE = '#4772FA'
+
 function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, setFocusedId }: InnerProps) {
-  const router = useRouter()
   const { draggingId, containerScreenY } = useDragContext()
   const seed = useExpandedIds((s) => s.seed)
   const expand = useExpandedIds((s) => s.expand)
   const collapse = useExpandedIds((s) => s.collapse)
   const containerRef = useRef<View>(null)
 
+  // Breadcrumb stack: each entry is the "zoom level"
+  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([])
+  // Current roots to display
+  const currentRoots = breadcrumbs.length > 0
+    ? breadcrumbs[breadcrumbs.length - 1].children
+    : roots
+
   useEffect(() => {
     seed(allNodes.map((n) => n.id))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Measure container screen Y for ghost positioning
   const measureContainer = useCallback(() => {
     containerRef.current?.measureInWindow((x, y) => {
       containerScreenY.current = y
     })
   }, [containerScreenY])
 
+  const nodeMap = useMemo(() => buildNodeMap(roots), [roots])
+
+  const handleZoomIn = useCallback((task: TaskNode) => {
+    if (!task.children.length) return
+    setBreadcrumbs((prev) => [...prev, { id: task.id, label: task.content, children: task.children }])
+    setFocusedId(null)
+  }, [setFocusedId])
+
+  const handleBreadcrumbNav = useCallback((index: number) => {
+    // index -1 means go to root
+    setBreadcrumbs((prev) => index < 0 ? [] : prev.slice(0, index + 1))
+    setFocusedId(null)
+  }, [setFocusedId])
+
   const handleKey = useCallback((e: KeyboardEvent) => {
     const tag = (e.target as HTMLElement)?.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
 
     const { expanded } = useExpandedIds.getState()
-    const nodeMap = buildNodeMap(roots)
-    const ordered = flattenVisible(roots, expanded)
+    const ordered = flattenVisible(currentRoots, expanded)
 
     if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -99,11 +125,11 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
         const parentId = node?.parent_id
         if (parentId) { e.preventDefault(); setFocusedId(parentId); scrollToTask(parentId) }
       }
-    } else if (e.key === 'Enter' && focusedId != null) {
+    } else if (e.key === 'Escape' && breadcrumbs.length > 0) {
       e.preventDefault()
-      router.push(`/${checklistId}/tasks/${focusedId}`)
+      handleBreadcrumbNav(breadcrumbs.length - 2)
     }
-  }, [roots, focusedId, setFocusedId, expand, collapse, router, checklistId])
+  }, [currentRoots, focusedId, setFocusedId, expand, collapse, nodeMap, breadcrumbs, handleBreadcrumbNav])
 
   useEffect(() => {
     if (Platform.OS !== 'web') return
@@ -112,38 +138,73 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
   }, [handleKey])
 
   return (
-    <View ref={containerRef} style={{ flex: 1 }} onLayout={measureContainer}>
-      <ScrollView
-        className="flex-1"
-        style={{ backgroundColor: '#F5F5F5' }}
-        contentContainerStyle={{ paddingTop: 16, paddingBottom: 32, paddingHorizontal: 12 }}
-        scrollEnabled={draggingId === null}
-      >
-        <View
-          style={{
-            backgroundColor: '#fff',
-            borderRadius: 16,
-            overflow: 'hidden',
-            shadowColor: '#000',
-            shadowOpacity: 0.06,
-            shadowRadius: 8,
-            shadowOffset: { width: 0, height: 2 },
-            elevation: 2,
-          }}
-        >
-          {roots.map((task, i) => (
-            <View key={task.id}>
-              {i > 0 && <View style={{ height: 1, backgroundColor: '#F5F5F5', marginLeft: 48 }} />}
-              <OutlineRow
-                task={task}
-                checklistId={checklistId}
-                isMobile={isMobile}
-                depth={0}
-                focusedId={focusedId}
-              />
+    <View ref={containerRef} style={{ flex: 1, backgroundColor: '#FFFFFF' }} onLayout={measureContainer}>
+
+      {/* Breadcrumb bar — shown when zoomed in */}
+      {breadcrumbs.length > 0 && (
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          paddingHorizontal: 16,
+          paddingVertical: 8,
+          borderBottomWidth: 1,
+          borderBottomColor: '#EFEFEF',
+          gap: 2,
+        }}>
+          <Pressable onPress={() => handleBreadcrumbNav(-1)} hitSlop={8}>
+            <Text style={{ fontSize: 13, color: '#6B7280' }}>
+              Root
+            </Text>
+          </Pressable>
+          {breadcrumbs.map((crumb, i) => (
+            <View key={crumb.id ?? i} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+              <ChevronRight size={13} color="#C4C4C8" />
+              <Pressable
+                onPress={() => handleBreadcrumbNav(i)}
+                hitSlop={8}
+              >
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: i === breadcrumbs.length - 1 ? '#1C1C1E' : '#6B7280',
+                    fontWeight: i === breadcrumbs.length - 1 ? '600' : '400',
+                  }}
+                  numberOfLines={1}
+                >
+                  {crumb.label}
+                </Text>
+              </Pressable>
             </View>
           ))}
         </View>
+      )}
+
+      {/* Zoomed-in header — large title of current zoom root */}
+      {breadcrumbs.length > 0 && (
+        <View style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 8 }}>
+          <Text style={{ fontSize: 22, fontWeight: '700', color: '#1C1C1E', lineHeight: 28 }} numberOfLines={2}>
+            {breadcrumbs[breadcrumbs.length - 1].label}
+          </Text>
+        </View>
+      )}
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: 40 }}
+        scrollEnabled={draggingId === null}
+      >
+        {currentRoots.map((task) => (
+          <OutlineRow
+            key={task.id}
+            task={task}
+            checklistId={checklistId}
+            isMobile={isMobile}
+            depth={0}
+            focusedId={focusedId}
+            onZoomIn={handleZoomIn}
+          />
+        ))}
       </ScrollView>
       <DragGhost />
     </View>

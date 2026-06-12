@@ -160,8 +160,8 @@ export function ProgressChart({
       <Svg width={width} height={height}>
         <Defs>
           <LinearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor={filledColor} stopOpacity={0.4} />
-            <Stop offset="100%" stopColor={filledColor} stopOpacity={0.05} />
+            <Stop offset="0%" stopColor="#1C1C1E" stopOpacity={0.18} />
+            <Stop offset="100%" stopColor="#1C1C1E" stopOpacity={0.02} />
           </LinearGradient>
         </Defs>
 
@@ -187,13 +187,13 @@ export function ProgressChart({
         <Path d={areaPath} fill="url(#areaGrad)" />
 
         {/* Step line */}
-        <Path d={linePath} stroke={filledColor} strokeWidth={2} fill="none" strokeLinejoin="round" />
+        <Path d={linePath} stroke="#1C1C1E" strokeWidth={2} fill="none" strokeLinejoin="round" />
 
         {/* Target dashed line */}
         {targetY !== null && (
           <Line
             x1={PAD.left} y1={targetY} x2={PAD.left + W} y2={targetY}
-            stroke={filledColor} strokeWidth={1.5} strokeDasharray="6,4" opacity={0.7}
+            stroke="#6B6B6B" strokeWidth={1.5} strokeDasharray="6,4" opacity={0.7}
           />
         )}
 

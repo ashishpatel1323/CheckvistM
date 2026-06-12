@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { View, Text, Pressable, Modal, Platform, LayoutChangeEvent } from 'react-native'
 import { Pause, Play, SkipForward, SkipBack, Check, X, Plus, ChevronDown } from 'lucide-react-native'
 import { format } from 'date-fns'
 import { useRoutineStore } from './useRoutineStore'
+import { useTTSBroadcast } from '@/features/tasks/shared/useTTS'
 import { ROUTINE_COLORS } from './routineTypes'
 import { playBeep, playLoudBeep } from '@/platform/sound'
 import {
@@ -170,6 +171,7 @@ export function TimerModeView() {
       const store = useRoutineStore.getState()
       if (action === 'pause') store.pauseTimer()
       else if (action === 'resume') store.resumeTimer()
+      else if (action === 'complete') store.advanceStep('done')
       else if (action === 'skip') store.advanceStep('skip')
       else if (action === 'stop') store.stopTimer()
     }
@@ -183,7 +185,7 @@ export function TimerModeView() {
   // ── Update notification every ~5 ticks ─────────────────────────────────────
   useEffect(() => {
     if (Platform.OS === 'web' || !activeTimer) return
-    if (tick - lastNotifTickRef.current < 5 && tick !== 0) return
+    if (tick - lastNotifTickRef.current < 1 && tick !== 0) return
     lastNotifTickRef.current = tick
     const rt = routines.find((r) => r.taskId === activeTimer.routineTaskId)
     if (!rt) return
@@ -195,6 +197,7 @@ export function TimerModeView() {
     const elapsed = activeTimer.stepElapsedSec + (paused ? 0 : (Date.now() - activeTimer.stepStartedAt) / 1000)
     const durSec = st.durationMin * 60 + activeTimer.extensionSec
     showRoutineTimerNotification({
+      routineName: rt.name,
       stepName: `${st.emoji ?? ''} ${st.name}`.trim(),
       stepIndex,
       totalSteps: pendingStepIds.length,
@@ -203,6 +206,16 @@ export function TimerModeView() {
     }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, activeTimer])
+
+  // Compute TTS name before early returns (hooks must not be conditional)
+  const ttsName = useMemo(() => {
+    if (!activeTimer || activeTimer.pausedAt !== null) return null
+    const rt = routines.find((r) => r.taskId === activeTimer.routineTaskId)
+    if (!rt) return null
+    const step = rt.steps.find((s) => s.id === activeTimer.pendingStepIds[activeTimer.stepIndex])
+    return step ? `${step.name} — ${rt.name}` : rt.name
+  }, [activeTimer, routines])
+  useTTSBroadcast(ttsName)
 
   if (!activeTimer) return null
 
@@ -271,11 +284,12 @@ export function TimerModeView() {
     }
   }, [isOverrun, isPaused, currentStepId])
 
-  const fmtCountdown = (sec: number) => {
+  const fmtSec = (sec: number) => {
     const m = Math.floor(sec / 60)
     const s = Math.floor(sec % 60)
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   }
+  const overrunSec = Math.max(0, stepElapsedSec - stepDurationSec)
 
   const accentColor = ROUTINE_COLORS[routine.color]
 
@@ -382,32 +396,40 @@ export function TimerModeView() {
         {/* Current step info */}
         <View style={{ alignItems: 'center', paddingHorizontal: 24, flex: 1, justifyContent: 'center' }}>
           <Text style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 8 }}>
-            Now — {step?.durationMin} min scheduled
+            {fmtSec(0)} → {fmtSec(stepDurationSec)}
           </Text>
 
-          {/* Countdown */}
+          {/* Count-up timer */}
           <Text
             style={{
-              fontSize: 72, fontWeight: '700', color: remainingSec < 30 ? '#EF4444' : accentColor,
-              fontVariant: ['tabular-nums'], marginBottom: 16,
+              fontSize: 72, fontWeight: '700',
+              color: isOverrun ? '#EF4444' : accentColor,
+              fontVariant: ['tabular-nums'], marginBottom: 4,
             }}
           >
-            {fmtCountdown(remainingSec)}
+            {fmtSec(stepElapsedSec)}
           </Text>
 
-          {/* Extend control — shown once the step has overrun its time */}
-          {isOverrun && (
-            <Pressable
-              onPress={() => extendStep(EXTEND_SEC)}
-              style={{
-                flexDirection: 'row', alignItems: 'center', gap: 6,
-                backgroundColor: '#FEF2F2', borderRadius: 20,
-                paddingVertical: 8, paddingHorizontal: 16, marginBottom: 16,
-              }}
-            >
-              <Plus size={16} color="#EF4444" />
-              <Text style={{ fontSize: 13, fontWeight: '600', color: '#EF4444' }}>Extend +5 min</Text>
-            </Pressable>
+          {/* Overrun indicator */}
+          {isOverrun ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <Text style={{ fontSize: 13, color: '#EF4444', fontWeight: '600' }}>
+                +{fmtSec(overrunSec)} over
+              </Text>
+              <Pressable
+                onPress={() => extendStep(EXTEND_SEC)}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 4,
+                  backgroundColor: '#FEF2F2', borderRadius: 20,
+                  paddingVertical: 6, paddingHorizontal: 12,
+                }}
+              >
+                <Plus size={14} color="#EF4444" />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: '#EF4444' }}>+5 min</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={{ height: 12, marginBottom: 12 }} />
           )}
 
           {/* Step name */}
@@ -534,8 +556,7 @@ export function MiniTimerBar() {
   const isPaused = activeTimer.pausedAt !== null
   const elapsed = activeTimer.stepElapsedSec + (isPaused ? 0 : (Date.now() - activeTimer.stepStartedAt) / 1000)
   const durSec = step ? step.durationMin * 60 + activeTimer.extensionSec : 0
-  const remaining = Math.max(0, durSec - elapsed)
-  const isOverrun = !!step && remaining <= 0
+  const isOverrun = !!step && elapsed > durSec
   const accentColor = ROUTINE_COLORS[routine.color]
   const hasPrevUndone = pendingStepIds.slice(0, stepIndex).some((id) => !timerDone.includes(id))
 
@@ -572,9 +593,9 @@ export function MiniTimerBar() {
         </Text>
       </View>
 
-      {/* Countdown */}
+      {/* Count-up */}
       <Text style={{ fontSize: 18, fontWeight: '700', color: isOverrun ? '#EF4444' : accentColor, fontVariant: ['tabular-nums'], marginRight: 4 }}>
-        {fmt(remaining)}
+        {fmt(elapsed)}{isOverrun ? ' ↑' : ''}
       </Text>
 
       {/* Back */}

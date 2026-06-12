@@ -80,7 +80,7 @@ apiClient.interceptors.response.use(
         params.append('token', currentToken)
 
         const response = await axios.post<{ token: string }>(
-          'https://checkvist.com/auth/refresh_token.json?version=2',
+          'https://checkvist.com/auth/refresh_token.json',
           params,
           { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
         )
@@ -97,12 +97,17 @@ apiClient.interceptors.response.use(
         }
 
         return apiClient(originalRequest)
-      } catch {
+      } catch (refreshError: unknown) {
         isRefreshing = false
         refreshSubscribers = []
-        await clearTokenAsync()
-        router.replace('/login')
-        return Promise.reject(error)
+        // Only force-logout on a definitive auth rejection (401/403).
+        // Network errors, timeouts, or 5xx should NOT clear the session.
+        const status = axios.isAxiosError(refreshError) ? refreshError.response?.status : null
+        if (status === 401 || status === 403) {
+          await clearTokenAsync()
+          router.replace('/login')
+        }
+        return Promise.reject(refreshError)
       }
     }
 

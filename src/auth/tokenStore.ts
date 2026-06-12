@@ -9,6 +9,7 @@ import {
 
 const TOKEN_KEY = 'cv_token'
 const EXPIRES_KEY = 'cv_expires_at'
+const USER_EMAIL_KEY = 'cv_user_email'
 
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000
 const REFRESH_TTL_MS = 90 * 24 * 60 * 60 * 1000
@@ -38,15 +39,21 @@ export async function getTokenAsync(): Promise<string | null> {
   return storageGet(TOKEN_KEY)
 }
 
-export async function setTokenAsync(token: string): Promise<void> {
+export async function getUserEmailAsync(): Promise<string | null> {
+  return storageGet(USER_EMAIL_KEY)
+}
+
+export async function setTokenAsync(token: string, email?: string): Promise<void> {
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString()
   await storageSet(TOKEN_KEY, token)
   await storageSet(EXPIRES_KEY, expiresAt)
+  if (email) await storageSet(USER_EMAIL_KEY, email)
 }
 
 export async function clearTokenAsync(): Promise<void> {
   await storageRemove(TOKEN_KEY)
   await storageRemove(EXPIRES_KEY)
+  await storageRemove(USER_EMAIL_KEY)
 }
 
 export function isTokenExpired(): boolean {
