@@ -213,7 +213,7 @@ export function TimerModeView() {
     const rt = routines.find((r) => r.taskId === activeTimer.routineTaskId)
     if (!rt) return null
     const step = rt.steps.find((s) => s.id === activeTimer.pendingStepIds[activeTimer.stepIndex])
-    return step ? `${step.name} — ${rt.name}` : rt.name
+    return step ? step.name : rt.name
   }, [activeTimer, routines])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const ttsElapsed = useMemo(() => {
