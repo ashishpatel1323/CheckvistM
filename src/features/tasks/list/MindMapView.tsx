@@ -252,9 +252,10 @@ interface MindMapViewProps {
   focusedId: number | null
   setFocusedId: (id: number | null) => void
   initialFocusId?: number | null
+  timerBar?: React.ReactNode
 }
 
-export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initialFocusId }: MindMapViewProps) {
+export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initialFocusId, timerBar }: MindMapViewProps) {
   const { width: screenW, height: screenH } = useWindowDimensions()
   const { activeChecklistId } = useActiveChecklist()
   const { data: checklists } = useChecklists()
@@ -374,16 +375,14 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
       cur = nodeMap.get(cur.parent_id)
     }
 
-    // Drill into the direct parent so the task appears as a top-level node in the drilled view
-    if (ancestorPath.length > 0) {
-      setDrillPath(ancestorPath)
-      // Uncollapse every node along the ancestor path
-      setCollapsed((prev) => {
-        const next = new Set(prev)
-        ancestorPath.forEach((id) => next.delete(id))
-        return next
-      })
-    }
+    // Drill into the task itself so it becomes the root and shows its children
+    const drillTo = [...ancestorPath, initialFocusId]
+    setDrillPath(drillTo)
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      drillTo.forEach((id) => next.delete(id))
+      return next
+    })
     setFocusedId(initialFocusId)
   }, [initialFocusId, nodeMap, setFocusedId])
 
@@ -930,6 +929,14 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
     <View className="flex-1 bg-white" style={fullScreen && Platform.OS === 'web' ? { position: 'fixed' as never, inset: 0, zIndex: 999 } : undefined}>
       {/* ── Toolbar ─────────────────────────────────────────────────── */}
       <View className="flex-row items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-white flex-wrap">
+
+        {/* Timer bar — shown when opened from Execute split view */}
+        {timerBar && (
+          <>
+            {timerBar}
+            <View style={{ width: 1, height: 20, backgroundColor: '#e5e7eb', marginHorizontal: 4 }} />
+          </>
+        )}
 
         {/* Fold / Unfold */}
         <ToolbarBtn label="Fold All"   onPress={() => setCollapsed(new Set(allParentIds))} />

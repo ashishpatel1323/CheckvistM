@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback, PanResponder } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical, TrendingUp } from 'lucide-react-native'
+import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical, TrendingUp, Play, Pause } from 'lucide-react-native'
 import { ProgressTab } from '@/features/progress/ProgressTab'
 import { useTasksQuery } from './useTasksQuery'
 import { buildTaskTree } from '@/lib/taskTree'
@@ -19,7 +19,7 @@ import { BottomSheet } from '@/components/BottomSheet'
 import { ChecklistSwitcher } from '@/features/checklists/ChecklistSwitcher'
 import { useCreateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
-import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList, TodaySessionsCard } from '@/features/tasks/execute/ExecuteModeView'
+import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList, TodaySessionsCard, ExecuteViewContent, useExecCtx } from '@/features/tasks/execute/ExecuteModeView'
 import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
 import { EisenhowerMatrixView } from './EisenhowerMatrixView'
@@ -42,6 +42,54 @@ interface ExecuteRawSplitViewProps {
 
 type RightPanel = { type: 'raw'; taskId: number } | { type: 'mindmap'; taskId: number } | null
 
+function RightPanelTimerBar({ onClose }: { onClose: () => void }) {
+  const { currentTask, currentSeconds, isRunning, togglePlay } = useExecCtx()
+  const mins = Math.floor(currentSeconds / 60).toString().padStart(2, '0')
+  const secs = (currentSeconds % 60).toString().padStart(2, '0')
+  const INDIGO = '#6366F1'
+  return (
+    <View style={{
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      paddingHorizontal: 12, paddingVertical: 7,
+      borderBottomWidth: 1, borderBottomColor: '#F1F5F9',
+      backgroundColor: '#FAFAFA',
+    }}>
+      <Pressable
+        hitSlop={8}
+        onPress={onClose}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: 'white' }}
+      >
+        <Timer size={12} color="#6B7280" />
+        <Text style={{ fontSize: 12, fontWeight: '500', color: '#374151' }}>Execute</Text>
+      </Pressable>
+
+      <View style={{ flex: 1 }} />
+
+      {currentTask && (
+        <Text style={{ fontSize: 12, color: '#64748B', fontWeight: '500' }} numberOfLines={1}>
+          {currentTask.content.replace(/\*\*/g, '').replace(/\*/g, '')}
+        </Text>
+      )}
+
+      <Pressable
+        onPress={togglePlay}
+        style={{
+          flexDirection: 'row', alignItems: 'center', gap: 5,
+          paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
+          backgroundColor: isRunning ? INDIGO : '#1E293B',
+        }}
+      >
+        {isRunning
+          ? <Pause size={11} color="white" />
+          : <Play size={11} color="white" />}
+        <Text style={{ fontSize: 13, fontWeight: '700', color: 'white', fontVariant: ['tabular-nums'] }}>
+          {mins}:{secs}
+        </Text>
+      </Pressable>
+    </View>
+  )
+}
+
 function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitViewProps) {
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
   const [focusedId, setFocusedId] = useState<number | null>(null)
@@ -59,46 +107,35 @@ function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitVie
 
   return (
     <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={openRaw} onJumpToMindmap={openMindmap}>
-      <View style={{ flex: 1, flexDirection: 'column' }}>
-        {/* Full-width horizontal control bar */}
-        <ExecuteControlBar onClose={onClose} />
-
-        {/* Today's sessions summary */}
-        <TodaySessionsCard />
-
-        {/* Left / right split below the bar */}
-        <View style={{ flex: 1, flexDirection: 'row' }}>
-          <View style={{ width: hasPanel ? '25%' : '100%' }}>
-            <ExecuteTaskList />
-          </View>
-          {hasPanel && (
-            <>
-              <View style={{ width: 1, backgroundColor: '#E5E7EB' }} />
-              <View style={{ flex: 1, position: 'relative' }}>
-                {/* Close panel button */}
-                <Pressable
-                  hitSlop={8}
-                  onPress={() => setRightPanel(null)}
-                  style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, padding: 4, borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.06)' }}
-                >
-                  <X size={14} color="#6B7280" />
-                </Pressable>
-                {rightPanel.type === 'raw' && (
-                  <RawView checklistId={checklistId} taskId={rightPanel.taskId} />
-                )}
-                {rightPanel.type === 'mindmap' && (
-                  <MindMapView
-                    tasks={tasks}
-                    checklistId={checklistId}
-                    focusedId={focusedId}
-                    setFocusedId={setFocusedId}
-                    initialFocusId={rightPanel.taskId}
-                  />
-                )}
-              </View>
-            </>
-          )}
+      <View style={{ flex: 1, flexDirection: 'row' }}>
+        {/* Left pane: full ExecuteViewContent with all features */}
+        <View style={{ width: hasPanel ? '40%' : '100%', borderRightWidth: hasPanel ? 1 : 0, borderRightColor: '#E5E7EB' }}>
+          <ExecuteViewContent onClose={onClose} />
         </View>
+
+        {/* Right panel: timer bar embedded inside raw/mindmap toolbars */}
+        {hasPanel && (
+          <View style={{ flex: 1, flexDirection: 'column' }}>
+            {rightPanel.type === 'raw' && (
+              <RawView
+                checklistId={checklistId}
+                taskId={rightPanel.taskId}
+                onClose={() => setRightPanel(null)}
+                timerBar={<RightPanelTimerBar onClose={() => setRightPanel(null)} />}
+              />
+            )}
+            {rightPanel.type === 'mindmap' && (
+              <MindMapView
+                tasks={tasks}
+                checklistId={checklistId}
+                focusedId={focusedId}
+                setFocusedId={setFocusedId}
+                initialFocusId={rightPanel.taskId}
+                timerBar={<RightPanelTimerBar onClose={() => setRightPanel(null)} />}
+              />
+            )}
+          </View>
+        )}
       </View>
     </ExecuteStateProvider>
   )

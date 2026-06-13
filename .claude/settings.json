@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash(git push *)",
+      "Bash(pnpm tsc *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git remote *)",
+      "Bash(pnpm lint *)",
+      "Bash(pnpm build:web)",
+      "Bash(pnpm dev *)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(node -e ' *)",
+      "Read(//Applications/**)",
+      "Bash(npx playwright *)",
+      "Bash(\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --headless=new --screenshot=/tmp/matrix_initial.png --window-size=1280,900 http://localhost:8081)",
+      "Bash(echo \"exit: $?\")",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(node scripts/seedRoutines.mjs)",
+      "Bash(node scripts/seedRoutines.mjs ashishpatel1323@gmail.com wZaBc858YdCQLV)"
+    ]
+  }
+}

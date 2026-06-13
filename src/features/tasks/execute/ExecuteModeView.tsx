@@ -32,7 +32,8 @@ import { useTTSBroadcast } from '@/features/tasks/shared/useTTS'
 import { BottomSheet } from '@/components/BottomSheet'
 import { isToday, isPast, format } from 'date-fns'
 
-const BLUE = '#4772FA'
+const BLUE = '#6366F1'
+const INDIGO = '#6366F1'
 
 // Desktop column layout: fixed-width slots so time/due/priority line up vertically
 const COL_TAGS = 110
@@ -661,7 +662,7 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
     setEditingEstimate(false)
   }
 
-  const timerColor = isRunning ? BLUE : '#DC2626'
+  const timerColor = isRunning ? INDIGO : '#94A3B8'
   const dueDateColor = currentTask?.due
     ? (isPast(parseApiDate(currentTask.due)!) && !isToday(parseApiDate(currentTask.due)!) ? '#DC2626' : '#374151')
     : '#9ca3af'
@@ -695,7 +696,7 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
         {/* Timer + fullscreen toggle */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <View style={{
-            backgroundColor: isRunning ? '#EEF2FF' : '#FEF2F2',
+            backgroundColor: isRunning ? '#EEF2FF' : '#F8FAFC',
             borderRadius: 10,
             paddingHorizontal: 8,
             paddingVertical: 4,
@@ -783,9 +784,9 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
           </Pressable>
           <Pressable onPress={togglePlay} style={{
             width: 44, height: 44, borderRadius: 22,
-            backgroundColor: isRunning ? BLUE : '#111827',
+            backgroundColor: isRunning ? INDIGO : '#1E293B',
             alignItems: 'center', justifyContent: 'center',
-            shadowColor: isRunning ? BLUE : '#000',
+            shadowColor: isRunning ? INDIGO : '#000',
             shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 3 },
             elevation: 4,
           }}>
@@ -837,16 +838,13 @@ export function TodaySessionsCard() {
   }, [entries, remoteSessions, timerRunningKey, timerStartedAt])
 
   return (
-    <View style={{ marginHorizontal: 16, marginTop: 12, borderRadius: 16, paddingHorizontal: 20, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', gap: 12 }}>
-      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' }}>
-        <Clock size={16} color={BLUE} />
-      </View>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ fontSize: 11, fontWeight: '500', color: '#9ca3af' }}>Today's sessions</Text>
-        <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151' }}>
-          {sessionCount} {sessionCount === 1 ? 'session' : 'sessions'} · {fmtDuration(sessionTotalSeconds)}
-        </Text>
-      </View>
+    <View style={{ marginHorizontal: 16, marginTop: 8, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', gap: 8, borderWidth: 1, borderColor: '#F1F5F9' }}>
+      <Clock size={13} color={INDIGO} />
+      <Text style={{ fontSize: 12, fontWeight: '600', color: '#374151' }}>
+        {sessionCount} {sessionCount === 1 ? 'session' : 'sessions'}
+      </Text>
+      <Text style={{ fontSize: 12, color: '#94A3B8' }}>·</Text>
+      <Text style={{ fontSize: 12, color: '#64748B' }}>{fmtDuration(sessionTotalSeconds)}</Text>
     </View>
   )
 }
@@ -1399,14 +1397,14 @@ export function ExecuteModeView({ tasks, checklistId, onClose, onJumpToRaw, onJu
 const POMO_WORK_SECS = 25 * 60
 const POMO_BREAK_SECS = 5 * 60
 
-function ExecuteViewContent({ onClose }: { onClose: () => void }) {
+export function ExecuteViewContent({ onClose }: { onClose: () => void }) {
   const {
     currentTask, currentSeconds, isRunning, currentEntry, orderedTasks,
     currentIndex, jumpTo,
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
     togglePlay, adjust, setEstimateDirect, complete, resetCurrent, prevTask, nextTask, updateTask, checklistId,
-    onJumpToRaw, entries, timerRunningKey, timerStartedAt,
+    onJumpToRaw, onJumpToMindmap, entries, timerRunningKey, timerStartedAt,
     confirmSwitch, cancelSwitch, completedStreak, pendingSwitch,
   } = useExecCtx()
   const remoteSessions = useSystemLog((s) => s.remoteSessions)
@@ -1487,19 +1485,29 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
 
   if (orderedTasks.length === 0) {
     return (
-      <View className="flex-1 items-center justify-center gap-2 p-8" style={{ backgroundColor: '#F5F5F5' }}>
+      <View className="flex-1 items-center justify-center gap-2 p-8" style={{ backgroundColor: '#F0F2F5' }}>
         <Text className="text-sm text-gray-400">No tasks due today.</Text>
       </View>
     )
   }
 
   return (
-    <View className="flex-1" style={{ backgroundColor: '#F5F5F5' }}>
+    <View className="flex-1" style={{ backgroundColor: '#F0F2F5' }}>
       {/* Fixed header card */}
       <View>
         <View
-          className={isMobile ? 'mx-4 mt-3 rounded-2xl px-4 py-3' : 'mx-4 mt-4 rounded-2xl p-6'}
-          style={{ gap: isMobile ? 8 : 12, backgroundColor: isRunning ? 'white' : '#FEF2F2' }}
+          className={isMobile ? 'mx-4 mt-3 rounded-2xl px-4 py-3' : 'mx-4 mt-3 rounded-2xl px-5 py-4'}
+          style={{
+            gap: isMobile ? 8 : 8,
+            backgroundColor: 'white',
+            borderWidth: 1.5,
+            borderColor: isRunning ? INDIGO : '#E5E7EB',
+            shadowColor: isRunning ? INDIGO : '#000',
+            shadowOpacity: isRunning ? 0.12 : 0.04,
+            shadowRadius: isRunning ? 12 : 4,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: isRunning ? 4 : 1,
+          }}
         >
           {/* Arrow nav + timer + position pill */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: isMobile ? 6 : 8 }}>
@@ -1508,7 +1516,7 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
             </Pressable>
             <View style={{ alignItems: 'center', gap: 4 }}>
               <Pressable onPress={() => setShowFullScreen(true)}>
-                <FlipClock totalSeconds={currentSeconds} color={isRunning ? '#1a1a1a' : '#DC2626'} size={isMobile ? 'md' : 'lg'} />
+                <FlipClock totalSeconds={currentSeconds} color={isRunning ? INDIGO : '#94A3B8'} size={isMobile ? 'md' : 'lg'} />
               </Pressable>
               {pomodoroOn && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: pomodoroIsBreak ? '#ECFDF5' : '#EEF2FF', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
@@ -1654,7 +1662,7 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
 
           {/* Tags */}
           {currentTask?.tags_as_text && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexGrow: 1 }}>
               {currentTask.tags_as_text.split(/\s+/).filter(Boolean).map((tag) => (
                 <Text key={tag} style={{ fontSize: 11, color: BLUE, fontWeight: '500' }}>
                   {tag.startsWith('#') ? tag : `#${tag}`}
@@ -1663,18 +1671,37 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
             </ScrollView>
           )}
 
-          {/* Jump to Raw */}
-          {onJumpToRaw && currentTask && (
-            <Pressable hitSlop={8} onPress={() => onJumpToRaw(currentTask.id)} className="flex-row items-center justify-center gap-1" style={{ opacity: 0.6 }}>
-              <Text style={{ fontSize: 12, color: '#6B7280' }}>Jump to Raw</Text>
-            </Pressable>
+          {/* Jump to Raw / MindMap */}
+          {(onJumpToRaw || onJumpToMindmap) && currentTask && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              {onJumpToRaw && (
+                <Pressable
+                  onPress={() => onJumpToRaw(currentTask.id)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
+                >
+                  <AlignLeft size={12} color="#6366F1" />
+                  <Text style={{ fontSize: 12, fontWeight: '500', color: '#475569' }}>Raw</Text>
+                  <ChevronRight size={11} color="#94A3B8" />
+                </Pressable>
+              )}
+              {onJumpToMindmap && (
+                <Pressable
+                  onPress={() => onJumpToMindmap(currentTask.id)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
+                >
+                  <Network size={12} color="#6366F1" />
+                  <Text style={{ fontSize: 12, fontWeight: '500', color: '#475569' }}>Mind Map</Text>
+                  <ChevronRight size={11} color="#94A3B8" />
+                </Pressable>
+              )}
+            </View>
           )}
 
           {/* Timer controls */}
           <View className={isMobile ? 'flex-row items-center justify-center mt-1' : 'flex-row items-center justify-center mt-2'} style={{ gap: isMobile ? 16 : 20 }}>
             <Pressable hitSlop={8} onPress={resetCurrent}><RotateCcw size={isMobile ? 20 : 24} color="#9ca3af" /></Pressable>
             <Pressable hitSlop={8} onPress={() => adjust(-ESTIMATE_STEP)}><Minus size={isMobile ? 24 : 28} color="#666" /></Pressable>
-            <Pressable onPress={togglePlay} className="items-center justify-center rounded-full" style={{ width: isMobile ? 52 : 64, height: isMobile ? 52 : 64, backgroundColor: '#1f2937' }}>
+            <Pressable onPress={togglePlay} className="items-center justify-center rounded-full" style={{ width: isMobile ? 52 : 60, height: isMobile ? 52 : 60, backgroundColor: isRunning ? INDIGO : '#1E293B' }}>
               {isRunning ? <Pause size={isMobile ? 22 : 28} color="white" /> : <Play size={isMobile ? 22 : 28} color="white" />}
             </Pressable>
             <Pressable hitSlop={8} onPress={() => adjust(ESTIMATE_STEP)}><Plus size={isMobile ? 24 : 28} color="#666" /></Pressable>
@@ -1708,34 +1735,32 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
           )}
         </View>
 
+        {/* Compact sessions strip */}
         <View
-          className={isMobile ? 'mx-4 mt-3 rounded-2xl px-4 py-3 flex-row items-center' : 'mx-4 mt-4 rounded-2xl px-6 py-4 flex-row items-center'}
-          style={{ backgroundColor: 'white', gap: 12 }}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 8, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: 'white', borderRadius: 12, borderWidth: 1, borderColor: '#F1F5F9' }}
         >
-          <View className="items-center justify-center rounded-full" style={{ width: 40, height: 40, backgroundColor: '#EEF2FF' }}>
-            <Clock size={18} color={BLUE} />
-          </View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text className="text-xs font-medium" style={{ color: '#9ca3af' }}>Today's sessions</Text>
-            <Text className="text-sm font-semibold" style={{ color: '#374151' }}>
-              {sessionCount} {sessionCount === 1 ? 'session' : 'sessions'} · {fmtDuration(sessionTotalSeconds)}
-            </Text>
-          </View>
+          <Clock size={13} color={INDIGO} />
+          <Text style={{ fontSize: 12, fontWeight: '600', color: '#374151' }}>
+            {sessionCount} {sessionCount === 1 ? 'session' : 'sessions'}
+          </Text>
+          <Text style={{ fontSize: 12, color: '#94A3B8' }}>·</Text>
+          <Text style={{ fontSize: 12, color: '#64748B' }}>{fmtDuration(sessionTotalSeconds)}</Text>
+          <View style={{ flex: 1 }} />
           {completedStreak > 0 && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FEF3C7', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 }}>
-              <Zap size={12} color="#D97706" fill="#D97706" />
-              <Text style={{ fontSize: 11, fontWeight: '700', color: '#D97706' }}>{completedStreak}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#FFFBEB', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 }}>
+              <Zap size={10} color="#F59E0B" fill="#F59E0B" />
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#F59E0B' }}>{completedStreak}</Text>
             </View>
           )}
           {savedIntention ? (
-            <Pressable onPress={() => setShowIntention(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F0FDF4', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5, maxWidth: 110 }}>
-              <Target size={11} color="#16A34A" />
+            <Pressable onPress={() => setShowIntention(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#F0FDF4', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, maxWidth: 100 }}>
+              <Target size={10} color="#16A34A" />
               <Text style={{ fontSize: 10, fontWeight: '600', color: '#16A34A' }} numberOfLines={1}>{savedIntention}</Text>
             </Pressable>
           ) : (
-            <Pressable onPress={() => setShowIntention(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F3F4F6', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 }}>
-              <Target size={11} color="#9ca3af" />
-              <Text style={{ fontSize: 10, fontWeight: '600', color: '#9ca3af' }}>Set intention</Text>
+            <Pressable onPress={() => setShowIntention(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 }}>
+              <Target size={10} color="#CBD5E1" />
+              <Text style={{ fontSize: 10, color: '#CBD5E1' }}>intention</Text>
             </Pressable>
           )}
         </View>

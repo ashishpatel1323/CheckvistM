@@ -55,7 +55,7 @@ class ProgressWidgetFactory(
         }
         views.setTextViewText(R.id.progress_item_value, valueText)
         views.setTextViewText(R.id.progress_item_pct, "$pct%")
-        views.setTextViewTextColor(R.id.progress_item_pct, filledColor)
+        views.setInt(R.id.progress_item_pct, "setTextColor", filledColor)
 
         // ProgressBar: max=100, progress=clamped pct
         views.setProgressBar(R.id.progress_item_bar, 100, pct.coerceIn(0, 100), false)

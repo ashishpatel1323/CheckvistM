@@ -1,27 +1,89 @@
+import { ReactNode, useState } from 'react'
 import { View, Text, Pressable, Platform } from 'react-native'
 import { Linking } from 'react-native'
-import { Globe } from 'lucide-react-native'
+import { Globe, Maximize2, Minimize2 } from 'lucide-react-native'
 
 interface RawViewProps {
   checklistId: number
   taskId?: number | null
+  onClose?: () => void
+  timerBar?: ReactNode
 }
 
-const BLUE = '#4772FA'
+const BLUE = '#6366F1'
 
-export function RawView({ checklistId, taskId }: RawViewProps) {
+function FullscreenToggle({ fullscreen, onToggle }: { fullscreen: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: 28, height: 28, borderRadius: 8,
+        border: '1px solid #E5E7EB', backgroundColor: 'white',
+        cursor: 'pointer', flexShrink: 0,
+      }}
+    >
+      {fullscreen
+        ? <Minimize2 size={13} color="#6B7280" />
+        : <Maximize2 size={13} color="#6B7280" />}
+    </button>
+  )
+}
+
+export function RawView({ checklistId, taskId, onClose, timerBar }: RawViewProps) {
+  const [fullscreen, setFullscreen] = useState(false)
+
   const url = taskId
     ? `https://checkvist.com/checklists/${checklistId}#task_${taskId}`
     : `https://checkvist.com/checklists/${checklistId}`
 
   if (Platform.OS === 'web') {
+    const toolbar = (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '4px 10px',
+        borderBottom: '1px solid #F1F5F9',
+        backgroundColor: '#FAFAFA',
+        flexShrink: 0,
+      }}>
+        {/* Timer bar slot — flex fills the row */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {timerBar}
+        </div>
+        <FullscreenToggle fullscreen={fullscreen} onToggle={() => setFullscreen(f => !f)} />
+      </div>
+    )
+
+    if (fullscreen) {
+      return (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          display: 'flex', flexDirection: 'column',
+          backgroundColor: 'white',
+        }}>
+          {toolbar}
+          <iframe
+            key={url}
+            src={url}
+            style={{ flex: 1, width: '100%', border: 'none' }}
+            title="Checkvist Raw View"
+          />
+        </div>
+      )
+    }
+
     return (
-      <iframe
-        key={url}
-        src={url}
-        className="flex-1 w-full h-full border-none"
-        title="Checkvist Raw View"
-      />
+      <View style={{ flex: 1, flexDirection: 'column' }}>
+        {toolbar}
+        <iframe
+          key={url}
+          src={url}
+          style={{ flex: 1, width: '100%', border: 'none' } as React.CSSProperties}
+          title="Checkvist Raw View"
+        />
+      </View>
     )
   }
 
