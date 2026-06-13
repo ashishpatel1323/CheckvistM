@@ -65,19 +65,13 @@ function speak(text: string) {
   if (Platform.OS === 'web') {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
     const synth = window.speechSynthesis
-    // Chrome stall fix: resume in case synth got stuck
     synth.cancel()
     synth.resume()
     const utt = new SpeechSynthesisUtterance(text)
     utt.rate = 0.95
     utt.pitch = 1
-    // Chrome voices-not-loaded fix: wait for voices if empty
-    const doSpeak = () => { synth.cancel(); synth.speak(utt) }
-    if (synth.getVoices().length > 0) {
-      doSpeak()
-    } else {
-      synth.addEventListener('voiceschanged', doSpeak, { once: true })
-    }
+    console.log('[TTS] speak:', text, 'voices:', synth.getVoices().length)
+    synth.speak(utt)
   } else {
     Speech.stop()
     Speech.speak(text, { rate: 0.95, pitch: 1.0 })
@@ -115,6 +109,7 @@ export function useTTSAnnouncer() {
 
   useEffect(() => {
     clearTimer()
+    console.log('[TTS] announcer effect: muted=', muted, 'activeName=', activeName)
     if (muted || !activeName) return
 
     function speakCurrent() {
@@ -140,6 +135,7 @@ export function useTTSBroadcast(name: string | null, elapsedSeconds?: number | n
   const setActiveName = useTTSActive((s) => s.setActiveName)
   const setElapsedSeconds = useTTSActive((s) => s.setElapsedSeconds)
   useEffect(() => {
+    console.log('[TTS] broadcast activeName:', name)
     setActiveName(name)
     return () => setActiveName(null)
   }, [name, setActiveName])
