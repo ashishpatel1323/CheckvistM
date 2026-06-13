@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert } from 'react-native'
 import { useTrackers, useCreateTracker } from './hooks/useTrackers'
 import { TrackerCard } from './TrackerCard'
 import { TrackerDetailView } from './TrackerDetailView'
 import { AddTrackerSheet } from './AddTrackerSheet'
 import type { Tracker, TrackerMeta } from './types'
+import { syncProgressWidget } from '@/lib/widgetBridge'
 
 type TabView = { kind: 'list' } | { kind: 'detail'; tracker: Tracker } | { kind: 'add' }
 
@@ -13,6 +14,8 @@ export function ProgressTab() {
   // Always mounted so the query observer stays active across view changes
   const { data: trackers = [], isLoading, error, refetch } = useTrackers()
   const createTracker = useCreateTracker()
+
+  useEffect(() => { syncProgressWidget(trackers) }, [trackers])
 
   async function handleCreate(name: string, meta: TrackerMeta) {
     try {

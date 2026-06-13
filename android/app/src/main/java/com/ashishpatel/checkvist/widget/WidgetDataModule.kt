@@ -19,10 +19,24 @@ class WidgetDataModule(reactContext: ReactApplicationContext) :
             .putString(PendingHabitsWidget.KEY_DATA, jsonData)
             .apply()
 
-        // Broadcast to all active PendingHabitsWidget instances
         ctx.sendBroadcast(
             Intent(ctx, PendingHabitsWidget::class.java).apply {
                 action = PendingHabitsWidget.ACTION_DATA_UPDATED
+            }
+        )
+    }
+
+    @ReactMethod
+    fun updateProgressWidgetData(jsonData: String) {
+        val ctx = reactApplicationContext
+        ctx.getSharedPreferences(ProgressWidget.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(ProgressWidget.KEY_DATA, jsonData)
+            .apply()
+
+        ctx.sendBroadcast(
+            Intent(ctx, ProgressWidget::class.java).apply {
+                action = ProgressWidget.ACTION_DATA_UPDATED
             }
         )
     }
