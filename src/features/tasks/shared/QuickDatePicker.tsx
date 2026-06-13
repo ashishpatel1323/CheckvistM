@@ -17,6 +17,7 @@ interface QuickDatePickerProps {
   onSelect: (date: string | null) => void
   onClose: () => void
   isMobile?: boolean
+  bare?: boolean // strip outer container when embedded inside a parent popover
 }
 
 interface Tile {
@@ -28,7 +29,7 @@ interface Tile {
 const ORANGE = '#E8632A'
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
-export function QuickDatePicker({ taskId, onSelect, onClose, isMobile }: QuickDatePickerProps) {
+export function QuickDatePicker({ taskId, onSelect, onClose, isMobile, bare }: QuickDatePickerProps) {
   const today = new Date()
   const [showCalendar, setShowCalendar] = useState(false)
   const [month, setMonth] = useState(() => startOfMonth(today))
@@ -149,7 +150,19 @@ export function QuickDatePicker({ taskId, onSelect, onClose, isMobile }: QuickDa
     )
   }
 
-  // Desktop popover (rendered inside a portal by caller)
+  // Bare: no outer container (embedded inside a parent popover)
+  if (bare) {
+    return (
+      <View style={{ padding: 12, width: 264 }}>
+        <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">
+          {title}
+        </Text>
+        {content}
+      </View>
+    )
+  }
+
+  // Desktop popover (standalone, rendered inside a portal by caller)
   return (
     <View className="bg-white rounded-2xl border border-gray-100 p-3 w-64"
       style={{ shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, elevation: 10 }}
