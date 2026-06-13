@@ -28,7 +28,8 @@ import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
 import { InlineMarkdown, stripMarkdown } from '@/components/InlineMarkdown'
-import { useTTSBroadcast, useTTSAnnouncer } from '@/features/tasks/shared/useTTS'
+import { useTTSBroadcast } from '@/features/tasks/shared/useTTS'
+import { MuteButton } from '@/features/tasks/shared/MuteButton'
 import { BottomSheet } from '@/components/BottomSheet'
 import { isToday, isPast, format } from 'date-fns'
 
@@ -1408,7 +1409,7 @@ export function ExecuteViewContent({ onClose }: { onClose: () => void }) {
     confirmSwitch, cancelSwitch, completedStreak, pendingSwitch,
   } = useExecCtx()
   const remoteSessions = useSystemLog((s) => s.remoteSessions)
-  useTTSAnnouncer()
+  useTTSBroadcast(isRunning && currentTask ? stripMarkdown(currentTask.content) : null, isRunning ? currentSeconds : null)
 
   const { width } = useWindowDimensions()
   const isMobile = width < 768
@@ -1709,6 +1710,7 @@ export function ExecuteViewContent({ onClose }: { onClose: () => void }) {
             <Pressable hitSlop={8} onPress={complete} className="items-center justify-center rounded-full" style={{ width: isMobile ? 36 : 40, height: isMobile ? 36 : 40, backgroundColor: '#16A34A' }}>
               <Check size={isMobile ? 18 : 22} color="white" />
             </Pressable>
+            <MuteButton />
           </View>
 
           {showDatePicker && currentTask && (
