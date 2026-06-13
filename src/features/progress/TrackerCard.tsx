@@ -141,18 +141,17 @@ export function TrackerCard({ tracker, onClick }: Props) {
         backgroundColor={background}
       />
 
-      {/* Progress fill bar + labels */}
+      {/* Labels + thin progress bar */}
       <View
         style={{
-          width: `${Math.max(pct, 35)}%` as `${number}%`,
           backgroundColor: filled,
-          justifyContent: 'center',
           paddingHorizontal: 12,
-          paddingVertical: 10,
+          paddingTop: 10,
+          paddingBottom: 10,
         }}
       >
         {show('name') && (
-          <Text style={{ fontSize: 13, fontWeight: '700', color: text, lineHeight: 17 }} numberOfLines={1}>{name}</Text>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: text, lineHeight: 17 }}>{name}</Text>
         )}
         {show('values') && (
           <Text style={{ fontSize: 11, color: text, opacity: 0.9, marginTop: 1 }}>
@@ -172,6 +171,10 @@ export function TrackerCard({ tracker, onClick }: Props) {
             {meta.targetValue - currentValue} left
           </Text>
         )}
+        {/* Thin progress line */}
+        <View style={{ marginTop: 8, height: 3, backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 2 }}>
+          <View style={{ width: `${pct}%` as `${number}%`, height: 3, backgroundColor: text, borderRadius: 2, opacity: 0.75 }} />
+        </View>
       </View>
     </Pressable>
   )
