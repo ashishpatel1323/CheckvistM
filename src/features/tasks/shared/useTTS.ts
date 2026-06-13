@@ -64,11 +64,20 @@ export const useTTSActive = create<TTSActiveState>()((set) => ({
 function speak(text: string) {
   if (Platform.OS === 'web') {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
-    window.speechSynthesis.cancel()
+    const synth = window.speechSynthesis
+    // Chrome stall fix: resume in case synth got stuck
+    synth.cancel()
+    synth.resume()
     const utt = new SpeechSynthesisUtterance(text)
     utt.rate = 0.95
     utt.pitch = 1
-    window.speechSynthesis.speak(utt)
+    // Chrome voices-not-loaded fix: wait for voices if empty
+    const doSpeak = () => { synth.cancel(); synth.speak(utt) }
+    if (synth.getVoices().length > 0) {
+      doSpeak()
+    } else {
+      synth.addEventListener('voiceschanged', doSpeak, { once: true })
+    }
   } else {
     Speech.stop()
     Speech.speak(text, { rate: 0.95, pitch: 1.0 })
