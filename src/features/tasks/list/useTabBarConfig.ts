@@ -13,6 +13,7 @@ export const PINNED_TAB_COUNT = 4
 interface TabBarConfigStore {
   order: TaskView[]
   moveTab: (key: TaskView, direction: 'up' | 'down') => void
+  reorderTab: (from: number, to: number) => void
   resetOrder: () => void
 }
 
@@ -30,6 +31,13 @@ export const useTabBarConfig = create<TabBarConfigStore>()(
         const swapWith = direction === 'up' ? idx - 1 : idx + 1
         if (idx === -1 || swapWith < 0 || swapWith >= order.length) return state
         ;[order[idx], order[swapWith]] = [order[swapWith], order[idx]]
+        return { order }
+      }),
+      reorderTab: (from, to) => set((state) => {
+        if (from === to) return state
+        const order = [...state.order]
+        const [item] = order.splice(from, 1)
+        order.splice(to, 0, item)
         return { order }
       }),
       resetOrder: () => set({ order: DEFAULT_TAB_ORDER }),

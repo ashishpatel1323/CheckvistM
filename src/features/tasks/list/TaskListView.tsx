@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
-import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback } from 'react-native'
+import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback, PanResponder } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical, TrendingUp } from 'lucide-react-native'
 import { ProgressTab } from '@/features/progress/ProgressTab'
@@ -397,6 +397,175 @@ function DailyProgressBar() {
 const BLUE = '#4772FA'
 const INACTIVE = '#9ca3af'
 
+const ITEM_HEIGHT = 64
+
+type TabEntry = { key: string; icon: React.ComponentType<{ size: number; color: string }>; label: string; shortcut: string }
+
+interface MoreModalProps {
+  open: boolean
+  onClose: () => void
+  orderedTabs: TabEntry[]
+  activeView: string
+  pinnedCount: number
+  onSelect: (key: string) => void
+  reorderTab: (from: number, to: number) => void
+}
+
+function MoreModal({ open, onClose, orderedTabs, activeView, pinnedCount, onSelect, reorderTab }: MoreModalProps) {
+  const insets = useSafeAreaInsets()
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const [scrollEnabled, setScrollEnabled] = useState(true)
+  const dragIdxRef = useRef<number | null>(null)
+  const hoverIdxRef = useRef<number | null>(null)
+  const listTopYRef = useRef(0)
+  const countRef = useRef(orderedTabs.length)
+  const containerRef = useRef<View | null>(null)
+  const dragOffsetY = useRef(new Animated.Value(0)).current
+
+  useEffect(() => { countRef.current = orderedTabs.length }, [orderedTabs.length])
+
+  function resetDrag() {
+    dragIdxRef.current = null
+    hoverIdxRef.current = null
+    dragOffsetY.setValue(0)
+    setDragIdx(null)
+    setHoverIdx(null)
+    setScrollEnabled(true)
+  }
+
+  const panResponder = useRef(
+    PanResponder.create({
+      // Only capture touches starting in the grip column (leftmost 48px)
+      onStartShouldSetPanResponder: (evt) => evt.nativeEvent.locationX < 48,
+      onPanResponderGrant: (evt) => {
+        containerRef.current?.measure((_x, _y, _w, _h, _px, py) => {
+          listTopYRef.current = py
+        })
+        const relY = evt.nativeEvent.pageY - listTopYRef.current
+        const idx = Math.max(0, Math.min(countRef.current - 1, Math.floor(relY / ITEM_HEIGHT)))
+        dragIdxRef.current = idx
+        hoverIdxRef.current = idx
+        dragOffsetY.setValue(0)
+        setDragIdx(idx)
+        setHoverIdx(idx)
+        setScrollEnabled(false)
+      },
+      onPanResponderMove: (evt, gs) => {
+        if (dragIdxRef.current === null) return
+        dragOffsetY.setValue(gs.dy)
+        const relY = evt.nativeEvent.pageY - listTopYRef.current
+        const hover = Math.max(0, Math.min(countRef.current - 1, Math.floor(relY / ITEM_HEIGHT)))
+        if (hover !== hoverIdxRef.current) {
+          hoverIdxRef.current = hover
+          setHoverIdx(hover)
+        }
+      },
+      onPanResponderRelease: () => {
+        if (dragIdxRef.current !== null && hoverIdxRef.current !== null) {
+          reorderTab(dragIdxRef.current, hoverIdxRef.current)
+        }
+        resetDrag()
+      },
+      onPanResponderTerminate: resetDrag,
+    })
+  ).current
+
+  return (
+    <Modal visible={open} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+        {/* Header */}
+        <View style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+          paddingHorizontal: 20, paddingTop: insets.top + 14, paddingBottom: 14,
+          borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
+        }}>
+          <View style={{ width: 40 }} />
+          <Text style={{ fontSize: 18, fontWeight: '700', color: '#111' }}>More</Text>
+          <Pressable onPress={onClose} hitSlop={12}>
+            <X size={22} color="#555" />
+          </Pressable>
+        </View>
+
+        <Text style={{ fontSize: 11, color: '#B0B0B0', textAlign: 'center', paddingVertical: 8 }}>
+          Hold ≡ to drag · First {pinnedCount} tabs pinned to tab bar
+        </Text>
+
+        {/* Draggable list */}
+        <ScrollView scrollEnabled={scrollEnabled} showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+          <View
+            ref={(r) => {
+              containerRef.current = r
+              r?.measure((_x, _y, _w, _h, _px, py) => { listTopYRef.current = py })
+            }}
+            {...panResponder.panHandlers}
+            style={{ overflow: 'visible' }}
+          >
+            {orderedTabs.map(({ key, icon: Icon, label }, idx) => {
+              const active = activeView === key
+              const pinned = idx < pinnedCount
+              const isDragging = dragIdx === idx
+              const isTarget = hoverIdx === idx && dragIdx !== null && dragIdx !== idx
+
+              return (
+                <Animated.View
+                  key={key}
+                  style={[
+                    {
+                      height: ITEM_HEIGHT,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingRight: 20,
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#F3F4F6',
+                      backgroundColor: isDragging ? '#EEF2FF' : isTarget ? '#F0F4FF' : '#fff',
+                    },
+                    isDragging && {
+                      transform: [{ translateY: dragOffsetY }],
+                      zIndex: 100,
+                      elevation: 8,
+                      shadowColor: '#000',
+                      shadowOpacity: 0.12,
+                      shadowRadius: 8,
+                      shadowOffset: { width: 0, height: 3 },
+                      opacity: 0.9,
+                    },
+                  ]}
+                >
+                  {/* Grip zone — PanResponder captures locationX < 48 touches here */}
+                  <View style={{ width: 48, alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                    <GripVertical size={20} color={isDragging ? '#9CA3AF' : '#D1D5DB'} />
+                  </View>
+
+                  {/* Row content — tappable */}
+                  <Pressable
+                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16, height: '100%' }}
+                    onPress={() => { if (dragIdx === null) onSelect(key) }}
+                  >
+                    <Icon size={30} color={active ? BLUE : '#444'} />
+                    <Text style={{
+                      flex: 1, fontSize: 17,
+                      fontWeight: active ? '600' : '400',
+                      color: active ? BLUE : '#1C1C1E',
+                    }}>
+                      {label}
+                    </Text>
+                    {pinned && (
+                      <Text style={{ fontSize: 12, color: '#C4C4C4' }}>Pinned</Text>
+                    )}
+                  </Pressable>
+                </Animated.View>
+              )
+            })}
+          </View>
+        </ScrollView>
+
+        <View style={{ height: insets.bottom }} />
+      </View>
+    </Modal>
+  )
+}
+
 const TABS = [
   { key: 'date',     icon: LayoutList,   label: 'Tasks',    shortcut: 'T' },
   { key: 'matrix',   icon: LayoutGrid,   label: 'Matrix',   shortcut: 'X' },
@@ -419,7 +588,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
   const [focusedId, setFocusedId] = useState<number | null>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
 const { view, setView, focusedTaskId } = useTaskView()
-  const { order: tabOrder, moveTab } = useTabBarConfig()
+  const { order: tabOrder, moveTab, reorderTab } = useTabBarConfig()
   const [showMoreSheet, setShowMoreSheet] = useState(false)
   const [customizing, setCustomizing] = useState(false)
 
@@ -863,81 +1032,17 @@ const { view, setView, focusedTaskId } = useTaskView()
         </View>
       )}
 
-      {/* ── More / customize tabs sheet (mobile only) ───────────── */}
+      {/* ── More — full-screen modal with drag-and-drop (mobile only) ── */}
       {isMobile && (
-        <BottomSheet
+        <MoreModal
           open={showMoreSheet}
-          onClose={() => { setShowMoreSheet(false); setCustomizing(false) }}
-          title={customizing ? 'Reorder tabs' : 'More'}
-        >
-          <View style={{ gap: 4 }}>
-            {orderedTabs.map(({ key, icon: Icon, label }, idx) => {
-              const active = view === key
-              const pinned = idx < PINNED_TAB_COUNT
-              return (
-                <Pressable
-                  key={key}
-                  onPress={() => {
-                    if (customizing) return
-                    setView(key)
-                    if (showFabInput) setShowFabInput(false)
-                    setShowMoreSheet(false)
-                  }}
-                  className="flex-row items-center px-3 py-2.5 rounded-xl"
-                  style={{ backgroundColor: active && !customizing ? '#EEF2FF' : 'transparent', gap: 12 }}
-                >
-                  {customizing && <GripVertical size={16} color="#D1D5DB" />}
-                  <Icon size={20} color={active && !customizing ? BLUE : '#666'} />
-                  <Text
-                    className="flex-1 text-sm font-medium"
-                    style={{ color: active && !customizing ? BLUE : '#333' }}
-                  >
-                    {label}
-                  </Text>
-                  {!customizing && pinned && (
-                    <Text className="text-xs" style={{ color: '#9ca3af' }}>Pinned</Text>
-                  )}
-                  {customizing && (
-                    <View className="flex-row items-center" style={{ gap: 4 }}>
-                      <Pressable
-                        hitSlop={8}
-                        onPress={() => moveTab(key, 'up')}
-                        disabled={idx === 0}
-                        style={{ opacity: idx === 0 ? 0.3 : 1, padding: 4 }}
-                      >
-                        <ChevronUp size={18} color="#666" />
-                      </Pressable>
-                      <Pressable
-                        hitSlop={8}
-                        onPress={() => moveTab(key, 'down')}
-                        disabled={idx === orderedTabs.length - 1}
-                        style={{ opacity: idx === orderedTabs.length - 1 ? 0.3 : 1, padding: 4 }}
-                      >
-                        <ChevronDown size={18} color="#666" />
-                      </Pressable>
-                    </View>
-                  )}
-                </Pressable>
-              )
-            })}
-          </View>
-
-          {customizing && (
-            <Text className="text-xs mt-2 px-1" style={{ color: '#9ca3af' }}>
-              The first {PINNED_TAB_COUNT} tabs appear in the bottom bar. Reorder to change which ones are pinned.
-            </Text>
-          )}
-
-          <Pressable
-            onPress={() => setCustomizing((v) => !v)}
-            className="items-center justify-center mt-3 py-2.5 rounded-xl"
-            style={{ backgroundColor: '#F5F5F5' }}
-          >
-            <Text className="text-sm font-semibold" style={{ color: BLUE }}>
-              {customizing ? 'Done' : 'Customize tab order'}
-            </Text>
-          </Pressable>
-        </BottomSheet>
+          onClose={() => setShowMoreSheet(false)}
+          orderedTabs={orderedTabs}
+          activeView={view}
+          pinnedCount={PINNED_TAB_COUNT}
+          onSelect={(key) => { setView(key); if (showFabInput) setShowFabInput(false); setShowMoreSheet(false) }}
+          reorderTab={reorderTab}
+        />
       )}
     </View>
   )
