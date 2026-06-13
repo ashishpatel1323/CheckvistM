@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react'
 import { View, Text, Pressable, ScrollView, Platform, TextInput, Animated, Modal, useWindowDimensions } from 'react-native'
-import { Play, Pause, Minus, Plus, Check, RotateCcw, Circle, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft, Maximize2, Network, Clock } from 'lucide-react-native'
+import { Play, Pause, Minus, Plus, Check, RotateCcw, Circle, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft, Maximize2, Network, Clock, Timer, Target, Zap, EyeOff, List } from 'lucide-react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import type { CheckvistTask } from '@/api/types'
 import { buildTaskTree } from '@/lib/taskTree'
@@ -386,6 +386,11 @@ interface ExecCtxValue {
   nextTask: () => void
   persistOrder: (newIds: number[]) => void
   updateTask: ReturnType<typeof useUpdateTask>['mutate']
+  confirmSwitch: () => void
+  cancelSwitch: () => void
+  // Stats
+  completedStreak: number
+  pendingSwitch: { index: number; andPlay: boolean } | null
   // Config
   checklistId: number
   onJumpToRaw?: (taskId: number) => void
@@ -458,6 +463,8 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
   const [titleDraft, setTitleDraft] = useState('')
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
+  const [completedStreak, setCompletedStreak] = useState(0)
+  const [pendingSwitch, setPendingSwitch] = useState<{ index: number; andPlay: boolean } | null>(null)
 
   useEffect(() => {
     for (const t of todayTasks) {
@@ -558,6 +565,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
 
   const togglePlay = () => { if (!currentKey) return; isRunning ? pause() : play(currentKey) }
   const playTask = (index: number) => {
+    if (isRunning && index !== currentIndex) { setPendingSwitch({ index, andPlay: true }); return }
     setCurrentIndex(index)
     const taskId = orderedIds[index]
     if (!taskId) return
@@ -575,12 +583,36 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
     const newIds = [completedId, ...orderedIds.filter((id) => id !== completedId)]
     setOrderedIds(newIds)
     persistOrder(newIds)
+    setCompletedStreak(s => s + 1)
     setCurrentIndex((ci) => Math.min(ci, orderedTasks.length - 2 > 0 ? orderedTasks.length - 2 : 0))
   }
   const resetCurrent = () => { if (!currentKey) return; reset(currentKey) }
-  const jumpTo = (index: number) => setCurrentIndex(index)
-  const prevTask = () => setCurrentIndex((ci) => Math.max(0, ci - 1))
-  const nextTask = () => setCurrentIndex((ci) => Math.min(orderedTasks.length - 1, ci + 1))
+  const jumpTo = (index: number) => {
+    if (isRunning && index !== currentIndex) { setPendingSwitch({ index, andPlay: false }); return }
+    setCurrentIndex(index)
+  }
+  const prevTask = () => {
+    const next = Math.max(0, currentIndex - 1)
+    if (isRunning && next !== currentIndex) { setPendingSwitch({ index: next, andPlay: false }); return }
+    setCurrentIndex(next)
+  }
+  const nextTask = () => {
+    const next = Math.min(orderedTasks.length - 1, currentIndex + 1)
+    if (isRunning && next !== currentIndex) { setPendingSwitch({ index: next, andPlay: false }); return }
+    setCurrentIndex(next)
+  }
+  const confirmSwitch = () => {
+    if (!pendingSwitch) return
+    const { index, andPlay } = pendingSwitch
+    setCompletedStreak(0)
+    setPendingSwitch(null)
+    setCurrentIndex(index)
+    if (andPlay) {
+      const taskId = orderedIds[index]
+      if (taskId) { pause(); play(entryKey(checklistId, taskId)) }
+    }
+  }
+  const cancelSwitch = () => setPendingSwitch(null)
 
   const value: ExecCtxValue = {
     orderedTasks, orderedIds, setOrderedIds, currentIndex, setCurrentIndex,
@@ -590,6 +622,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
     togglePlay, playTask, adjust, setEstimateDirect, complete, resetCurrent, jumpTo, prevTask, nextTask, persistOrder, updateTask,
+    confirmSwitch, cancelSwitch, completedStreak, pendingSwitch,
     checklistId, onJumpToRaw, onJumpToMindmap,
   }
 
@@ -1310,14 +1343,18 @@ export function ExecuteModeView({ tasks, checklistId, onClose, onJumpToRaw, onJu
   )
 }
 
+const POMO_WORK_SECS = 25 * 60
+const POMO_BREAK_SECS = 5 * 60
+
 function ExecuteViewContent({ onClose }: { onClose: () => void }) {
   const {
     currentTask, currentSeconds, isRunning, currentEntry, orderedTasks,
-    currentIndex,
+    currentIndex, jumpTo,
     editingTitle, setEditingTitle, titleDraft, setTitleDraft,
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
     togglePlay, adjust, setEstimateDirect, complete, resetCurrent, prevTask, nextTask, updateTask, checklistId,
     onJumpToRaw, entries, timerRunningKey, timerStartedAt,
+    confirmSwitch, cancelSwitch, completedStreak, pendingSwitch,
   } = useExecCtx()
   const remoteSessions = useSystemLog((s) => s.remoteSessions)
 
@@ -1331,6 +1368,63 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
   const [editingEstimate, setEditingEstimate] = useState(false)
   const [estimateDraft, setEstimateDraft] = useState('')
   const [showFullScreen, setShowFullScreen] = useState(false)
+
+  // ── Intention (feature #5) ─────────────────────────────────────────────────
+  const todayKey = useMemo(() => `focus_intention_${format(new Date(), 'yyyy-MM-dd')}`, [])
+  const [showIntention, setShowIntention] = useState(() => {
+    try { return !localStorage.getItem(`focus_intention_${format(new Date(), 'yyyy-MM-dd')}`) } catch { return false }
+  })
+  const [intentionDraft, setIntentionDraft] = useState('')
+  const savedIntention = (() => { try { return localStorage.getItem(todayKey) ?? '' } catch { return '' } })()
+
+  function submitIntention() {
+    const text = intentionDraft.trim()
+    try { if (text) localStorage.setItem(todayKey, text) } catch { /* ignore */ }
+    setShowIntention(false)
+    if (text) {
+      const idx = orderedTasks.findIndex(t => t.content.toLowerCase().includes(text.toLowerCase()))
+      if (idx >= 0) jumpTo(idx)
+    }
+  }
+
+  // ── Focus mode (feature #2) ────────────────────────────────────────────────
+  const [focusMode, setFocusMode] = useState(false)
+
+  // ── Pomodoro (feature #1) ──────────────────────────────────────────────────
+  const [pomodoroOn, setPomodoroOn] = useState(false)
+  const [pomodoroSecs, setPomodoroSecs] = useState(POMO_WORK_SECS)
+  const [pomodoroIsBreak, setPomodoroIsBreak] = useState(false)
+  const isRunningRef = useRef(isRunning)
+  useEffect(() => { isRunningRef.current = isRunning }, [isRunning])
+  const togglePlayRef = useRef(togglePlay)
+  useEffect(() => { togglePlayRef.current = togglePlay }, [togglePlay])
+
+  // Tick down when work+running or during break
+  useEffect(() => {
+    if (!pomodoroOn || (!pomodoroIsBreak && !isRunning)) return
+    const id = setInterval(() => setPomodoroSecs(s => Math.max(0, s - 1)), 1000)
+    return () => clearInterval(id)
+  }, [pomodoroOn, pomodoroIsBreak, isRunning])
+
+  // Phase transition when countdown hits 0
+  useEffect(() => {
+    if (!pomodoroOn || pomodoroSecs > 0) return
+    if (!pomodoroIsBreak) {
+      if (isRunningRef.current) togglePlayRef.current()
+      setPomodoroIsBreak(true)
+      setPomodoroSecs(POMO_BREAK_SECS)
+    } else {
+      setPomodoroIsBreak(false)
+      setPomodoroSecs(POMO_WORK_SECS)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pomodoroSecs, pomodoroOn])
+
+  function togglePomodoro() {
+    if (pomodoroOn) { setPomodoroIsBreak(false); setPomodoroSecs(POMO_WORK_SECS) }
+    setPomodoroOn(p => !p)
+  }
+  function skipBreak() { setPomodoroIsBreak(false); setPomodoroSecs(POMO_WORK_SECS) }
 
   function commitEstimate() {
     const v = parseInt(estimateDraft, 10)
@@ -1359,9 +1453,19 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
             <Pressable hitSlop={12} onPress={prevTask} style={{ opacity: currentIndex === 0 ? 0.25 : 1 }}>
               <ChevronLeft size={isMobile ? 20 : 24} color="#6B7280" />
             </Pressable>
-            <Pressable onPress={() => setShowFullScreen(true)}>
-              <FlipClock totalSeconds={currentSeconds} color={isRunning ? '#1a1a1a' : '#DC2626'} size={isMobile ? 'md' : 'lg'} />
-            </Pressable>
+            <View style={{ alignItems: 'center', gap: 4 }}>
+              <Pressable onPress={() => setShowFullScreen(true)}>
+                <FlipClock totalSeconds={currentSeconds} color={isRunning ? '#1a1a1a' : '#DC2626'} size={isMobile ? 'md' : 'lg'} />
+              </Pressable>
+              {pomodoroOn && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: pomodoroIsBreak ? '#ECFDF5' : '#EEF2FF', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
+                  <Timer size={10} color={pomodoroIsBreak ? '#16A34A' : BLUE} />
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: pomodoroIsBreak ? '#16A34A' : BLUE }}>
+                    {pomodoroIsBreak ? 'Break' : 'Focus'} {fmtClock(pomodoroSecs)}
+                  </Text>
+                </View>
+              )}
+            </View>
             <Pressable hitSlop={12} onPress={nextTask} style={{ opacity: currentIndex >= orderedTasks.length - 1 ? 0.25 : 1 }}>
               <ChevronRight size={isMobile ? 20 : 24} color="#6B7280" />
             </Pressable>
@@ -1473,6 +1577,26 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
                 <Pencil size={10} color={showPriorityPicker ? BLUE : '#D1D5DB'} />
               </Pressable>
             )}
+
+            {/* Pomodoro toggle */}
+            <Pressable
+              onPress={togglePomodoro}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: pomodoroOn ? '#EEF2FF' : '#F3F4F6', borderWidth: 1, borderColor: pomodoroOn ? BLUE : 'transparent' }}
+            >
+              <Timer size={11} color={pomodoroOn ? BLUE : '#9ca3af'} />
+              <Text style={{ fontSize: 11, fontWeight: '600', color: pomodoroOn ? BLUE : '#9ca3af' }}>25m</Text>
+            </Pressable>
+
+            {/* Focus mode toggle */}
+            <Pressable
+              onPress={() => setFocusMode(f => !f)}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: focusMode ? '#FEF3C7' : '#F3F4F6', borderWidth: 1, borderColor: focusMode ? '#D97706' : 'transparent' }}
+            >
+              {focusMode ? <EyeOff size={11} color="#D97706" /> : <List size={11} color="#9ca3af" />}
+              <Text style={{ fontSize: 11, fontWeight: '600', color: focusMode ? '#D97706' : '#9ca3af' }}>
+                {focusMode ? 'Focused' : 'List'}
+              </Text>
+            </Pressable>
           </ScrollView>
 
           {/* Tags */}
@@ -1544,11 +1668,114 @@ function ExecuteViewContent({ onClose }: { onClose: () => void }) {
               {sessionCount} {sessionCount === 1 ? 'session' : 'sessions'} · {fmtDuration(sessionTotalSeconds)}
             </Text>
           </View>
+          {completedStreak > 0 && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FEF3C7', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 }}>
+              <Zap size={12} color="#D97706" fill="#D97706" />
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#D97706' }}>{completedStreak}</Text>
+            </View>
+          )}
+          {savedIntention ? (
+            <Pressable onPress={() => setShowIntention(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F0FDF4', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5, maxWidth: 110 }}>
+              <Target size={11} color="#16A34A" />
+              <Text style={{ fontSize: 10, fontWeight: '600', color: '#16A34A' }} numberOfLines={1}>{savedIntention}</Text>
+            </Pressable>
+          ) : (
+            <Pressable onPress={() => setShowIntention(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F3F4F6', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 }}>
+              <Target size={11} color="#9ca3af" />
+              <Text style={{ fontSize: 10, fontWeight: '600', color: '#9ca3af' }}>Set intention</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
-      {/* Scrollable task list */}
-      <ExecuteTaskList />
+      {/* Scrollable task list (hidden in focus mode) */}
+      {focusMode ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8, opacity: 0.4 }}>
+          <EyeOff size={28} color="#9ca3af" />
+          <Text style={{ fontSize: 12, color: '#9ca3af' }}>Task list hidden — stay focused</Text>
+        </View>
+      ) : (
+        <ExecuteTaskList />
+      )}
+
+      {/* ── Intention prompt (feature #5) ──────────────────────────────────── */}
+      <Modal visible={showIntention} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 20, padding: 28, width: '100%', maxWidth: 400, gap: 20 }}>
+            <View style={{ alignItems: 'center', gap: 10 }}>
+              <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' }}>
+                <Target size={24} color={BLUE} />
+              </View>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: '#111827', textAlign: 'center' }}>
+                What's your ONE task today?
+              </Text>
+              <Text style={{ fontSize: 13, color: '#6B7280', textAlign: 'center', lineHeight: 18 }}>
+                Pick the single task that would make today a success. Everything else is secondary.
+              </Text>
+            </View>
+            <TextInput
+              value={intentionDraft}
+              onChangeText={setIntentionDraft}
+              placeholder="Type your most important task..."
+              placeholderTextColor="#C4C4C4"
+              autoFocus
+              onSubmitEditing={submitIntention}
+              style={{ fontSize: 15, fontWeight: '500', color: '#111827', borderWidth: 1.5, borderColor: BLUE, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 }}
+            />
+            <Pressable onPress={submitIntention} style={{ backgroundColor: BLUE, borderRadius: 12, paddingVertical: 14, alignItems: 'center' }}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: 'white' }}>Start focused session →</Text>
+            </Pressable>
+            <Pressable onPress={() => setShowIntention(false)} style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 13, color: '#9ca3af' }}>Skip for now</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Switch friction (feature #3) ───────────────────────────────────── */}
+      <Modal visible={pendingSwitch !== null} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 16, padding: 24, width: '100%', maxWidth: 360, gap: 16 }}>
+            <Text style={{ fontSize: 17, fontWeight: '800', color: '#111827' }}>Stay on track 🧠</Text>
+            <Text style={{ fontSize: 14, color: '#4B5563', lineHeight: 20 }}>
+              You've been focused for {Math.floor(currentSeconds / 60)}m {currentSeconds % 60}s.{'\n'}Switching now breaks your momentum.
+            </Text>
+            {pendingSwitch && orderedTasks[pendingSwitch.index] && (
+              <View style={{ backgroundColor: '#F9FAFB', borderRadius: 10, padding: 12 }}>
+                <Text style={{ fontSize: 11, color: '#9ca3af', marginBottom: 4 }}>Switching to:</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151' }} numberOfLines={2}>
+                  {stripMarkdown(orderedTasks[pendingSwitch.index].content)}
+                </Text>
+              </View>
+            )}
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Pressable onPress={cancelSwitch} style={{ flex: 1, borderRadius: 10, paddingVertical: 12, backgroundColor: BLUE, alignItems: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: 'white' }}>Stay focused</Text>
+              </Pressable>
+              <Pressable onPress={confirmSwitch} style={{ flex: 1, borderRadius: 10, paddingVertical: 12, backgroundColor: '#F3F4F6', alignItems: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#6B7280' }}>Switch anyway</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Pomodoro break overlay (feature #1) ────────────────────────────── */}
+      <Modal visible={pomodoroOn && pomodoroIsBreak} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 24, padding: 32, width: '100%', maxWidth: 360, gap: 20, alignItems: 'center' }}>
+            <Text style={{ fontSize: 40 }}>🧘</Text>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: '#111827' }}>Break time</Text>
+            <FlipClock totalSeconds={pomodoroSecs} color="#16A34A" size="lg" />
+            <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 22 }}>
+              Look away from the screen.{'\n'}Take slow breaths or close your eyes.{'\n'}Let your brain consolidate the work.
+            </Text>
+            <Pressable onPress={skipBreak} style={{ paddingHorizontal: 24, paddingVertical: 10, backgroundColor: '#F3F4F6', borderRadius: 20 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: '#6B7280' }}>Skip break</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
