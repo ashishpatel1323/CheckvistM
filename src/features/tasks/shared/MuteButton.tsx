@@ -4,11 +4,13 @@ import { Volume2, VolumeX } from 'lucide-react-native'
 import { useTTSStore, useTTSAnnouncer, useTTSActive, TTS_FREQUENCIES, type TTSFrequency } from './useTTS'
 
 // Web-only portal menu rendered into document.body to escape overflow:hidden
-function WebPortalMenu({ pos, onClose, frequencySec, setFrequency }: {
+function WebPortalMenu({ pos, onClose, frequencySec, setFrequency, sayElapsedTime, toggleSayElapsedTime }: {
   pos: { x: number; y: number }
   onClose: () => void
   frequencySec: number
   setFrequency: (v: TTSFrequency) => void
+  sayElapsedTime: boolean
+  toggleSayElapsedTime: () => void
 }) {
   if (typeof document === 'undefined') return null
   const { createPortal } = require('react-dom') as typeof import('react-dom')
@@ -21,7 +23,7 @@ function WebPortalMenu({ pos, onClose, frequencySec, setFrequency }: {
       />
       <div
         className="fixed bg-white rounded-xl border border-gray-200 py-1"
-        style={{ right: window.innerWidth - pos.x, top: pos.y, minWidth: 150, zIndex: 99999, boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}
+        style={{ right: window.innerWidth - pos.x, top: pos.y, minWidth: 160, zIndex: 99999, boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}
       >
         <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide px-3 pt-1 pb-0.5">
           Speak every
@@ -38,6 +40,17 @@ function WebPortalMenu({ pos, onClose, frequencySec, setFrequency }: {
             )}
           </div>
         ))}
+        <div className="border-t border-gray-100 mt-1 pt-1">
+          <div
+            className="flex items-center justify-between px-3 py-2 text-[13px] text-gray-900 cursor-pointer hover:bg-gray-50"
+            onClick={toggleSayElapsedTime}
+          >
+            <span>Say elapsed time</span>
+            {sayElapsedTime && (
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+            )}
+          </div>
+        </div>
       </div>
     </>,
     document.body
@@ -45,10 +58,12 @@ function WebPortalMenu({ pos, onClose, frequencySec, setFrequency }: {
 }
 
 // Native modal frequency picker
-function NativeMenu({ onClose, frequencySec, setFrequency }: {
+function NativeMenu({ onClose, frequencySec, setFrequency, sayElapsedTime, toggleSayElapsedTime }: {
   onClose: () => void
   frequencySec: number
   setFrequency: (v: TTSFrequency) => void
+  sayElapsedTime: boolean
+  toggleSayElapsedTime: () => void
 }) {
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
@@ -76,6 +91,17 @@ function NativeMenu({ onClose, frequencySec, setFrequency }: {
               )}
             </Pressable>
           ))}
+          <View style={{ borderTopWidth: 1, borderTopColor: '#F3F4F6', marginTop: 4, paddingTop: 4 }}>
+            <Pressable
+              onPress={toggleSayElapsedTime}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10 }}
+            >
+              <Text style={{ fontSize: 14, color: '#111827' }}>Say elapsed time</Text>
+              {sayElapsedTime && (
+                <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#4772FA' }} />
+              )}
+            </Pressable>
+          </View>
         </Pressable>
       </Pressable>
     </Modal>
@@ -83,7 +109,7 @@ function NativeMenu({ onClose, frequencySec, setFrequency }: {
 }
 
 export function MuteButton() {
-  const { muted, toggleMuted, frequencySec, setFrequency } = useTTSStore()
+  const { muted, toggleMuted, frequencySec, setFrequency, sayElapsedTime, toggleSayElapsedTime } = useTTSStore()
   const [showMenu, setShowMenu] = useState(false)
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
   const activeName = useTTSActive((s) => s.activeName)
@@ -133,6 +159,8 @@ export function MuteButton() {
           onClose={() => setMenuPos(null)}
           frequencySec={frequencySec}
           setFrequency={setFrequency}
+          sayElapsedTime={sayElapsedTime}
+          toggleSayElapsedTime={toggleSayElapsedTime}
         />
       )}
 
@@ -141,6 +169,8 @@ export function MuteButton() {
           onClose={() => setShowMenu(false)}
           frequencySec={frequencySec}
           setFrequency={setFrequency}
+          sayElapsedTime={sayElapsedTime}
+          toggleSayElapsedTime={toggleSayElapsedTime}
         />
       )}
     </>

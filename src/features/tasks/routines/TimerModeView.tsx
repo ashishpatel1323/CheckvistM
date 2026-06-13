@@ -215,7 +215,12 @@ export function TimerModeView() {
     const step = rt.steps.find((s) => s.id === activeTimer.pendingStepIds[activeTimer.stepIndex])
     return step ? `${step.name} — ${rt.name}` : rt.name
   }, [activeTimer, routines])
-  useTTSBroadcast(ttsName)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const ttsElapsed = useMemo(() => {
+    if (!activeTimer || activeTimer.pausedAt !== null) return null
+    return activeTimer.stepElapsedSec + (Date.now() - activeTimer.stepStartedAt) / 1000
+  }, [activeTimer, tick])
+  useTTSBroadcast(ttsName, ttsElapsed)
 
   if (!activeTimer) return null
 

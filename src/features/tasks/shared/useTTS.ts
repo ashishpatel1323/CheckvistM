@@ -20,9 +20,11 @@ export type TTSFrequency = typeof TTS_FREQUENCIES[number]['value']
 interface TTSState {
   muted: boolean
   frequencySec: TTSFrequency
+  sayElapsedTime: boolean
   setMuted: (v: boolean) => void
   toggleMuted: () => void
   setFrequency: (v: TTSFrequency) => void
+  toggleSayElapsedTime: () => void
 }
 
 export const useTTSStore = create<TTSState>()(
@@ -30,9 +32,11 @@ export const useTTSStore = create<TTSState>()(
     (set) => ({
       muted: true,
       frequencySec: 60,
+      sayElapsedTime: false,
       setMuted: (v) => set({ muted: v }),
       toggleMuted: () => set((s) => ({ muted: !s.muted })),
       setFrequency: (v) => set({ frequencySec: v }),
+      toggleSayElapsedTime: () => set((s) => ({ sayElapsedTime: !s.sayElapsedTime })),
     }),
     {
       name: 'tts-settings',
@@ -44,12 +48,16 @@ export const useTTSStore = create<TTSState>()(
 // ── Active-item broadcast (written by Execute/Routine views, read by MuteButton) ─
 interface TTSActiveState {
   activeName: string | null
+  elapsedSeconds: number | null
   setActiveName: (v: string | null) => void
+  setElapsedSeconds: (v: number | null) => void
 }
 
 export const useTTSActive = create<TTSActiveState>()((set) => ({
   activeName: null,
+  elapsedSeconds: null,
   setActiveName: (activeName) => set({ activeName }),
+  setElapsedSeconds: (elapsedSeconds) => set({ elapsedSeconds }),
 }))
 
 // ── Low-level speak helper (web: Web Speech API, native: expo-speech) ─────────
@@ -67,13 +75,27 @@ function speak(text: string) {
   }
 }
 
+function fmtElapsedForSpeech(seconds: number): string {
+  const total = Math.floor(seconds)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  if (m === 0) return `${s} second${s !== 1 ? 's' : ''}`
+  if (s === 0) return `${m} minute${m !== 1 ? 's' : ''}`
+  return `${m} minute${m !== 1 ? 's' : ''} ${s} second${s !== 1 ? 's' : ''}`
+}
+
 // ── Hook: drives periodic announcements (used in MuteButton) ─────────────────
 export function useTTSAnnouncer() {
-  const { muted, frequencySec } = useTTSStore()
+  const { muted, frequencySec, sayElapsedTime } = useTTSStore()
   const activeName = useTTSActive((s) => s.activeName)
+  const elapsedSeconds = useTTSActive((s) => s.elapsedSeconds)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeNameRef = useRef(activeName)
+  const elapsedSecondsRef = useRef(elapsedSeconds)
+  const sayElapsedTimeRef = useRef(sayElapsedTime)
   useEffect(() => { activeNameRef.current = activeName }, [activeName])
+  useEffect(() => { elapsedSecondsRef.current = elapsedSeconds }, [elapsedSeconds])
+  useEffect(() => { sayElapsedTimeRef.current = sayElapsedTime }, [sayElapsedTime])
 
   const clearTimer = useCallback(() => {
     if (intervalRef.current != null) {
@@ -86,21 +108,34 @@ export function useTTSAnnouncer() {
     clearTimer()
     if (muted || !activeName) return
 
+    function speakCurrent() {
+      const name = activeNameRef.current
+      if (!name) return
+      const elapsed = elapsedSecondsRef.current
+      const text = sayElapsedTimeRef.current && elapsed != null
+        ? `${name}. ${fmtElapsedForSpeech(elapsed)}`
+        : name
+      speak(text)
+    }
+
     // Speak immediately on unmute or item change, then on interval
-    speak(activeName)
-    intervalRef.current = setInterval(() => {
-      if (activeNameRef.current) speak(activeNameRef.current)
-    }, frequencySec * 1000)
+    speakCurrent()
+    intervalRef.current = setInterval(speakCurrent, frequencySec * 1000)
 
     return clearTimer
   }, [muted, activeName, frequencySec, clearTimer])
 }
 
 // ── Hook: called from Execute/Routine views to broadcast their active item ────
-export function useTTSBroadcast(name: string | null) {
+export function useTTSBroadcast(name: string | null, elapsedSeconds?: number | null) {
   const setActiveName = useTTSActive((s) => s.setActiveName)
+  const setElapsedSeconds = useTTSActive((s) => s.setElapsedSeconds)
   useEffect(() => {
     setActiveName(name)
     return () => setActiveName(null)
   }, [name, setActiveName])
+  useEffect(() => {
+    setElapsedSeconds(elapsedSeconds ?? null)
+    return () => setElapsedSeconds(null)
+  }, [elapsedSeconds, setElapsedSeconds])
 }

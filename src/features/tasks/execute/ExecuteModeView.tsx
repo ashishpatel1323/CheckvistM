@@ -608,8 +608,8 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
     togglePlay, adjust, setEstimateDirect, complete, resetCurrent, prevTask, nextTask, updateTask, checklistId,
   } = useExecCtx()
 
-  // Broadcast active task name to TTS system
-  useTTSBroadcast(isRunning && currentTask ? stripMarkdown(currentTask.content) : null)
+  // Broadcast active task name and elapsed time to TTS system
+  useTTSBroadcast(isRunning && currentTask ? stripMarkdown(currentTask.content) : null, isRunning ? currentSeconds : null)
 
   const [editingEstimate, setEditingEstimate] = useState(false)
   const [estimateDraft, setEstimateDraft] = useState('')
