@@ -34,6 +34,13 @@ import { isToday, isPast, format } from 'date-fns'
 
 const BLUE = '#4772FA'
 
+// Desktop column layout: fixed-width slots so time/due/priority line up vertically
+const COL_TAGS = 110
+const COL_TIME = 52
+const COL_DATE = 84
+const COL_PRI = 40
+const COLUMN_MODE_MIN_WIDTH = 620
+
 // ─── Group header helpers ──────────────────────────────────────────────────────
 
 const DATE_ACCENT: Record<DateGroup, string> = {
@@ -878,6 +885,12 @@ export function ExecuteTaskList() {
     if (Platform.OS === 'web') leftPanelRef.current?.focus()
   }
 
+  // Column mode: align chips into fixed columns when the list panel is wide (desktop, no side panel)
+  const [panelWidth, setPanelWidth] = useState(0)
+  const columnMode = Platform.OS === 'web' && panelWidth >= COLUMN_MODE_MIN_WIDTH
+  const col = (w: number, node: ReactNode): ReactNode =>
+    columnMode ? <View style={{ width: w, alignItems: 'flex-start' }}>{node}</View> : node
+
   function moveSelectionUp(ids: number[], sel: Set<number>): number[] {
     const sorted = [...sel].sort((a, b) => a - b)
     if (sorted[0] === 0) return ids
@@ -1078,6 +1091,7 @@ export function ExecuteTaskList() {
       contentContainerStyle={{ paddingTop: 4, paddingBottom: 32 }}
       scrollEnabled={draggingIdx === null}
       style={{ backgroundColor: '#FAFAFA' }}
+      onLayout={(e) => setPanelWidth(e.nativeEvent.layout.width)}
     >
       {priorityGroups.map(({ bucket, items }) => {
         const collapsed = collapsedGroups.has(bucket)
@@ -1189,52 +1203,68 @@ export function ExecuteTaskList() {
               }} numberOfLines={1}>
                 <InlineMarkdown content={t.content} />
               </Text>
+              {/* Tags column (desktop only) */}
+              {columnMode && (
+                <View style={{ width: COL_TAGS }}>
+                  {t.tags_as_text ? (
+                    <Text numberOfLines={1} style={{ fontSize: 9, fontWeight: '500', color: BLUE }}>
+                      {t.tags_as_text.split(/\s+/).filter(Boolean).map((tag) => (tag.startsWith('#') ? tag : `#${tag}`)).join(' ')}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
               {/* Time badge */}
-              <View style={{
-                paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
-                backgroundColor: isDone ? '#F0FDF4' : elapsed > 0 ? '#EEF2FF' : '#F9FAFB',
-              }}>
-                <Text style={{ fontSize: 10, fontWeight: '600', color: isDone ? '#16A34A' : elapsed > 0 ? BLUE : '#9CA3AF' }}>
-                  {timeLabel}
-                </Text>
-              </View>
+              {col(COL_TIME, (
+                <View style={{
+                  paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+                  backgroundColor: isDone ? '#F0FDF4' : elapsed > 0 ? '#EEF2FF' : '#F9FAFB',
+                }}>
+                  <Text style={{ fontSize: 10, fontWeight: '600', color: isDone ? '#16A34A' : elapsed > 0 ? BLUE : '#9CA3AF' }}>
+                    {timeLabel}
+                  </Text>
+                </View>
+              ))}
               {/* Date chip */}
-              <Pressable
-                hitSlop={6}
-                onPress={(e) => { e.stopPropagation?.(); setPriorityEditTaskId(null); setDateEditTaskId(t.id) }}
-                style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 2,
-                  borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2,
-                  backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB',
-                }}
-              >
-                <Calendar
-                  size={9}
-                  color={t.due ? (isPast(parseApiDate(t.due)!) && !isToday(parseApiDate(t.due)!) ? '#DC2626' : '#6B7280') : '#9ca3af'}
-                />
-                <Text style={{
-                  fontSize: 9, fontWeight: '500',
-                  color: t.due ? (isPast(parseApiDate(t.due)!) && !isToday(parseApiDate(t.due)!) ? '#DC2626' : '#6B7280') : '#9ca3af',
-                }}>
-                  {t.due ? humanizeDueDate(t.due) : 'Date'}
-                </Text>
-              </Pressable>
+              {col(COL_DATE, (
+                <Pressable
+                  hitSlop={6}
+                  onPress={(e) => { e.stopPropagation?.(); setPriorityEditTaskId(null); setDateEditTaskId(t.id) }}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 2,
+                    borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2,
+                    backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB',
+                  }}
+                >
+                  <Calendar
+                    size={9}
+                    color={t.due ? (isPast(parseApiDate(t.due)!) && !isToday(parseApiDate(t.due)!) ? '#DC2626' : '#6B7280') : '#9ca3af'}
+                  />
+                  <Text style={{
+                    fontSize: 9, fontWeight: '500',
+                    color: t.due ? (isPast(parseApiDate(t.due)!) && !isToday(parseApiDate(t.due)!) ? '#DC2626' : '#6B7280') : '#9ca3af',
+                  }}>
+                    {t.due ? humanizeDueDate(t.due) : 'Date'}
+                  </Text>
+                </Pressable>
+              ))}
               {/* Priority chip */}
-              <Pressable
-                hitSlop={6}
-                onPress={(e) => { e.stopPropagation?.(); setDateEditTaskId(null); setPriorityEditTaskId(t.id) }}
-                style={{
-                  borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2,
-                  backgroundColor: t.priority > 0 && t.priority <= 10 ? (priorityRowBg(t.priority) ?? '#F3F4F6') : '#F3F4F6',
-                }}
-              >
-                <Text style={{
-                  fontSize: 9, fontWeight: '700',
-                  color: t.priority > 0 && t.priority <= 10 ? priorityTextColor(t.priority) : '#9ca3af',
-                }}>
-                  {t.priority > 0 && t.priority <= 10 ? priorityDisplay(t.priority) : 'P?'}
-                </Text>
-              </Pressable>
+              {col(COL_PRI, (
+                <Pressable
+                  hitSlop={6}
+                  onPress={(e) => { e.stopPropagation?.(); setDateEditTaskId(null); setPriorityEditTaskId(t.id) }}
+                  style={{
+                    borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2,
+                    backgroundColor: t.priority > 0 && t.priority <= 10 ? (priorityRowBg(t.priority) ?? '#F3F4F6') : '#F3F4F6',
+                  }}
+                >
+                  <Text style={{
+                    fontSize: 9, fontWeight: '700',
+                    color: t.priority > 0 && t.priority <= 10 ? priorityTextColor(t.priority) : '#9ca3af',
+                  }}>
+                    {t.priority > 0 && t.priority <= 10 ? priorityDisplay(t.priority) : 'P?'}
+                  </Text>
+                </Pressable>
+              ))}
               {onJumpToRaw && (
                 <Pressable hitSlop={8} onPress={(e) => { e.stopPropagation?.(); onJumpToRaw(t.id) }}>
                   <AlignLeft size={12} color="#D1D5DB" />
@@ -1303,6 +1333,28 @@ export function ExecuteTaskList() {
     </>
   )
 
+  const columnLabelStyle = { fontSize: 9, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 } as const
+  const columnHeader = (
+    <View style={{
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      paddingHorizontal: 10, marginHorizontal: 4, paddingTop: 8, paddingBottom: 5,
+      backgroundColor: '#FAFAFA', borderBottomWidth: 1, borderBottomColor: '#EDEFF2',
+    }}>
+      {/* Spacers mirroring each row's leading controls so labels sit above their columns */}
+      <View style={{ width: 13 }} />
+      <View style={{ width: 26 }} />
+      <View style={{ width: 16 }} />
+      <View style={{ width: 15 }} />
+      <Text style={[columnLabelStyle, { flex: 1 }]}>TASK</Text>
+      <View style={{ width: COL_TAGS }}><Text style={columnLabelStyle}>TAGS</Text></View>
+      <View style={{ width: COL_TIME }}><Text style={columnLabelStyle}>TIME</Text></View>
+      <View style={{ width: COL_DATE }}><Text style={columnLabelStyle}>DUE</Text></View>
+      <View style={{ width: COL_PRI }}><Text style={columnLabelStyle}>PRI</Text></View>
+      {onJumpToRaw && <View style={{ width: 12 }} />}
+      {onJumpToMindmap && <View style={{ width: 12 }} />}
+    </View>
+  )
+
   if (Platform.OS === 'web') {
     return (
       <>
@@ -1313,6 +1365,7 @@ export function ExecuteTaskList() {
           className="execute-left-panel"
           style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         >
+          {columnMode && columnHeader}
           {listContent}
         </div>
         {pickers}
