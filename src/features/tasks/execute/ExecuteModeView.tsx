@@ -28,7 +28,7 @@ import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
 import { InlineMarkdown, stripMarkdown } from '@/components/InlineMarkdown'
-import { useTTSBroadcast } from '@/features/tasks/shared/useTTS'
+import { useTTSBroadcast, useTTSAnnouncer } from '@/features/tasks/shared/useTTS'
 import { BottomSheet } from '@/components/BottomSheet'
 import { isToday, isPast, format } from 'date-fns'
 
@@ -1408,6 +1408,7 @@ export function ExecuteViewContent({ onClose }: { onClose: () => void }) {
     confirmSwitch, cancelSwitch, completedStreak, pendingSwitch,
   } = useExecCtx()
   const remoteSessions = useSystemLog((s) => s.remoteSessions)
+  useTTSAnnouncer()
 
   const { width } = useWindowDimensions()
   const isMobile = width < 768
