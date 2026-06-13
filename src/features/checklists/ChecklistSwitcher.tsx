@@ -5,6 +5,14 @@ import { useRouter } from 'expo-router'
 import { useChecklists } from './useChecklists'
 import { useActiveChecklist } from './useActiveChecklist'
 
+// git log -1 --format=%ci gives "2026-06-10 11:42:03 +0530" — format to "Jun 10, 11:42"
+function fmtBuildDate(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
 export function ChecklistSwitcher() {
   const { data: checklists, isLoading } = useChecklists()
   const { activeChecklistId, setActiveChecklistId } = useActiveChecklist()
@@ -27,9 +35,16 @@ export function ChecklistSwitcher() {
         className="flex-row items-center gap-1.5 active:opacity-70"
         onPress={() => setOpen(true)}
       >
-        <Text style={{ fontSize: 18, fontWeight: '600', color: '#111' }} numberOfLines={1}>
-          {active?.name ?? (isLoading ? 'Loading…' : 'Select list')}
-        </Text>
+        <View>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: '#111' }} numberOfLines={1}>
+            {active?.name ?? (isLoading ? 'Loading…' : 'Select list')}
+          </Text>
+          <Text style={{ fontSize: 10, color: '#9CA3AF', lineHeight: 12 }}>
+            {process.env.EXPO_PUBLIC_GIT_COMMIT
+              ? `${process.env.EXPO_PUBLIC_GIT_COMMIT} · ${fmtBuildDate(process.env.EXPO_PUBLIC_GIT_DATE)}`
+              : 'dev'}
+          </Text>
+        </View>
         <ChevronDown size={16} color="#666" />
       </Pressable>
 

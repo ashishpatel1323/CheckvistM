@@ -95,6 +95,13 @@ function PrioritySubSection({
     })
   }
 
+  // Calibrate: demote tasks beyond position 3 in HIGH bucket to P4 (medium)
+  const MAX_HIGH = 3
+  function calibrate() {
+    const excess = orderedTasks.slice(MAX_HIGH)
+    excess.forEach((t) => updateTask({ taskId: t.id, payload: { priority: 4 } }))
+  }
+
   // Keyboard: ArrowUp/ArrowDown moves focused task within this bucket
   // Handled via focusedId + useEffect to detect keyboard
   const focusedIdx = orderedTasks.findIndex((t) => t.id === focusedId)
@@ -125,6 +132,22 @@ function PrioritySubSection({
           </Text>
           <Text style={{ fontSize: 11, color: meta.color, opacity: 0.65 }}>{meta.sublabel}</Text>
         </View>
+        {/* Calibrate button — only on HIGH bucket when there are excess items */}
+        {bucket === 'high' && tasks.length > MAX_HIGH && (
+          <Pressable
+            onPress={(e) => { e.stopPropagation(); calibrate() }}
+            hitSlop={8}
+            style={{
+              paddingHorizontal: 8, paddingVertical: 3,
+              borderRadius: 6,
+              backgroundColor: meta.color,
+            }}
+          >
+            <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff', letterSpacing: 0.3 }}>
+              Calibrate
+            </Text>
+          </Pressable>
+        )}
         <Text style={{ fontSize: 13, color: '#9CA3AF', marginRight: 4 }}>{tasks.length}</Text>
         {collapsed
           ? <ChevronRight size={14} color="#9CA3AF" />

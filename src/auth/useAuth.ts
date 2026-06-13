@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import {
   getToken,
   getTokenAsync,
+  getUserEmailAsync,
   setToken as storeToken,
   setTokenAsync,
   clearToken,
@@ -38,9 +39,9 @@ export const useAuth = create<AuthState>()((set) => ({
       const token = getToken()
       if (token) set({ token, isAuthenticated: true })
     } else {
-      // Native: async init
-      getTokenAsync().then((token) => {
-        if (token) set({ token, isAuthenticated: true })
+      // Native: async init — restore both token and email so user is never null after restart
+      Promise.all([getTokenAsync(), getUserEmailAsync()]).then(([token, email]) => {
+        if (token) set({ token, user: email ? { email } : null, isAuthenticated: true })
       })
     }
   },
@@ -52,7 +53,7 @@ export const useAuth = create<AuthState>()((set) => ({
       if (Platform.OS === 'web') {
         storeToken(token)
       } else {
-        await setTokenAsync(token)
+        await setTokenAsync(token, email)
       }
       set({ token, user: { email }, isAuthenticated: true, isLoading: false, error: null })
       router.replace('/')

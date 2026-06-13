@@ -35,6 +35,8 @@ interface ExecuteLogStore {
   setTaskName: (key: string, name: string) => void
   /** Merge remote session data into local entries without overwriting active timers */
   hydrateFromRemote: (remote: Record<string, { startedAt: string; actualSeconds: number; completedAt: string | null }>) => void
+  /** Overwrite start time and duration for a completed or paused session */
+  updateSessionTimes: (key: string, startMin: number, durationMin: number) => void
 }
 
 export function todayKey(): string {
@@ -81,6 +83,22 @@ export const useExecuteLog = create<ExecuteLogStore>()(
         }
         return { entries: updated }
       }),
+      updateSessionTimes: (key, startMin, durationMin) =>
+        set((s) => {
+          const entry = s.entries[key]
+          if (!entry || !entry.startedAt) return s
+          // Reconstruct startedAt using the date from the key (format: checklistId:yyyy-MM-dd:taskId)
+          const datePart = key.split(':')[1] ?? entry.startedAt.slice(0, 10)
+          const h = Math.floor(startMin / 60) % 24
+          const m = Math.round(startMin % 60)
+          const newStartedAt = `${datePart}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00.000Z`
+          return {
+            entries: {
+              ...s.entries,
+              [key]: { ...entry, startedAt: newStartedAt, actualSeconds: Math.round(durationMin * 60) },
+            },
+          }
+        }),
       seed: (key, taskId, estimateMin) =>
         set((s) => {
           if (s.entries[key]) return s

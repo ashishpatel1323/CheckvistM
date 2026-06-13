@@ -3,6 +3,15 @@
     "name": "Checkvist",
     "slug": "checkvist-app",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/f0c7beb2-284a-4eea-b8ca-0f04229e0bb9",
+      "enabled": true,
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    },
     "orientation": "portrait",
     "icon": "./public/icons/icon-512.png",
     "userInterfaceStyle": "light",
@@ -10,7 +19,7 @@
     "splash": {
       "image": "./public/icons/icon-512.png",
       "resizeMode": "contain",
-      "backgroundColor": "#E8632A"
+      "backgroundColor": "#1C1C28"
     },
     "ios": {
       "supportsTablet": true,
@@ -18,14 +27,20 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./public/icons/icon-192.png",
-        "backgroundColor": "#E8632A"
+        "foregroundImage": "./public/icons/adaptive-foreground.png",
+        "backgroundColor": "#1C1C28"
       },
       "package": "com.ashishpatel.checkvist",
-      "versionCode": 2
+      "versionCode": 3,
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
+      ]
     },
     "web": {
       "bundler": "metro",
+      "favicon": "./public/favicon.png",
       "name": "Checkvist",
       "shortName": "Checkvist",
       "description": "Checkvist task manager",
@@ -43,7 +58,16 @@
           "backgroundColor": "#E8632A"
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./public/icons/icon-192.png",
+          "color": "#E8632A",
+          "defaultChannel": "default",
+          "sounds": []
+        }
+      ],
     ],
     "experiments": {
       "typedRoutes": false

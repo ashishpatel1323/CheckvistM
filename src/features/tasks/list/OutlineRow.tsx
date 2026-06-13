@@ -1,11 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { View, Text, Pressable, Platform, StyleSheet } from 'react-native'
-import { ChevronRight, GripVertical, Clock, MessageSquare } from 'lucide-react-native'
-import { useRouter } from 'expo-router'
+import { Clock, MessageSquare } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
 import { useExpandedIds } from './useExpandedIds'
-import { PriorityPicker, priorityBadgeClass, priorityDisplay, priorityRowBg, priorityTextColor } from '@/features/tasks/shared/PriorityPicker'
+import { PriorityPicker, priorityDisplay, priorityTextColor } from '@/features/tasks/shared/PriorityPicker'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { useUpdateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
@@ -21,10 +20,12 @@ interface OutlineRowProps {
   isMobile: boolean
   depth?: number
   focusedId?: number | null
+  onZoomIn?: (task: TaskNode) => void
 }
 
-export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }: OutlineRowProps) {
-  const router = useRouter()
+const BLUE = '#4772FA'
+
+export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, onZoomIn }: OutlineRowProps) {
   const toast = useToast()
   const expanded = useExpandedIds((s) => s.expanded.has(task.id))
   const toggleExpanded = useExpandedIds((s) => s.toggle)
@@ -36,12 +37,11 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
   const { rowLayouts, measureFns, startDrag, updateDrag, endDrag, dropTargetId, dropZone, draggingId } = useDragContext()
 
   const hasChildren = task.children.length > 0
-  const indent = depth * 24
+  const indent = depth * 22
   const isFocused = focusedId === task.id
   const isDropTarget = dropTargetId === task.id
   const isDragging = draggingId === task.id
 
-  // Register this row's measureInWindow function so it can be called at drag start
   useEffect(() => {
     const measure = () => {
       rowRef.current?.measureInWindow((x, y, w, h) => {
@@ -80,33 +80,23 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
   const handleDrop = useCallback(() => {
     const { targetId, zone } = endDrag()
     if (targetId === null || targetId === task.id) return
-
     const targetInfo = rowLayouts.current.get(targetId)
     if (!targetInfo) return
-
     if (zone === 'onto') {
       updateTask(
         { taskId: task.id, payload: { parent_id: targetId, position: 1 } },
-        {
-          onSuccess: () => toast.success('Task moved'),
-          onError: () => toast.error('Failed to move task'),
-        }
+        { onSuccess: () => toast.success('Task moved'), onError: () => toast.error('Failed to move task') }
       )
     } else {
       const position = zone === 'before' ? targetInfo.position : targetInfo.position + 1
       updateTask(
         { taskId: task.id, payload: { parent_id: targetInfo.parentId, position } },
-        {
-          onSuccess: () => toast.success('Task moved'),
-          onError: () => toast.error('Failed to move task'),
-        }
+        { onSuccess: () => toast.success('Task moved'), onError: () => toast.error('Failed to move task') }
       )
     }
   }, [task.id, endDrag, updateTask, toast, rowLayouts])
 
-  const handleCancel = useCallback(() => {
-    endDrag()
-  }, [endDrag])
+  const handleCancel = useCallback(() => { endDrag() }, [endDrag])
 
   const dragGesture = Platform.OS !== 'web'
     ? Gesture.Pan()
@@ -114,34 +104,24 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
       .runOnJS(true)
       .onStart((e) => {
         hapticMedium()
-        // Refresh all row measurements so positions are current
         measureFns.current.forEach((fn) => fn())
-        setTimeout(() => {
-          startDrag(task.id, task.content, e.absoluteY)
-        }, 50)
+        setTimeout(() => { startDrag(task.id, task.content, e.absoluteY) }, 50)
       })
-      .onUpdate((e) => {
-        updateDrag(e.absoluteY)
-      })
-      .onEnd(() => {
-        handleDrop()
-      })
-      .onFinalize(() => {
-        // Clean up if gesture was cancelled before onEnd
-        handleCancel()
-      })
+      .onUpdate((e) => { updateDrag(e.absoluteY) })
+      .onEnd(() => { handleDrop() })
+      .onFinalize(() => { handleCancel() })
     : null
 
   const webProps = Platform.OS === 'web' ? { 'data-task-id': task.id } : {}
 
-  const BLUE = '#4772FA'
-  const dropIndicatorColor = dropZone === 'onto' ? BLUE : BLUE
+  const dueDateColor = task.due
+    ? (dueDateColorClass(task.due).includes('red') ? '#E53935' : '#6B7280')
+    : '#6B7280'
 
   return (
     <>
-      {/* Drop-before indicator */}
       {isDropTarget && dropZone === 'before' && (
-        <View style={[styles.dropLine, { marginLeft: indent + 4, backgroundColor: BLUE }]} />
+        <View style={[styles.dropLine, { marginLeft: indent + 28, backgroundColor: BLUE }]} />
       )}
 
       <View
@@ -149,116 +129,89 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
         style={[
           styles.rowContainer,
           isDragging && styles.rowDragging,
-          isDropTarget && dropZone === 'onto' && { borderColor: dropIndicatorColor, borderWidth: 1.5, borderRadius: 10 },
+          isDropTarget && dropZone === 'onto' && { backgroundColor: '#EEF2FF' },
         ]}
       >
-        <Pressable
-          onPress={() => router.push(`/${checklistId}/tasks/${task.id}`)}
-          className="flex-row items-center gap-3 pr-4 active:bg-gray-50"
-          style={[
-            {
-              paddingLeft: indent + 16,
-              paddingVertical: 10,
-              backgroundColor: '#fff',
-              borderLeftWidth: 3,
-              borderLeftColor: 'transparent',
-            },
-            !isFocused && task.priority >= 1 && task.priority <= 3 && { borderLeftColor: '#FECACA' },
-            isFocused && { backgroundColor: '#F5F8FF', borderLeftColor: BLUE, paddingLeft: indent + 13 },
-          ]}
-          {...webProps}
-        >
-          {/* Drag handle (native only) */}
-          {Platform.OS !== 'web' && dragGesture && (
+        {/* Indented row with bullet */}
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: indent + 8 }}>
+
+          {/* Expand/collapse toggle or bullet */}
+          <Pressable
+            onPress={() => hasChildren ? toggleExpanded(task.id) : (onZoomIn && onZoomIn(task))}
+            hitSlop={8}
+            style={styles.bulletWrap}
+          >
+            {hasChildren ? (
+              // Triangle bullet — rotates when expanded
+              <View style={[
+                styles.triangle,
+                expanded && styles.triangleExpanded,
+              ]} />
+            ) : (
+              // Filled circle for leaf
+              <View style={styles.dot} />
+            )}
+          </Pressable>
+
+          {/* Row content */}
+          {dragGesture ? (
             <GestureDetector gesture={dragGesture}>
-              <View style={styles.dragHandle} hitSlop={8}>
-                <GripVertical size={14} color="#CFCFCF" />
-              </View>
+              <Pressable
+                onPress={() => onZoomIn && onZoomIn(task)}
+                style={[
+                  styles.contentRow,
+                  isFocused && styles.contentRowFocused,
+                ]}
+                {...webProps}
+              >
+                <RowContent task={task} isFocused={isFocused} dueDateColor={dueDateColor}
+                  setShowPriorityPicker={setShowPriorityPicker} setShowDatePicker={setShowDatePicker} />
+              </Pressable>
             </GestureDetector>
-          )}
-
-          {hasChildren ? (
-            <Pressable onPress={() => toggleExpanded(task.id)} hitSlop={8} className="w-4 h-4 items-center justify-center">
-              <ChevronRight
-                size={13}
-                color="#BDBDBD"
-                style={{ transform: [{ rotate: expanded ? '90deg' : '0deg' }] }}
-              />
-            </Pressable>
           ) : (
-            <View className="w-4 h-4 items-center justify-center">
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#CFCFCF' }} />
-            </View>
-          )}
-
-          <Text style={{ flex: 1, fontSize: 14, color: '#1a1a1a', letterSpacing: 0.1 }} numberOfLines={1}>
-            <InlineMarkdown content={task.content} />
-            {hasChildren && (
-              <Text style={{ fontSize: 12, color: '#BDBDBD' }}> [{task.children.length}]</Text>
-            )}
-          </Text>
-
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            {task.duration && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                <Clock size={12} color="#9ca3af" />
-                <Text style={{ fontSize: 11, fontWeight: '500', color: '#6b7280' }}>
-                  {task.duration.formatted}
-                </Text>
-              </View>
-            )}
-            {(task.comments_count ?? 0) > 0 && (
-              <Pressable
-                onPress={(e) => { e.stopPropagation?.(); router.push(`/${checklistId}/tasks/${task.id}/notes`) }}
-                hitSlop={6}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
-              >
-                <MessageSquare size={12} color="#9ca3af" />
-                <Text style={{ fontSize: 11, fontWeight: '500', color: '#6b7280' }}>
-                  {task.comments_count}
-                </Text>
-              </Pressable>
-            )}
             <Pressable
-              onPress={() => { setShowPriorityPicker(true); setShowDatePicker(false) }}
-              hitSlop={6}
+              onPress={() => onZoomIn && onZoomIn(task)}
+              style={[styles.contentRow, isFocused && styles.contentRowFocused]}
+              {...webProps}
             >
-              <Text style={{ fontSize: 11, color: priorityTextColor(task.priority || 0), fontWeight: '600' }}>
-                {priorityDisplay(task.priority || 0)}
-              </Text>
+              <RowContent task={task} isFocused={isFocused} dueDateColor={dueDateColor}
+                setShowPriorityPicker={setShowPriorityPicker} setShowDatePicker={setShowDatePicker} />
             </Pressable>
-            {task.due && (
-              <Pressable
-                onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false) }}
-                hitSlop={6}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '500', color: dueDateColorClass(task.due).includes('red') ? '#E53935' : BLUE }}>
-                  {humanizeDueDate(task.due)}
-                </Text>
-              </Pressable>
-            )}
-          </View>
-        </Pressable>
+          )}
+        </View>
       </View>
 
-      {/* Drop-after indicator */}
       {isDropTarget && dropZone === 'after' && (
-        <View style={[styles.dropLine, { marginLeft: indent + 4, backgroundColor: BLUE }]} />
+        <View style={[styles.dropLine, { marginLeft: indent + 28, backgroundColor: BLUE }]} />
       )}
 
       {hasChildren && expanded && (
-        <View style={{ borderLeftWidth: 1, borderLeftColor: '#E8E8E8', marginLeft: indent + 30 }}>
-          {task.children.map((child) => (
-            <OutlineRow
-              key={child.id}
-              task={child}
-              checklistId={checklistId}
-              isMobile={isMobile}
-              depth={depth + 1}
-              focusedId={focusedId}
-            />
-          ))}
-        </View>
+        <>
+          {/* Vertical guide line */}
+          <View
+            style={{
+              position: 'absolute',
+              left: indent + 8 + 10, // align with bullet center
+              top: 32,
+              width: 1,
+              backgroundColor: '#DDDDE3',
+              // can't use absolute easily in RN without known height; use border on children wrapper
+            }}
+          />
+          <View style={{ borderLeftWidth: 1, borderLeftColor: '#DDDDE3', marginLeft: indent + 18 }}>
+            {task.children.map((child) => (
+              <OutlineRow
+                key={child.id}
+                task={child}
+                checklistId={checklistId}
+                isMobile={isMobile}
+                depth={depth + 1}
+                focusedId={focusedId}
+                onZoomIn={onZoomIn}
+              />
+            ))}
+          </View>
+        </>
       )}
 
       <BottomSheet open={showPriorityPicker} onClose={() => setShowPriorityPicker(false)} title="Set Priority">
@@ -277,23 +230,130 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId }
   )
 }
 
+interface RowContentProps {
+  task: TaskNode
+  isFocused: boolean
+  dueDateColor: string
+  setShowPriorityPicker: (v: boolean) => void
+  setShowDatePicker: (v: boolean) => void
+}
+
+function RowContent({ task, dueDateColor, setShowPriorityPicker, setShowDatePicker }: RowContentProps) {
+  return (
+    <View style={styles.contentInner}>
+      <Text style={styles.taskText} numberOfLines={1}>
+        <InlineMarkdown content={task.content} />
+      </Text>
+
+      {/* Meta badges */}
+      <View style={styles.metaRow}>
+        {task.duration && (
+          <View style={styles.metaItem}>
+            <Clock size={11} color="#9CA3AF" />
+            <Text style={styles.metaText}>{task.duration.formatted}</Text>
+          </View>
+        )}
+        {(task.comments_count ?? 0) > 0 && (
+          <View style={styles.metaItem}>
+            <MessageSquare size={11} color="#9CA3AF" />
+            <Text style={styles.metaText}>{task.comments_count}</Text>
+          </View>
+        )}
+        {(task.priority ?? 0) > 0 && (
+          <Pressable hitSlop={6} onPress={() => setShowPriorityPicker(true)}>
+            <Text style={[styles.metaText, { color: priorityTextColor(task.priority || 0), fontWeight: '600' }]}>
+              {priorityDisplay(task.priority || 0)}
+            </Text>
+          </Pressable>
+        )}
+        {task.due && (
+          <Pressable hitSlop={6} onPress={() => setShowDatePicker(true)}>
+            <Text style={[styles.metaText, { color: dueDateColor }]}>
+              {humanizeDueDate(task.due)}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
   rowContainer: {
-    borderWidth: 1,
-    borderColor: 'transparent',
+    position: 'relative',
   },
   rowDragging: {
-    opacity: 0.4,
+    opacity: 0.35,
   },
-  dragHandle: {
+  bulletWrap: {
     width: 20,
-    height: 20,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#C4C4C8',
+  },
+  triangle: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 5,
+    borderBottomWidth: 5,
+    borderLeftWidth: 8,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderLeftColor: '#A0A0A8',
+  },
+  triangleExpanded: {
+    transform: [{ rotate: '90deg' }],
+    borderLeftColor: '#4772FA',
+  },
+  contentRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 32,
+    paddingRight: 12,
+    paddingVertical: 4,
+  },
+  contentRowFocused: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 4,
+  },
+  contentInner: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  taskText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#1C1C1E',
+    letterSpacing: 0,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  metaText: {
+    fontSize: 11,
+    color: '#9CA3AF',
   },
   dropLine: {
     height: 2,
-    backgroundColor: '#3b82f6',
     borderRadius: 1,
     marginVertical: 1,
     marginRight: 8,
