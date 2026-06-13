@@ -28,7 +28,7 @@ import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
 import { InlineMarkdown, stripMarkdown } from '@/components/InlineMarkdown'
-import { useTTSBroadcast } from '@/features/tasks/shared/useTTS'
+import { useTTSBroadcast, speak as ttsSpeak, useTTSStore, fmtElapsedForSpeech } from '@/features/tasks/shared/useTTS'
 import { MuteButton } from '@/features/tasks/shared/MuteButton'
 import { BottomSheet } from '@/components/BottomSheet'
 import { isToday, isPast, format } from 'date-fns'
@@ -572,7 +572,31 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
     })
   }
 
-  const togglePlay = () => { if (!currentKey) return; isRunning ? pause() : play(currentKey) }
+  const { muted: ttsMuted, sayElapsedTime } = useTTSStore()
+  const currentTaskRef = useRef(currentTask)
+  useEffect(() => { currentTaskRef.current = currentTask }, [currentTask])
+  const currentSecondsRef = useRef(currentSeconds)
+  useEffect(() => { currentSecondsRef.current = currentSeconds }, [currentSeconds])
+
+  const togglePlay = () => {
+    if (!currentKey) return
+    if (isRunning) {
+      pause()
+    } else {
+      play(currentKey)
+      // Chrome requires speech synthesis to be called within a user gesture.
+      // Calling speak() here (synchronously in the click handler) unlocks it
+      // for all subsequent interval-based announcements.
+      if (!ttsMuted && currentTaskRef.current && Platform.OS === 'web') {
+        const name = stripMarkdown(currentTaskRef.current.content)
+        const elapsed = currentSecondsRef.current
+        const text = sayElapsedTime && elapsed != null
+          ? `${name}. ${fmtElapsedForSpeech(elapsed)}`
+          : name
+        ttsSpeak(text)
+      }
+    }
+  }
   const playTask = (index: number) => {
     if (isRunning && index !== currentIndex) { setPendingSwitch({ index, andPlay: true }); return }
     setCurrentIndex(index)

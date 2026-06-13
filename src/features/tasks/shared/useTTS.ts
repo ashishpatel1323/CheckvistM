@@ -61,7 +61,7 @@ export const useTTSActive = create<TTSActiveState>()((set) => ({
 }))
 
 // ── Low-level speak helper (web: Web Speech API, native: expo-speech) ─────────
-function speak(text: string) {
+export function speak(text: string) {
   if (Platform.OS === 'web') {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
     const synth = window.speechSynthesis
@@ -78,7 +78,7 @@ function speak(text: string) {
   }
 }
 
-function fmtElapsedForSpeech(seconds: number): string {
+export function fmtElapsedForSpeech(seconds: number): string {
   const total = Math.floor(seconds)
   const m = Math.floor(total / 60)
   const s = total % 60
