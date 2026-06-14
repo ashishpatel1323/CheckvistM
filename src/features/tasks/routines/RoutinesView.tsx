@@ -36,6 +36,13 @@ function completionColor(fraction: number): string {
 }
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+/** Returns 1-based rank of currentTime among (priorTimes ∪ currentTime) sorted ascending.
+ *  priorTimes = up to last 10 logged times for this step, excluding the current date. */
+function computeTimeRank(currentTime: string, priorTimes: string[]): number {
+  const all = [...priorTimes, currentTime].sort()
+  return all.indexOf(currentTime) + 1
+}
+
 function fmtTime12(hhmm: string) {
   const [h, m] = hhmm.split(':').map(Number)
   const ampm = h >= 12 ? 'PM' : 'AM'
@@ -200,11 +207,13 @@ interface HabitCircleProps {
   accentColor: string
   onPress: () => void
   size: number
+  rank?: number
 }
 
-function HabitCircle({ done, scheduled, future, selected, accentColor, onPress, size }: HabitCircleProps) {
+function HabitCircle({ done, scheduled, future, selected, accentColor, onPress, size, rank }: HabitCircleProps) {
   const inactiveBorder = scheduled ? FAILURE_RED : '#E5E7EB'
   const selectedBg = selected ? '#EEF2FF' : 'transparent'
+  const badgeSize = Math.max(12, Math.round(size * 0.4))
 
   return (
     <Pressable
@@ -220,6 +229,25 @@ function HabitCircle({ done, scheduled, future, selected, accentColor, onPress, 
     >
       {done && <Text style={{ color: '#fff', fontSize: size * 0.45, fontWeight: '700' }}>✓</Text>}
       {!done && !future && scheduled && <Text style={{ color: FAILURE_RED, fontSize: size * 0.5, fontWeight: '700' }}>✕</Text>}
+      {done && rank != null && (
+        <View style={{
+          position: 'absolute',
+          top: -badgeSize * 0.4,
+          right: -badgeSize * 0.4,
+          width: badgeSize,
+          height: badgeSize,
+          borderRadius: badgeSize / 2,
+          backgroundColor: '#fff',
+          borderWidth: 1.5,
+          borderColor: accentColor,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <Text style={{ fontSize: badgeSize * 0.56, fontWeight: '800', color: accentColor, lineHeight: badgeSize }}>
+            {rank}
+          </Text>
+        </View>
+      )}
     </Pressable>
   )
 }
@@ -337,6 +365,17 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
           const isDone = (checkinsByDate[ds] ?? []).includes(step.id)
           const future = isFuture(date) && !isToday(date)
           const isSelected = ds === format(selectedDate, 'yyyy-MM-dd')
+          const thisTime = completionTimeByDate[ds]
+          const rank = isDone && thisTime
+            ? computeTimeRank(
+                thisTime,
+                Object.entries(completionTimeByDate)
+                  .filter(([d, t]) => d !== ds && t)
+                  .sort(([a], [b]) => b.localeCompare(a))
+                  .slice(0, 10)
+                  .map(([, t]) => t),
+              )
+            : undefined
           return (
             <View
               key={ds}
@@ -356,6 +395,7 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
                 accentColor={accentColor}
                 onPress={() => onToggle(step.id, ds)}
                 size={circleSize}
+                rank={rank}
               />
               {isDone && completionTimeByDate[ds] ? (
                 <Pressable onPress={() => setEditingDate(ds)} hitSlop={10}

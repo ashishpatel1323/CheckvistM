@@ -1,11 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react'
 import { View, Text, Pressable, ScrollView, Platform, TextInput, Animated, Modal, useWindowDimensions } from 'react-native'
-import { Play, Pause, Minus, Plus, Check, RotateCcw, Circle, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft, Maximize2, Network, Clock, Timer, Target, Zap, EyeOff, List } from 'lucide-react-native'
+import { Play, Pause, Minus, Plus, Check, RotateCcw, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft, Maximize2, Network, Clock, Timer, Target, Zap, EyeOff, List, ArrowDown, Sunrise } from 'lucide-react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import type { CheckvistTask } from '@/api/types'
 import { buildTaskTree } from '@/lib/taskTree'
 import { groupTasksByDate, classifyTask, GROUP_LABELS, type DateGroup } from '@/lib/dateSort'
 import { classifyPriority, PRIORITY_META } from '@/features/tasks/list/PriorityDateView'
+import { classifyTime, TIME_QUADRANTS } from '@/features/tasks/list/EisenhowerMatrixView'
 import {
   useExecuteLog,
   entryKey,
@@ -31,7 +32,7 @@ import { InlineMarkdown, stripMarkdown } from '@/components/InlineMarkdown'
 import { useTTSBroadcast, speak as ttsSpeak, useTTSStore, fmtElapsedForSpeech } from '@/features/tasks/shared/useTTS'
 import { MuteButton } from '@/features/tasks/shared/MuteButton'
 import { BottomSheet } from '@/components/BottomSheet'
-import { isToday, isPast, format } from 'date-fns'
+import { isToday, isPast, format, addDays } from 'date-fns'
 
 const BLUE = '#6366F1'
 const INDIGO = '#6366F1'
@@ -755,7 +756,7 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
             ) : (
               <View style={{ gap: 2 }}>
                 <Pressable onPress={() => { setTitleDraft(currentTask.content); setEditingTitle(true) }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
+                  <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: '#111827', lineHeight: 20 }}>
                     <InlineMarkdown content={currentTask.content} />
                   </Text>
                   <Pencil size={11} color="#D1D5DB" />
@@ -820,13 +821,26 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
           <Pressable hitSlop={10} onPress={() => adjust(ESTIMATE_STEP)} style={{ padding: 4 }}>
             <Plus size={20} color="#9CA3AF" />
           </Pressable>
-          <Pressable onPress={complete} style={{
-            width: 36, height: 36, borderRadius: 18,
-            backgroundColor: '#16A34A',
-            alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Check size={18} color="white" />
-          </Pressable>
+          {currentTask && (
+            <>
+              <Pressable
+                hitSlop={8}
+                onPress={() => { updateTask({ taskId: currentTask.id, payload: { due_date: format(addDays(new Date(), 1), 'yyyy-MM-dd') } }); nextTask() }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
+              >
+                <Sunrise size={12} color="#8B5CF6" />
+                <Text style={{ fontSize: 11, fontWeight: '600', color: '#8B5CF6' }}>Tomorrow</Text>
+              </Pressable>
+              <Pressable
+                hitSlop={8}
+                onPress={() => { updateTask({ taskId: currentTask.id, payload: { priority: 9 } }); nextTask() }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
+              >
+                <ArrowDown size={12} color="#7c3aed" />
+                <Text style={{ fontSize: 11, fontWeight: '600', color: '#7c3aed' }}>De-pri</Text>
+              </Pressable>
+            </>
+          )}
           {onClose && (
             <Pressable hitSlop={10} onPress={onClose} style={{ padding: 4, marginLeft: 2 }}>
               <X size={16} color="#C4C4C4" />
@@ -1095,6 +1109,13 @@ export function ExecuteTaskList() {
       })
   }
 
+  // Group-by toggle
+  const [groupBy, setGroupBy] = useState<'priority' | 'time'>('priority')
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  function toggleGroup(key: string) {
+    setCollapsedGroups((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
+  }
+
   // Build priority groups preserving flat orderedTasks indices for drag/keyboard
   type PriBucket = 'high' | 'medium' | 'low' | 'tbd'
   const PRI_BUCKETS: PriBucket[] = ['high', 'medium', 'low', 'tbd']
@@ -1104,10 +1125,74 @@ export function ExecuteTaskList() {
     return PRI_BUCKETS.filter((b) => buckets[b].length > 0).map((b) => ({ bucket: b, items: buckets[b] }))
   }, [orderedTasks])
 
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<PriBucket>>(new Set())
-  function toggleGroup(b: PriBucket) {
-    setCollapsedGroups((prev) => { const s = new Set(prev); s.has(b) ? s.delete(b) : s.add(b); return s })
+  // Build time groups
+  const timeGroups = useMemo(() => {
+    const bucketMap = new Map<string, { task: TaskNode; index: number }[]>()
+    for (const q of TIME_QUADRANTS) bucketMap.set(q.bucket, [])
+    orderedTasks.forEach((t, index) => {
+      const b = classifyTime(t)
+      bucketMap.get(b)?.push({ task: t, index })
+    })
+    return TIME_QUADRANTS.filter((q) => (bucketMap.get(q.bucket)?.length ?? 0) > 0)
+      .map((q) => ({ ...q, items: bucketMap.get(q.bucket)! }))
+  }, [orderedTasks])
+
+  // Shared group header renderer
+  function renderGroupHeader(key: string, label: string, sublabel: string, color: string, bg: string, count: number) {
+    const collapsed = collapsedGroups.has(key)
+    if (Platform.OS === 'web') {
+      return (
+        <div
+          key={`hdr-${key}`}
+          style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer', userSelect: 'none', backgroundColor: bg, borderBottom: collapsed ? 'none' : '1px solid #F3F4F6' }}
+          onClick={() => toggleGroup(key)}
+        >
+          <div style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: color, flexShrink: 0 }} />
+          <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color, letterSpacing: '0.2px' }}>{label.toUpperCase()}</span>
+            <span style={{ fontSize: 11, color, opacity: 0.65 }}>{sublabel}</span>
+          </span>
+          <span style={{ fontSize: 13, color: '#9ca3af', marginRight: 4 }}>{count}</span>
+          <span style={{ fontSize: 13, color: '#9ca3af' }}>{collapsed ? '›' : '⌄'}</span>
+        </div>
+      )
+    }
+    return (
+      <Pressable
+        key={`hdr-${key}`}
+        onPress={() => toggleGroup(key)}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: bg, borderBottomWidth: collapsed ? 0 : 1, borderBottomColor: '#F3F4F6' }}
+      >
+        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: color }} />
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color, letterSpacing: 0.2 }}>{label.toUpperCase()}</Text>
+          <Text style={{ fontSize: 11, color, opacity: 0.65 }}>{sublabel}</Text>
+        </View>
+        <Text style={{ fontSize: 13, color: '#9ca3af', marginRight: 4 }}>{count}</Text>
+        <ChevronRight size={13} color="#9ca3af" style={{ transform: [{ rotate: collapsed ? '0deg' : '90deg' }] }} />
+      </Pressable>
+    )
   }
+
+  // Group-by toggle strip
+  const groupByToggle = (
+    <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#E2E8F0', backgroundColor: 'white', paddingHorizontal: 14 }}>
+      {(['priority', 'time'] as const).map((v) => {
+        const active = groupBy === v
+        return (
+          <Pressable
+            key={v}
+            onPress={() => { setGroupBy(v); setCollapsedGroups(new Set()) }}
+            style={{ paddingVertical: 8, paddingHorizontal: 2, marginRight: 16, borderBottomWidth: 2, borderBottomColor: active ? '#E8632A' : 'transparent' }}
+          >
+            <Text style={{ fontSize: 12, fontWeight: active ? '600' : '400', color: active ? '#E8632A' : '#6B7280' }}>
+              {v === 'priority' ? 'By Priority' : 'By Time'}
+            </Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
 
   const listContent = (
     <ScrollView
@@ -1116,47 +1201,19 @@ export function ExecuteTaskList() {
       style={{ backgroundColor: '#FAFAFA' }}
       onLayout={(e) => setPanelWidth(e.nativeEvent.layout.width)}
     >
-      {priorityGroups.map(({ bucket, items }) => {
-        const collapsed = collapsedGroups.has(bucket)
-        const priColor = PRIORITY_COLOR[bucket]
-        const priLabel = PRIORITY_LABEL[bucket]
-
-        const meta = PRIORITY_META[bucket]
-
-        const header = Platform.OS === 'web' ? (
-          <div
-            key={`hdr-${bucket}`}
-            style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer', userSelect: 'none', backgroundColor: meta.bg, borderBottom: collapsed ? 'none' : '1px solid #F3F4F6' }}
-            onClick={() => toggleGroup(bucket)}
-          >
-            <div style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: priColor, flexShrink: 0 }} />
-            <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: priColor, letterSpacing: '0.2px' }}>
-                {priLabel.toUpperCase()}
-              </span>
-              <span style={{ fontSize: 11, color: priColor, opacity: 0.65 }}>{meta.sublabel}</span>
-            </span>
-            <span style={{ fontSize: 13, color: '#9ca3af', marginRight: 4 }}>{items.length}</span>
-            <span style={{ fontSize: 13, color: '#9ca3af' }}>{collapsed ? '›' : '⌄'}</span>
-          </div>
-        ) : (
-          <Pressable
-            key={`hdr-${bucket}`}
-            onPress={() => toggleGroup(bucket)}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: meta.bg, borderBottomWidth: collapsed ? 0 : 1, borderBottomColor: '#F3F4F6' }}
-          >
-            <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: priColor }} />
-            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: priColor, letterSpacing: 0.2 }}>
-                {priLabel.toUpperCase()}
-              </Text>
-              <Text style={{ fontSize: 11, color: priColor, opacity: 0.65 }}>{meta.sublabel}</Text>
-            </View>
-            <Text style={{ fontSize: 13, color: '#9ca3af', marginRight: 4 }}>{items.length}</Text>
-            <ChevronRight size={13} color="#9ca3af" style={{ transform: [{ rotate: collapsed ? '0deg' : '90deg' }] }} />
-          </Pressable>
-        )
-
+      {(groupBy === 'time'
+        ? timeGroups.map(({ bucket, label, sublabel, color, bg, items }) => ({ key: bucket, label, sublabel, color, bg, items }))
+        : priorityGroups.map(({ bucket, items }) => ({
+            key: bucket,
+            label: PRIORITY_LABEL[bucket],
+            sublabel: PRIORITY_META[bucket].sublabel,
+            color: PRIORITY_COLOR[bucket],
+            bg: PRIORITY_META[bucket].bg,
+            items,
+          }))
+      ).map(({ key, label, sublabel, color, bg, items }) => {
+        const collapsed = collapsedGroups.has(key)
+        const header = renderGroupHeader(key, label, sublabel, color, bg, items.length)
         const rows = collapsed ? null : items.map(({ task: t, index }) => {
           const entry = getEntry(t.id)
           const isDone = !!entry?.completedAt
@@ -1213,17 +1270,15 @@ export function ExecuteTaskList() {
               </Pressable>
               {/* Row index */}
               <Text style={{ fontSize: 10, color: '#C4C4C4', fontWeight: '500', width: 16, textAlign: 'right' }}>{index + 1}</Text>
-              {/* Status icon */}
-              {isDone
-                ? <CheckCircle2 size={15} color="#22c55e" />
-                : <Circle size={15} color={isCurrent ? BLUE : '#D1D5DB'} />}
+              {/* Status icon — only show when done */}
+              {isDone && <CheckCircle2 size={15} color="#22c55e" />}
               {/* Title */}
               <Text style={{
-                flex: 1, fontSize: 13,
+                flex: 1, fontSize: 13, lineHeight: 18,
                 color: isDone ? '#C4C4C4' : isCurrent ? '#111827' : '#4B5563',
                 textDecorationLine: isDone ? 'line-through' : 'none',
                 fontWeight: isCurrent ? '600' : '400',
-              }} numberOfLines={1}>
+              }}>
                 <InlineMarkdown content={t.content} />
               </Text>
               {/* Tags column (desktop only) */}
@@ -1324,9 +1379,9 @@ export function ExecuteTaskList() {
         })
 
         if (Platform.OS === 'web') {
-          return <div key={bucket}>{header}{rows}</div>
+          return <div key={key}>{header}{rows}</div>
         }
-        return <View key={bucket}>{header}{rows}</View>
+        return <View key={key}>{header}{rows}</View>
       })}
 
       {insertIdx === orderedTasks.length && draggingIdx !== null && draggingIdx !== orderedTasks.length - 1 && (
@@ -1388,6 +1443,7 @@ export function ExecuteTaskList() {
           className="execute-left-panel"
           style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         >
+          {groupByToggle}
           {columnMode && columnHeader}
           {listContent}
         </div>
@@ -1396,7 +1452,7 @@ export function ExecuteTaskList() {
     )
   }
 
-  return <>{listContent}{pickers}</>
+  return <>{groupByToggle}{listContent}{pickers}</>
 }
 
 // ─── Full standalone view (mobile / non-split desktop) ───────────────────────
@@ -1407,14 +1463,15 @@ interface ExecuteModeViewProps {
   onClose: () => void
   onJumpToRaw?: (taskId: number) => void
   onJumpToMindmap?: (taskId: number) => void
+  onSwitchToLog?: () => void
 }
 
 // ─── Animated day progress bar ────────────────────────────────────────────────
 
-export function ExecuteModeView({ tasks, checklistId, onClose, onJumpToRaw, onJumpToMindmap }: ExecuteModeViewProps) {
+export function ExecuteModeView({ tasks, checklistId, onClose, onJumpToRaw, onJumpToMindmap, onSwitchToLog }: ExecuteModeViewProps) {
   return (
     <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={onJumpToRaw} onJumpToMindmap={onJumpToMindmap}>
-      <ExecuteViewContent onClose={onClose} />
+      <ExecuteViewContent onClose={onClose} onSwitchToLog={onSwitchToLog} />
     </ExecuteStateProvider>
   )
 }
@@ -1422,7 +1479,7 @@ export function ExecuteModeView({ tasks, checklistId, onClose, onJumpToRaw, onJu
 const POMO_WORK_SECS = 25 * 60
 const POMO_BREAK_SECS = 5 * 60
 
-export function ExecuteViewContent({ onClose }: { onClose: () => void }) {
+export function ExecuteViewContent({ onClose, onSwitchToLog }: { onClose: () => void; onSwitchToLog?: () => void }) {
   const {
     currentTask, currentSeconds, isRunning, currentEntry, orderedTasks,
     currentIndex, jumpTo,
@@ -1731,11 +1788,35 @@ export function ExecuteViewContent({ onClose }: { onClose: () => void }) {
               {isRunning ? <Pause size={isMobile ? 22 : 28} color="white" /> : <Play size={isMobile ? 22 : 28} color="white" />}
             </Pressable>
             <Pressable hitSlop={8} onPress={() => adjust(ESTIMATE_STEP)}><Plus size={isMobile ? 24 : 28} color="#666" /></Pressable>
-            <Pressable hitSlop={8} onPress={complete} className="items-center justify-center rounded-full" style={{ width: isMobile ? 36 : 40, height: isMobile ? 36 : 40, backgroundColor: '#16A34A' }}>
-              <Check size={isMobile ? 18 : 22} color="white" />
-            </Pressable>
             <MuteButton />
           </View>
+
+          {/* Defer CTAs */}
+          {currentTask && (
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10, justifyContent: 'center' }}>
+              <Pressable
+                onPress={() => {
+                  const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd')
+                  updateTask({ taskId: currentTask.id, payload: { due_date: tomorrow } })
+                  nextTask()
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
+              >
+                <Sunrise size={13} color="#8B5CF6" />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: '#8B5CF6' }}>Move to Tomorrow</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  updateTask({ taskId: currentTask.id, payload: { priority: 9 } })
+                  nextTask()
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
+              >
+                <ArrowDown size={13} color="#7c3aed" />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: '#7c3aed' }}>De-prioritize</Text>
+              </Pressable>
+            </View>
+          )}
 
           {showDatePicker && currentTask && (
             <QuickDatePicker
@@ -1763,7 +1844,8 @@ export function ExecuteViewContent({ onClose }: { onClose: () => void }) {
         </View>
 
         {/* Compact sessions strip */}
-        <View
+        <Pressable
+          onPress={onSwitchToLog}
           style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 8, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: 'white', borderRadius: 12, borderWidth: 1, borderColor: '#F1F5F9' }}
         >
           <Clock size={13} color={INDIGO} />
@@ -1790,7 +1872,7 @@ export function ExecuteViewContent({ onClose }: { onClose: () => void }) {
               <Text style={{ fontSize: 10, color: '#CBD5E1' }}>intention</Text>
             </Pressable>
           )}
-        </View>
+        </Pressable>
       </View>
 
       {/* Scrollable task list (hidden in focus mode) */}

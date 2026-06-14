@@ -136,10 +136,11 @@ const QUADRANTS: [QuadrantConfig, QuadrantConfig, QuadrantConfig, QuadrantConfig
 
 export type TimeBucket = 'tbd' | '5min' | '10min' | 'long'
 
+// Checkvist stores tags WITHOUT '#' in tags_as_text (comma-separated)
 const TIME_TAG_MAP: Record<Exclude<TimeBucket, 'tbd'>, string> = {
-  '5min': '#5min',
-  '10min': '#10min',
-  long: '#long',
+  '5min': '5min',
+  '10min': '10min',
+  long: 'long',
 }
 
 const ALL_TIME_TAGS = Object.values(TIME_TAG_MAP)
@@ -154,11 +155,11 @@ interface TimeQuadrantConfig {
   Icon: typeof Timer
 }
 
-const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfig] = [
+export const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfig] = [
   {
     bucket: 'tbd',
-    label: 'Block 1',
-    sublabel: 'No time defined',
+    label: 'Unscheduled',
+    sublabel: 'No duration set',
     color: '#6B7280',
     bg: '#F9FAFB',
     border: '#E5E7EB',
@@ -166,7 +167,7 @@ const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfi
   },
   {
     bucket: '5min',
-    label: 'Block 2',
+    label: 'Quick',
     sublabel: '≤ 5 minutes',
     color: '#0369a1',
     bg: '#EFF6FF',
@@ -175,8 +176,8 @@ const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfi
   },
   {
     bucket: '10min',
-    label: 'Block 3',
-    sublabel: '> 5 min up to 10 min',
+    label: 'Short',
+    sublabel: '6 – 15 minutes',
     color: '#0891b2',
     bg: '#ECFEFF',
     border: '#A5F3FC',
@@ -184,8 +185,8 @@ const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfi
   },
   {
     bucket: 'long',
-    label: 'Block 4',
-    sublabel: '> 10 minutes',
+    label: 'Deep Work',
+    sublabel: '> 15 minutes',
     color: '#b45309',
     bg: '#FFFBEB',
     border: '#FDE68A',
@@ -193,35 +194,35 @@ const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfi
   },
 ]
 
-function classifyTime(task: CheckvistTask): TimeBucket {
-  const tags = task.tags_as_text ?? ''
-  // Explicit tag assignments take priority
-  if (tags.includes('#5min')) return '5min'
-  if (tags.includes('#10min')) return '10min'
-  if (tags.includes('#long')) return 'long'
+export function classifyTime(task: CheckvistTask): TimeBucket {
+  // Checkvist stores tags without '#', comma-separated (e.g. "5min,blocked")
+  const tagSet = new Set((task.tags_as_text ?? '').split(/[,\s]+/).filter(Boolean))
+  if (tagSet.has('5min')) return '5min'
+  if (tagSet.has('10min')) return '10min'
+  if (tagSet.has('long')) return 'long'
   // Fall back to duration field if available
   if (task.duration) {
     const m = task.duration.minutes
     if (m <= 5) return '5min'
-    if (m <= 10) return '10min'
+    if (m <= 15) return '10min'
     return 'long'
   }
-  // No time info → TBD (Block 1)
   return 'tbd'
 }
 
 function buildTimeTagsString(task: CheckvistTask, newBucket: TimeBucket): string {
+  // Split by comma or space, strip any '#' prefix, remove existing time tags
   const existingTags = (task.tags_as_text ?? '')
-    .split(/\s+/)
+    .split(/[,\s]+/)
+    .map((t) => t.replace(/^#/, ''))
     .filter((t) => t && !ALL_TIME_TAGS.includes(t))
-    .join(' ')
+    .join(',')
     .trim()
 
-  // TBD means no time tag at all
   if (newBucket === 'tbd') return existingTags
 
   const newTag = TIME_TAG_MAP[newBucket]
-  return existingTags ? `${existingTags} ${newTag}` : newTag
+  return existingTags ? `${existingTags},${newTag}` : newTag
 }
 
 // ─── Web drag hooks ───────────────────────────────────────────────────────────
@@ -268,17 +269,22 @@ function useDropZoneRef(
     const el = ref.current as unknown as HTMLElement | null
     if (!el) return
 
-    const overHandler = (e: DragEvent) => { e.preventDefault(); cbs.current.onDragOver() }
-    const leaveHandler = () => cbs.current.onDragLeave()
-    const dropHandler = (e: DragEvent) => { e.preventDefault(); cbs.current.onDrop() }
+    // Use capture phase so we always intercept dragover before child elements
+    // (empty quadrants have no cards to propagate the event up)
+    const overHandler = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); cbs.current.onDragOver() }
+    const leaveHandler = (e: DragEvent) => {
+      // Only fire when leaving the quadrant entirely
+      if (!el.contains(e.relatedTarget as Node)) cbs.current.onDragLeave()
+    }
+    const dropHandler = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); cbs.current.onDrop() }
 
-    el.addEventListener('dragover', overHandler)
+    el.addEventListener('dragover', overHandler, true)
     el.addEventListener('dragleave', leaveHandler)
-    el.addEventListener('drop', dropHandler)
+    el.addEventListener('drop', dropHandler, true)
     return () => {
-      el.removeEventListener('dragover', overHandler)
+      el.removeEventListener('dragover', overHandler, true)
       el.removeEventListener('dragleave', leaveHandler)
-      el.removeEventListener('drop', dropHandler)
+      el.removeEventListener('drop', dropHandler, true)
     }
   }, [])
 
@@ -368,24 +374,15 @@ function MatrixQuadrant<TBucket extends string>({
   onDragOver, onDragLeave, onDrop,
   onCardDragStart, onMoveTo, showTimeBadge,
 }: MatrixQuadrantProps<TBucket>) {
-  const dropRef = useDropZoneRef(onDragOver, onDragLeave, onDrop)
   const { Icon } = config
 
-  // Same keyboard navigation/reorder/selection model as the Execute tab,
-  // scoped to this quadrant's task list (order persisted via task `position`).
   const { orderedTasks, currentIndex, selectedIndices, onItemMouseDown, onKeyDown, panelRef } =
     useOrderedTaskGroup(tasks, checklistId)
 
-  const setRefs = (el: View | null) => {
-    (dropRef as React.MutableRefObject<View | null>).current = el
-    if (Platform.OS === 'web') panelRef.current = el as unknown as HTMLDivElement | null
-  }
-
-  return (
+  const inner = (
     <View
-      ref={setRefs}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      {...(Platform.OS === 'web' ? { tabIndex: 0, onKeyDown } as any : {})}
+      {...(Platform.OS === 'web' ? { tabIndex: 0, onKeyDown, ref: (el: View | null) => { panelRef.current = el as unknown as HTMLDivElement | null } } as any : {})}
       style={{
         flex: 1,
         backgroundColor: isDropTarget ? config.bg : 'white',
@@ -430,9 +427,21 @@ function MatrixQuadrant<TBucket extends string>({
 
       <ScrollView style={{ flex: 1, padding: 8 }} showsVerticalScrollIndicator={false}>
         {orderedTasks.length === 0 ? (
-          <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-            <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Drop tasks here</Text>
-          </View>
+          Platform.OS === 'web' ? (
+            // eslint-disable-next-line react-native/no-inline-styles
+            <div
+              style={{ minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOver() }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) onDragLeave() }}
+              onDrop={(e) => { e.preventDefault(); onDrop() }}
+            >
+              <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Drop tasks here</Text>
+            </div>
+          ) : (
+            <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Drop tasks here</Text>
+            </View>
+          )
         ) : (
           orderedTasks.map((task, index) => (
             <MatrixTaskCard
@@ -450,6 +459,22 @@ function MatrixQuadrant<TBucket extends string>({
         )}
       </ScrollView>
     </View>
+  )
+
+  if (Platform.OS !== 'web') return inner
+
+  // On web use a div wrapper so React's synthetic DnD events work reliably
+  // (imperative addEventListener on RNW View is blocked by overflow:hidden and ScrollView)
+  return (
+    // eslint-disable-next-line react-native/no-inline-styles
+    <div
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 180 }}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOver() }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) onDragLeave() }}
+      onDrop={(e) => { e.preventDefault(); onDrop() }}
+    >
+      {inner}
+    </div>
   )
 }
 

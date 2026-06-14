@@ -23,6 +23,7 @@ import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskLi
 import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
 import { EisenhowerMatrixView } from './EisenhowerMatrixView'
+import { KanbanView } from './KanbanView'
 import { RoutinesView } from '@/features/tasks/routines/RoutinesView'
 import { TimerModeView, MiniTimerBar } from '@/features/tasks/routines/TimerModeView'
 import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
@@ -619,6 +620,7 @@ const TABS = [
 export function TaskListView({ checklistId }: TaskListViewProps) {
   const { width } = useWindowDimensions()
   const isMobile = width < 768
+  const showTabLabels = width >= 1080
   const { data: tasks, isLoading, isError, refetch, isFetching } = useTasksQuery(checklistId)
   const [showFabInput, setShowFabInput] = useState(false)
   const [newTaskText, setNewTaskText] = useState('')
@@ -626,6 +628,8 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
   const [showShortcuts, setShowShortcuts] = useState(false)
 const { view, setView, focusedTaskId } = useTaskView()
   const { order: tabOrder, moveTab, reorderTab } = useTabBarConfig()
+  const [logInitialMode, setLogInitialMode] = useState<'calendar' | 'agenda'>('calendar')
+  const [dateSubView, setDateSubView] = useState<'list' | 'kanban'>('list')
   const [showMoreSheet, setShowMoreSheet] = useState(false)
   const [customizing, setCustomizing] = useState(false)
 
@@ -716,7 +720,7 @@ const { view, setView, focusedTaskId } = useTaskView()
         style={{
           paddingTop: insets.top + 8,
           paddingBottom: 10,
-          gap: 12,
+          gap: showTabLabels ? 12 : 4,
           borderBottomWidth: 1,
           borderBottomColor: '#EFEFEF',
           elevation: 2,
@@ -739,15 +743,17 @@ const { view, setView, focusedTaskId } = useTaskView()
               hitSlop={6}
               style={{
                 flexDirection: 'row', alignItems: 'center', gap: 4,
-                paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+                paddingHorizontal: showTabLabels ? 8 : 6, paddingVertical: 4, borderRadius: 8,
                 backgroundColor: active ? '#EEF2FF' : 'transparent',
                 position: 'relative',
               }}
             >
               <Icon size={16} color={active ? BLUE : '#666'} style={{ opacity: active ? 1 : 0.7 }} />
-              <Text className="text-xs font-medium" style={{ color: active ? BLUE : '#666', opacity: active ? 1 : 0.8 }}>
-                {label}
-              </Text>
+              {showTabLabels && (
+                <Text className="text-xs font-medium" style={{ color: active ? BLUE : '#666', opacity: active ? 1 : 0.8 }}>
+                  {label}
+                </Text>
+              )}
               {showShortcuts && (
                 <View style={{
                   position: 'absolute', top: -8, right: -4,
@@ -840,6 +846,7 @@ const { view, setView, focusedTaskId } = useTaskView()
               checklistId={checklistId}
               onClose={() => setView('date')}
               onJumpToMindmap={(id) => { setView('mindmap', id) }}
+              onSwitchToLog={() => { setLogInitialMode('agenda'); setView('log') }}
             />
           </View>
         ) : (
@@ -850,14 +857,16 @@ const { view, setView, focusedTaskId } = useTaskView()
       {/* ── Execution log view ──────────────────────────────────── */}
       {view === 'log' && (
         <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
-          <ExecutionLogView checklistId={checklistId} taskNames={taskNames} />
+          <ExecutionLogView checklistId={checklistId} taskNames={taskNames} initialViewMode={logInitialMode} />
         </View>
       )}
 
       {/* ── Progress view ───────────────────────────────────────── */}
       {view === 'progress' && (
         <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
-          <ProgressTab />
+          <ErrorBoundary>
+            <ProgressTab />
+          </ErrorBoundary>
         </View>
       )}
 
@@ -904,7 +913,31 @@ const { view, setView, focusedTaskId } = useTaskView()
           {!isLoading && !isError && !isEmpty && tasks && (
             <View className="flex-1" style={{ paddingBottom: isMobile ? tabBarH : 0 }}>
               {view === 'date' && (
-                <PriorityDateView groups={groups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} />
+                <View style={{ flex: 1 }}>
+                  {/* List / Kanban toggle */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
+                    <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderRadius: 8, padding: 2 }}>
+                      <Pressable
+                        onPress={() => setDateSubView('list')}
+                        style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: dateSubView === 'list' ? 'white' : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        <LayoutList size={13} color={dateSubView === 'list' ? BLUE : '#9CA3AF'} />
+                        <Text style={{ fontSize: 11, fontWeight: '600', color: dateSubView === 'list' ? BLUE : '#9CA3AF' }}>List</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setDateSubView('kanban')}
+                        style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: dateSubView === 'kanban' ? 'white' : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      >
+                        <LayoutGrid size={13} color={dateSubView === 'kanban' ? BLUE : '#9CA3AF'} />
+                        <Text style={{ fontSize: 11, fontWeight: '600', color: dateSubView === 'kanban' ? BLUE : '#9CA3AF' }}>Kanban</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                  {dateSubView === 'list'
+                    ? <PriorityDateView groups={groups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} />
+                    : <KanbanView groups={groups} checklistId={checklistId} />
+                  }
+                </View>
               )}
               {view === 'list' && (
                 <FlatTaskList tasks={tasks} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} />

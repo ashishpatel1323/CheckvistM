@@ -386,13 +386,13 @@ function AgendaList({ blocks, taskNames, onPressBlock }: {
   )
 }
 
-export function ExecutionLogView({ checklistId, taskNames }: { checklistId: number; taskNames: Record<number, string> }) {
+export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { checklistId: number; taskNames: Record<number, string>; initialViewMode?: 'calendar' | 'agenda' }) {
   const { entries, timerRunningKey, timerStartedAt, updateSessionTimes } = useExecuteLog()
   const { remoteSessions, fetchTodaySessions, systemListId, addManualSession } = useSystemLog()
   const [now, setNow]           = useState(() => new Date())
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [showCalendar, setShowCalendar] = useState(false)
-  const [viewMode, setViewMode] = useState<'calendar' | 'agenda'>('calendar')
+  const [viewMode, setViewMode] = useState<'calendar' | 'agenda'>(initialViewMode ?? 'calendar')
   const scrollRef               = useRef<ScrollView>(null)
   const [editingBlock, setEditingBlock] = useState<LogBlock | null>(null)
   const [addingAt, setAddingAt] = useState<number | null>(null) // minutes from midnight

@@ -139,7 +139,7 @@ export function TaskRow({
         </Pressable>
 
         {/* Content */}
-        <Text style={{ flex: 1, fontSize: 14, color: '#1a1a1a', letterSpacing: 0.1 }} numberOfLines={1}>
+        <Text style={{ flex: 1, fontSize: 14, color: '#1a1a1a', letterSpacing: 0.1, lineHeight: 20 }}>
           <InlineMarkdown content={task.content} />
           {hiddenDescendantCount > 0 && (
             <Text style={{ fontSize: 12, color: '#BDBDBD' }}> · {hiddenDescendantCount} hidden</Text>

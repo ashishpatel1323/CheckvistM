@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert } from 'react-native'
+import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert, Platform } from 'react-native'
 import { useTrackers, useCreateTracker } from './hooks/useTrackers'
 import { TrackerCard } from './TrackerCard'
 import { TrackerDetailView } from './TrackerDetailView'
@@ -15,7 +15,14 @@ export function ProgressTab() {
   const { data: trackers = [], isLoading, error, refetch } = useTrackers()
   const createTracker = useCreateTracker()
 
-  useEffect(() => { syncProgressWidget(trackers) }, [trackers])
+  useEffect(() => {
+    console.log('[ProgressTab] mount, platform:', Platform.OS, 'trackers:', trackers.length)
+    try {
+      syncProgressWidget(trackers)
+    } catch (e) {
+      console.error('[ProgressTab] syncProgressWidget threw:', e)
+    }
+  }, [trackers])
 
   async function handleCreate(name: string, meta: TrackerMeta) {
     try {

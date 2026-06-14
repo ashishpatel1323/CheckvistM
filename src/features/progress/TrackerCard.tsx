@@ -120,7 +120,7 @@ function MiniChart({ trackerId, initialValue, targetValue, filledColor, backgrou
 
 export function TrackerCard({ tracker, onClick }: Props) {
   const { meta, currentValue, name, lastUpdatedAt, taskId } = tracker
-  const { filled, background, text } = COLOR_PAIRS[meta.colorKey]
+  const { filled, background, text } = COLOR_PAIRS[meta.colorKey] ?? COLOR_PAIRS.blue
   const pct = meta.targetValue > 0
     ? Math.min(100, (currentValue / meta.targetValue) * 100)
     : 0

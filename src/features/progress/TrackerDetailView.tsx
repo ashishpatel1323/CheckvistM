@@ -84,7 +84,7 @@ export function TrackerDetailView({ tracker, onBack, onDeleted }: Props) {
   const updateTracker = useUpdateTracker()
   const deleteTracker = useDeleteTracker()
 
-  const { filled, background } = COLOR_PAIRS[tracker.meta.colorKey]
+  const { filled, background } = COLOR_PAIRS[tracker.meta.colorKey] ?? COLOR_PAIRS.blue
 
   const series = buildTimeSeries(entries, tracker.meta.initialValue)
   const cumulativeMap = buildCumulativeMap(entries, tracker.meta.initialValue)
