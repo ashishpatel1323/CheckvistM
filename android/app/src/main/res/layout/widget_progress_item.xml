@@ -8,6 +8,16 @@
     android:paddingStart="2dp"
     android:paddingEnd="2dp">
 
+    <!-- All-time chart bitmap (drawn in Kotlin, hidden when no data) -->
+    <ImageView
+        android:id="@+id/progress_item_chart"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:layout_marginBottom="4dp"
+        android:scaleType="fitXY"
+        android:adjustViewBounds="false"
+        android:visibility="gone" />
+
     <!-- Name row: color dot + name + pct -->
     <LinearLayout
         android:layout_width="match_parent"

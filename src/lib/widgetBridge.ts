@@ -1,8 +1,9 @@
 import { NativeModules, Platform } from 'react-native'
 import { format } from 'date-fns'
 import type { RoutineDef, CheckinLog } from '@/features/tasks/routines/routineTypes'
-import type { Tracker } from '@/features/progress/types'
+import type { Tracker, TrackerEntry } from '@/features/progress/types'
 import { COLOR_PAIRS } from '@/features/progress/lib/trackerEncoding'
+import { buildTimeSeries } from '@/features/progress/lib/replayEngine'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const WidgetDataModule: {
@@ -79,12 +80,22 @@ export function syncWidget(
 
 /**
  * Serialises progress tracker state into JSON for the Progress Android widget.
+ * entriesMap: trackerId → TrackerEntry[] for chart data (optional)
  */
-export function buildProgressWidgetPayload(trackers: Tracker[]): string {
+export function buildProgressWidgetPayload(
+  trackers: Tracker[],
+  entriesMap: Record<number, TrackerEntry[]> = {},
+): string {
   const items = trackers.map((t) => {
-    const { targetValue } = t.meta
+    const { targetValue, initialValue } = t.meta
     const pct = targetValue > 0 ? Math.min(100, (t.currentValue / targetValue) * 100) : 0
     const colors = COLOR_PAIRS[t.meta.colorKey] ?? COLOR_PAIRS.blue
+
+    // Build time series for the chart; keep last 30 points to limit payload size
+    const entries = entriesMap[t.taskId] ?? []
+    const series = buildTimeSeries(entries, initialValue)
+    const chartPoints = series.slice(-30).map((p) => ({ d: p.date, v: p.value }))
+
     return {
       name: t.name,
       current: t.currentValue,
@@ -93,6 +104,7 @@ export function buildProgressWidgetPayload(trackers: Tracker[]): string {
       unit: t.meta.unit ?? '',
       filledColor: colors.filled,
       bgColor: colors.background,
+      chartPoints,
     }
   })
   return JSON.stringify({ trackers: items, updatedAt: format(new Date(), 'HH:mm') })
@@ -102,10 +114,13 @@ export function buildProgressWidgetPayload(trackers: Tracker[]): string {
  * Pushes current progress tracker state to the Android Progress widget.
  * No-op on iOS or web.
  */
-export function syncProgressWidget(trackers: Tracker[]): void {
+export function syncProgressWidget(
+  trackers: Tracker[],
+  entriesMap: Record<number, TrackerEntry[]> = {},
+): void {
   if (Platform.OS !== 'android' || !WidgetDataModule.updateProgressWidgetData) return
   try {
-    WidgetDataModule.updateProgressWidgetData(buildProgressWidgetPayload(trackers))
+    WidgetDataModule.updateProgressWidgetData(buildProgressWidgetPayload(trackers, entriesMap))
   } catch (e) {
     console.warn('[WidgetBridge] progress sync failed:', e)
   }

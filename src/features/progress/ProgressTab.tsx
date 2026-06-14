@@ -4,8 +4,9 @@ import { useTrackers, useCreateTracker } from './hooks/useTrackers'
 import { TrackerCard } from './TrackerCard'
 import { TrackerDetailView } from './TrackerDetailView'
 import { AddTrackerSheet } from './AddTrackerSheet'
-import type { Tracker, TrackerMeta } from './types'
+import type { Tracker, TrackerMeta, TrackerEntry } from './types'
 import { syncProgressWidget } from '@/lib/widgetBridge'
+import { useProgressSystem } from './hooks/useProgressSystem'
 
 type TabView = { kind: 'list' } | { kind: 'detail'; tracker: Tracker } | { kind: 'add' }
 
@@ -14,14 +15,27 @@ export function ProgressTab() {
   // Always mounted so the query observer stays active across view changes
   const { data: trackers = [], isLoading, error, refetch } = useTrackers()
   const createTracker = useCreateTracker()
+  const { loadEntries } = useProgressSystem()
 
   useEffect(() => {
     console.log('[ProgressTab] mount, platform:', Platform.OS, 'trackers:', trackers.length)
-    try {
-      syncProgressWidget(trackers)
-    } catch (e) {
-      console.error('[ProgressTab] syncProgressWidget threw:', e)
+    if (trackers.length === 0) {
+      try { syncProgressWidget([], {}) } catch (e) { console.error('[ProgressTab] syncProgressWidget threw:', e) }
+      return
     }
+    // Load entries for all trackers so widget can show chart
+    Promise.all(
+      trackers.map(async (t) => {
+        const entries: TrackerEntry[] = await loadEntries(t.taskId)
+        return [t.taskId, entries] as [number, TrackerEntry[]]
+      })
+    ).then((pairs) => {
+      const entriesMap = Object.fromEntries(pairs)
+      try { syncProgressWidget(trackers, entriesMap) } catch (e) { console.error('[ProgressTab] syncProgressWidget threw:', e) }
+    }).catch((e) => {
+      console.error('[ProgressTab] loadEntries failed:', e)
+      try { syncProgressWidget(trackers, {}) } catch (_) { /* noop */ }
+    })
   }, [trackers])
 
   async function handleCreate(name: string, meta: TrackerMeta) {
