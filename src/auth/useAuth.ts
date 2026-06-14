@@ -20,6 +20,7 @@ interface AuthState {
   token: string | null
   user: User | null
   isAuthenticated: boolean
+  isInitialized: boolean
   isLoading: boolean
   error: string | null
   login: (email: string, remoteKey: string) => Promise<void>
@@ -31,17 +32,22 @@ export const useAuth = create<AuthState>()((set) => ({
   token: null,
   user: null,
   isAuthenticated: false,
+  isInitialized: false,
   isLoading: false,
   error: null,
 
   initFromStorage: () => {
     if (Platform.OS === 'web') {
       const token = getToken()
-      if (token) set({ token, isAuthenticated: true })
+      if (token) set({ token, isAuthenticated: true, isInitialized: true })
+      else set({ isInitialized: true })
     } else {
-      // Native: async init — restore both token and email so user is never null after restart
+      // Native: async — must wait for SecureStore before routing
       Promise.all([getTokenAsync(), getUserEmailAsync()]).then(([token, email]) => {
-        if (token) set({ token, user: email ? { email } : null, isAuthenticated: true })
+        if (token) set({ token, user: email ? { email } : null, isAuthenticated: true, isInitialized: true })
+        else set({ isInitialized: true })
+      }).catch(() => {
+        set({ isInitialized: true })
       })
     }
   },
@@ -55,7 +61,7 @@ export const useAuth = create<AuthState>()((set) => ({
       } else {
         await setTokenAsync(token, email)
       }
-      set({ token, user: { email }, isAuthenticated: true, isLoading: false, error: null })
+      set({ token, user: { email }, isAuthenticated: true, isInitialized: true, isLoading: false, error: null })
       router.replace('/')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed. Check your credentials.'
