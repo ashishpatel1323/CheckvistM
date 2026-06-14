@@ -10,4 +10,6 @@
     android:initialLayout="@layout/widget_pending_habits"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
-    android:description="@string/widget_description" />
+    android:label="@string/widget_habits_label"
+    android:description="@string/widget_habits_description"
+    android:previewImage="@drawable/widget_preview_habits" />

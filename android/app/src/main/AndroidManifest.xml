@@ -28,6 +28,7 @@
     <!-- Pending Habits home-screen widget -->
     <receiver
         android:name=".widget.PendingHabitsWidget"
+        android:label="@string/widget_habits_label"
         android:exported="true">
       <intent-filter>
         <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -47,6 +48,7 @@
     <!-- Progress Trackers home-screen widget -->
     <receiver
         android:name=".widget.ProgressWidget"
+        android:label="@string/widget_progress_label"
         android:exported="true">
       <intent-filter>
         <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
