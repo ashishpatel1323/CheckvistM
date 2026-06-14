@@ -53,6 +53,7 @@ class PendingHabitsWidget : AppWidgetProvider() {
 
             // Template: mutable VIEW intent — fillInIntent sets the URI per button
             val templateIntent = Intent(Intent.ACTION_VIEW).apply {
+                setClassName(context, "${context.packageName}.MainActivity")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             val templatePending = PendingIntent.getActivity(
