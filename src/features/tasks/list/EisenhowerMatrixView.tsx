@@ -390,7 +390,7 @@ function MatrixQuadrant<TBucket extends string>({
         borderWidth: isDropTarget ? 2 : 1,
         borderColor: isDropTarget ? config.color : config.border,
         overflow: 'hidden',
-        minHeight: 180,
+        minHeight: 120,
       }}
     >
       <View
@@ -562,16 +562,21 @@ function TimeMatrixContent({ tasks, checklistId, isMobile, dateFilter }: TimeMat
 
   if (isMobile) {
     return (
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 12 }}>
-        <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 4 }}>
+      <View style={{ flex: 1, padding: 8 }}>
+        <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>
           Today · {openTasks.length} task{openTasks.length !== 1 ? 's' : ''} · {hint}
         </Text>
-        {TIME_QUADRANTS.map((config) => (
-          <View key={config.bucket} style={{ minHeight: 160 }}>
-            {renderQuadrant(config)}
+        <View style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
+          <View style={{ flex: 1, flexDirection: 'column', gap: 8 }}>
+            {renderQuadrant(TIME_QUADRANTS[0])}
+            {renderQuadrant(TIME_QUADRANTS[2])}
           </View>
-        ))}
-      </ScrollView>
+          <View style={{ flex: 1, flexDirection: 'column', gap: 8 }}>
+            {renderQuadrant(TIME_QUADRANTS[1])}
+            {renderQuadrant(TIME_QUADRANTS[3])}
+          </View>
+        </View>
+      </View>
     )
   }
 
@@ -675,16 +680,21 @@ function PriorityMatrixContent({ tasks, checklistId, isMobile, dateFilter }: Pri
 
   if (isMobile) {
     return (
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 12 }}>
-        <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 4 }}>
+      <View style={{ flex: 1, padding: 8 }}>
+        <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>
           Today · {todayTasks.length} task{todayTasks.length !== 1 ? 's' : ''} · Long-press a card to move it
         </Text>
-        {QUADRANTS.map((config) => (
-          <View key={config.bucket} style={{ minHeight: 160 }}>
-            {renderQuadrant(config)}
+        <View style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
+          <View style={{ flex: 1, flexDirection: 'column', gap: 8 }}>
+            {renderQuadrant(QUADRANTS[0])}
+            {renderQuadrant(QUADRANTS[2])}
           </View>
-        ))}
-      </ScrollView>
+          <View style={{ flex: 1, flexDirection: 'column', gap: 8 }}>
+            {renderQuadrant(QUADRANTS[1])}
+            {renderQuadrant(QUADRANTS[3])}
+          </View>
+        </View>
+      </View>
     )
   }
 
