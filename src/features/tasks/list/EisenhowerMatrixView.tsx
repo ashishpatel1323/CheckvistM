@@ -227,28 +227,134 @@ function buildTimeTagsString(task: CheckvistTask, newBucket: TimeBucket): string
 
 // ─── Web drag hooks ───────────────────────────────────────────────────────────
 
-function useDraggableRef(onDragStart: () => void) {
+// Module-level touch-drag state (only one drag at a time)
+let _tdGhost: HTMLElement | null = null
+let _tdTimer: ReturnType<typeof setTimeout> | null = null
+let _tdActive = false
+
+function _tdCleanup() {
+  clearTimeout(_tdTimer ?? undefined)
+  _tdTimer = null
+  _tdGhost?.remove()
+  _tdGhost = null
+  _tdActive = false
+  document.querySelectorAll('[data-matrix-bucket]').forEach((el) => {
+    (el as HTMLElement).style.outline = ''
+  })
+}
+
+function _tdFindBucket(x: number, y: number): string | null {
+  for (const el of document.elementsFromPoint(x, y)) {
+    const b = (el as HTMLElement).dataset?.matrixBucket
+    if (b) return b
+  }
+  return null
+}
+
+// Combined hook: HTML5 drag (mouse/desktop) + touch drag (mobile web)
+function useCardDragRef(
+  task: CheckvistTask,
+  onDragStart: () => void,
+  onTouchDropAtPoint?: (x: number, y: number) => void,
+) {
   const ref = useRef<View>(null)
-  const cbRef = useRef(onDragStart)
-  cbRef.current = onDragStart
+  const cbsRef = useRef({ onDragStart, onTouchDropAtPoint, task })
+  cbsRef.current = { onDragStart, onTouchDropAtPoint, task }
+  const startRef = useRef({ x: 0, y: 0, moved: false })
 
   useEffect(() => {
     if (Platform.OS !== 'web') return
     const el = ref.current as unknown as HTMLElement | null
     if (!el) return
+
+    // ── HTML5 drag (mouse / desktop) ─────────────────────────────────────────
     el.setAttribute('draggable', 'true')
     el.style.cursor = 'grab'
-    const handler = (e: DragEvent) => {
+    const onDragStartEvt = (e: DragEvent) => {
       e.dataTransfer?.setData('text/plain', 'matrix-drag')
       el.style.opacity = '0.5'
-      cbRef.current()
+      cbsRef.current.onDragStart()
     }
-    const endHandler = () => { el.style.opacity = '1' }
-    el.addEventListener('dragstart', handler)
-    el.addEventListener('dragend', endHandler)
+    const onDragEnd = () => { el.style.opacity = '1' }
+    el.addEventListener('dragstart', onDragStartEvt)
+    el.addEventListener('dragend', onDragEnd)
+
+    // ── Touch drag (mobile web) ───────────────────────────────────────────────
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0]
+      startRef.current = { x: t.clientX, y: t.clientY, moved: false }
+
+      _tdTimer = setTimeout(() => {
+        if (startRef.current.moved) return
+        _tdActive = true
+        cbsRef.current.onDragStart()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(navigator as any).vibrate?.(40)
+        el.style.opacity = '0.4'
+
+        const ghost = document.createElement('div')
+        // eslint-disable-next-line react-native/no-inline-styles
+        ghost.style.cssText = [
+          'position:fixed', 'z-index:9999', 'pointer-events:none',
+          'background:white', 'border-radius:8px', 'padding:6px 10px',
+          'box-shadow:0 6px 24px rgba(0,0,0,0.22)', 'font-size:12px',
+          'max-width:150px', 'white-space:nowrap', 'overflow:hidden',
+          'text-overflow:ellipsis', 'opacity:0.93',
+          `left:${startRef.current.x - 75}px`, `top:${startRef.current.y - 24}px`,
+          'border-left:3px solid #4772FA', 'transform:rotate(-2deg)',
+        ].join(';')
+        ghost.textContent = cbsRef.current.task.content.replace(/[*_`#]/g, '').slice(0, 38)
+        document.body.appendChild(ghost)
+        _tdGhost = ghost
+      }, 420)
+    }
+
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0]
+      if (!_tdActive) {
+        const dx = Math.abs(t.clientX - startRef.current.x)
+        const dy = Math.abs(t.clientY - startRef.current.y)
+        if (dx > 8 || dy > 8) {
+          startRef.current.moved = true
+          clearTimeout(_tdTimer ?? undefined)
+          _tdTimer = null
+        }
+        return
+      }
+      e.preventDefault()
+      if (_tdGhost) {
+        _tdGhost.style.left = `${t.clientX - 75}px`
+        _tdGhost.style.top = `${t.clientY - 24}px`
+      }
+      const bucket = _tdFindBucket(t.clientX, t.clientY)
+      document.querySelectorAll('[data-matrix-bucket]').forEach((bel) => {
+        ;(bel as HTMLElement).style.outline =
+          (bel as HTMLElement).dataset.matrixBucket === bucket ? '2px solid #4772FA' : ''
+      })
+    }
+
+    const onTouchEnd = (e: TouchEvent) => {
+      el.style.opacity = '1'
+      if (_tdActive) {
+        const t = e.changedTouches[0]
+        cbsRef.current.onTouchDropAtPoint?.(t.clientX, t.clientY)
+      }
+      _tdCleanup()
+    }
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+    el.addEventListener('touchend', onTouchEnd)
+    el.addEventListener('touchcancel', onTouchEnd)
+
     return () => {
-      el.removeEventListener('dragstart', handler)
-      el.removeEventListener('dragend', endHandler)
+      el.removeEventListener('dragstart', onDragStartEvt)
+      el.removeEventListener('dragend', onDragEnd)
+      clearTimeout(_tdTimer ?? undefined)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
     }
   }, [])
 
@@ -302,10 +408,11 @@ interface MatrixTaskCardProps {
   isCurrent?: boolean
   isSelected?: boolean
   onMouseDown?: (e: React.MouseEvent) => void
+  onTouchDropAtPoint?: (x: number, y: number) => void
 }
 
-function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTimeBadge, isCurrent, isSelected, onMouseDown }: MatrixTaskCardProps) {
-  const dragRef = useDraggableRef(onDragStart)
+function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTimeBadge, isCurrent, isSelected, onMouseDown, onTouchDropAtPoint }: MatrixTaskCardProps) {
+  const dragRef = useCardDragRef(task, onDragStart, onTouchDropAtPoint)
   const timeBucket = showTimeBadge ? classifyTime(task) : null
 
   return (
@@ -367,12 +474,14 @@ interface MatrixQuadrantProps<TBucket extends string> {
   onCardDragStart: (task: CheckvistTask) => void
   onMoveTo: (task: CheckvistTask) => void
   showTimeBadge?: boolean
+  onTouchDropAtPoint?: (x: number, y: number) => void
 }
 
 function MatrixQuadrant<TBucket extends string>({
   config, tasks, checklistId, isDropTarget,
   onDragOver, onDragLeave, onDrop,
   onCardDragStart, onMoveTo, showTimeBadge,
+  onTouchDropAtPoint,
 }: MatrixQuadrantProps<TBucket>) {
   const { Icon } = config
 
@@ -454,6 +563,7 @@ function MatrixQuadrant<TBucket extends string>({
               isCurrent={index === currentIndex}
               isSelected={selectedIndices.has(index)}
               onMouseDown={Platform.OS === 'web' ? (e) => onItemMouseDown(e, index) : undefined}
+              onTouchDropAtPoint={onTouchDropAtPoint}
             />
           ))
         )}
@@ -468,7 +578,8 @@ function MatrixQuadrant<TBucket extends string>({
   return (
     // eslint-disable-next-line react-native/no-inline-styles
     <div
-      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 180 }}
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 120 }}
+      data-matrix-bucket={config.bucket}
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOver() }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) onDragLeave() }}
       onDrop={(e) => { e.preventDefault(); onDrop() }}
@@ -511,6 +622,12 @@ function TimeMatrixContent({ tasks, checklistId, isMobile, dateFilter }: TimeMat
     updateTask({ taskId: task.id, payload: { tags_as_text } })
   }, [updateTask])
 
+  const handleTouchDropAtPoint = useCallback((x: number, y: number) => {
+    const bucket = _tdFindBucket(x, y) as TimeBucket | null
+    if (bucket) handleDrop(bucket)
+    else draggedTask.current = null
+  }, [handleDrop])
+
   const handleNativeLongPress = (task: CheckvistTask) => {
     Alert.alert(
       'Move to time block',
@@ -543,10 +660,11 @@ function TimeMatrixContent({ tasks, checklistId, isMobile, dateFilter }: TimeMat
       onCardDragStart={(task) => { draggedTask.current = task }}
       onMoveTo={handleNativeLongPress}
       showTimeBadge
+      onTouchDropAtPoint={handleTouchDropAtPoint}
     />
   )
 
-  const hint = isMobile ? 'Long-press a card to move it' : 'Drag cards between blocks to assign time'
+  const hint = isMobile ? 'Hold & drag a card to move it' : 'Drag cards between blocks to assign time'
 
   if (openTasks.length === 0) {
     return (
@@ -635,6 +753,12 @@ function PriorityMatrixContent({ tasks, checklistId, isMobile, dateFilter }: Pri
     updateTask({ taskId: task.id, payload: { priority: config.targetPriority } })
   }, [updateTask])
 
+  const handleTouchDropAtPoint = useCallback((x: number, y: number) => {
+    const bucket = _tdFindBucket(x, y) as PriorityBucket | null
+    if (bucket) handleDrop(bucket)
+    else draggedTask.current = null
+  }, [handleDrop])
+
   const handleNativeLongPress = (task: CheckvistTask) => {
     Alert.alert(
       'Move to quadrant',
@@ -675,6 +799,7 @@ function PriorityMatrixContent({ tasks, checklistId, isMobile, dateFilter }: Pri
       onDrop={() => handleDrop(config.bucket)}
       onCardDragStart={(task) => { draggedTask.current = task }}
       onMoveTo={handleNativeLongPress}
+      onTouchDropAtPoint={handleTouchDropAtPoint}
     />
   )
 
@@ -682,7 +807,7 @@ function PriorityMatrixContent({ tasks, checklistId, isMobile, dateFilter }: Pri
     return (
       <View style={{ flex: 1, padding: 8 }}>
         <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>
-          Today · {todayTasks.length} task{todayTasks.length !== 1 ? 's' : ''} · Long-press a card to move it
+          Today · {todayTasks.length} task{todayTasks.length !== 1 ? 's' : ''} · Hold & drag a card to move it
         </Text>
         <View style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
           <View style={{ flex: 1, flexDirection: 'column', gap: 8 }}>
