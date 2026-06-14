@@ -161,11 +161,14 @@ export function TrackerCard({ tracker, onClick }: Props) {
         {show('percentage') && (
           <Text style={{ fontSize: 11, color: text, opacity: 0.85 }}>{pct.toFixed(1)}%</Text>
         )}
-        {show('lastUpdated') && lastUpdatedAt && (
-          <Text style={{ fontSize: 10, color: text, opacity: 0.7, marginTop: 1 }}>
-            {formatDistanceToNow(new Date(lastUpdatedAt), { addSuffix: true })}
-          </Text>
-        )}
+        {show('lastUpdated') && lastUpdatedAt && (() => {
+          const d = new Date(lastUpdatedAt)
+          return isNaN(d.getTime()) ? null : (
+            <Text style={{ fontSize: 10, color: text, opacity: 0.7, marginTop: 1 }}>
+              {formatDistanceToNow(d, { addSuffix: true })}
+            </Text>
+          )
+        })()}
         {show('remaining') && (
           <Text style={{ fontSize: 10, color: text, opacity: 0.8, marginTop: 1 }}>
             {meta.targetValue - currentValue} left
