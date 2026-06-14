@@ -1741,6 +1741,33 @@ export function ExecuteViewContent({ onClose, onSwitchToLog }: { onClose: () => 
                 {focusMode ? 'Focused' : 'List'}
               </Text>
             </Pressable>
+
+            {/* Defer actions — inline in chips row so no extra card row needed */}
+            {currentTask && (
+              <>
+                <Pressable
+                  onPress={() => {
+                    const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd')
+                    updateTask({ taskId: currentTask.id, payload: { due_date: tomorrow } })
+                    nextTask()
+                  }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#F5F3FF', borderWidth: 1, borderColor: 'transparent' }}
+                >
+                  <Sunrise size={11} color="#8B5CF6" />
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: '#8B5CF6' }}>Tomorrow</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    updateTask({ taskId: currentTask.id, payload: { priority: 9 } })
+                    nextTask()
+                  }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#F5F3FF', borderWidth: 1, borderColor: 'transparent' }}
+                >
+                  <ArrowDown size={11} color="#7c3aed" />
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: '#7c3aed' }}>De-pri</Text>
+                </Pressable>
+              </>
+            )}
           </ScrollView>
 
           {/* Tags */}
@@ -1791,32 +1818,7 @@ export function ExecuteViewContent({ onClose, onSwitchToLog }: { onClose: () => 
             <MuteButton />
           </View>
 
-          {/* Defer CTAs */}
-          {currentTask && (
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10, justifyContent: 'center' }}>
-              <Pressable
-                onPress={() => {
-                  const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd')
-                  updateTask({ taskId: currentTask.id, payload: { due_date: tomorrow } })
-                  nextTask()
-                }}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
-              >
-                <Sunrise size={13} color="#8B5CF6" />
-                <Text style={{ fontSize: 12, fontWeight: '600', color: '#8B5CF6' }}>Move to Tomorrow</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  updateTask({ taskId: currentTask.id, payload: { priority: 9 } })
-                  nextTask()
-                }}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
-              >
-                <ArrowDown size={13} color="#7c3aed" />
-                <Text style={{ fontSize: 12, fontWeight: '600', color: '#7c3aed' }}>De-prioritize</Text>
-              </Pressable>
-            </View>
-          )}
+
 
           {showDatePicker && currentTask && (
             <QuickDatePicker

@@ -16,7 +16,7 @@
         android:gravity="center_vertical"
         android:layout_marginBottom="4dp">
 
-        <View
+        <TextView android:text=""
             android:id="@+id/progress_item_color_dot"
             android:layout_width="8dp"
             android:layout_height="8dp"
@@ -49,7 +49,7 @@
         android:layout_height="5dp"
         android:layout_marginBottom="3dp">
 
-        <View
+        <TextView android:text=""
             android:id="@+id/progress_item_bar_bg"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />

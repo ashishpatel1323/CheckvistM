@@ -19,16 +19,19 @@ class PendingHabitsWidgetFactory(
     )
 
     private sealed class ListItem {
-        /** Routine name row — shown once per routine that has pending steps */
         data class SectionHeader(
+            val routineTaskId: Int,
             val name: String,
             val color: String,
             val pendingCount: Int,
             val totalSteps: Int,
         ) : ListItem()
 
-        /** Individual pending step row */
-        data class StepRow(val displayText: String) : ListItem()
+        data class StepRow(
+            val routineTaskId: Int,
+            val stepId: String,
+            val displayText: String,
+        ) : ListItem()
     }
 
     private var items: List<ListItem> = emptyList()
@@ -45,17 +48,20 @@ class PendingHabitsWidgetFactory(
             ?.filter { it.pendingSteps.isNotEmpty() }
             ?.flatMap { routine ->
                 buildList {
-                    add(
-                        ListItem.SectionHeader(
-                            name = routine.name,
-                            color = routine.color,
-                            pendingCount = routine.pendingSteps.size,
-                            totalSteps = routine.totalSteps,
-                        )
-                    )
+                    add(ListItem.SectionHeader(
+                        routineTaskId = routine.taskId,
+                        name = routine.name,
+                        color = routine.color,
+                        pendingCount = routine.pendingSteps.size,
+                        totalSteps = routine.totalSteps,
+                    ))
                     routine.pendingSteps.forEach { step ->
                         val text = if (step.emoji.isNotEmpty()) "${step.emoji}  ${step.name}" else step.name
-                        add(ListItem.StepRow(text))
+                        add(ListItem.StepRow(
+                            routineTaskId = routine.taskId,
+                            stepId = step.id,
+                            displayText = text,
+                        ))
                     }
                 }
             }
@@ -78,12 +84,27 @@ class PendingHabitsWidgetFactory(
         views.setInt(R.id.header_color_dot, "setBackgroundColor", colorInt)
         views.setTextViewText(R.id.header_routine_name, item.name)
         views.setTextViewText(R.id.header_pending_count, "${item.pendingCount}/${item.totalSteps}")
+
+        // Start → open app to routines tab for this routine
+        val startFill = Intent(Intent.ACTION_VIEW, PendingHabitsWidget.routinesUri(item.routineTaskId))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        views.setOnClickFillInIntent(R.id.header_start_btn, startFill)
         return views
     }
 
     private fun buildStepRow(item: ListItem.StepRow): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_step_item)
         views.setTextViewText(R.id.step_name_text, item.displayText)
+
+        // ▶ Start — open routines tab
+        val startFill = Intent(Intent.ACTION_VIEW, PendingHabitsWidget.routinesUri(item.routineTaskId))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        views.setOnClickFillInIntent(R.id.step_start_btn, startFill)
+
+        // ✓ Done — open app via deep link; app marks step done and syncs widget
+        val doneFill = Intent(Intent.ACTION_VIEW, PendingHabitsWidget.markDoneUri(item.routineTaskId, item.stepId))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        views.setOnClickFillInIntent(R.id.step_done_btn, doneFill)
         return views
     }
 
