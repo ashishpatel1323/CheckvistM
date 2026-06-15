@@ -3,9 +3,7 @@
     "name": "Checkvist",
     "slug": "checkvist-app",
     "version": "1.0.0",
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/f0c7beb2-284a-4eea-b8ca-0f04229e0bb9",
       "enabled": true,
@@ -31,7 +29,7 @@
         "backgroundColor": "#1C1C28"
       },
       "package": "com.ashishpatel.checkvist",
-      "versionCode": 3,
+      "versionCode": 5,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECEIVE_BOOT_COMPLETED",
