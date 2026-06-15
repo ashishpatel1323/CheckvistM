@@ -2,7 +2,7 @@
   "name": "checkvist-app",
   "version": "1.0.0",
   "private": true,
-  "packageManager": "pnpm@11.1.2",
+  "packageManager": "pnpm@9.15.4",
   "main": "expo-router/entry",
   "scripts": {
     "predev": "printf 'EXPO_PUBLIC_GIT_COMMIT=%s\\nEXPO_PUBLIC_GIT_DATE=%s\\n' \"$(git rev-parse --short HEAD)\" \"$(git log -1 --format=%ci)\" > .env.local",

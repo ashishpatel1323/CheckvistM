@@ -29,7 +29,7 @@
         "backgroundColor": "#1C1C28"
       },
       "package": "com.ashishpatel.checkvist",
-      "versionCode": 5,
+      "versionCode": 6,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECEIVE_BOOT_COMPLETED",
