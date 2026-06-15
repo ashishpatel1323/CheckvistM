@@ -54,7 +54,7 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
 
   const task = useMemo((): (TaskNode & Partial<CheckvistTask>) | null => {
     if (!taskNode && !singleTask) return null
-    if (!taskNode) return { ...singleTask!, children: [] as TaskNode[] }
+    if (!taskNode) return { ...singleTask!, children: [] as TaskNode[], level: 1 }
     if (!singleTask) return taskNode
     const merged: TaskNode = { ...taskNode }
     for (const k of Object.keys(singleTask) as Array<keyof CheckvistTask>) {

@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
-import { View, Text, ScrollView, Pressable, Platform, Alert } from 'react-native'
+import { View, Text, ScrollView, Pressable, Platform, Alert, Modal } from 'react-native'
 import { CheckSquare, Flag, Zap, Clock, HelpCircle, Timer, ChevronDown } from 'lucide-react-native'
 import type { CheckvistTask } from '@/api/types'
 import { classifyPriority, type PriorityBucket, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
@@ -23,7 +23,7 @@ const DATE_FILTER_OPTIONS: { key: MatrixDateFilter; label: string }[] = [
 
 function matchesDateFilter(task: CheckvistTask, filter: MatrixDateFilter): boolean {
   if (filter === 'all') return true
-  const bucket = classifyTask({ ...task, children: [], depth: 0 } as Parameters<typeof classifyTask>[0])
+  const bucket = classifyTask({ ...task, children: [], level: 1 } as unknown as Parameters<typeof classifyTask>[0])
   return bucket === filter
 }
 
@@ -35,11 +35,46 @@ function DateFilterPicker({
   onChange: (v: MatrixDateFilter) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [anchorPos, setAnchorPos] = useState<{ top: number; right: number }>({ top: 48, right: 16 })
+  const anchorRef = useRef<View>(null)
   const label = DATE_FILTER_OPTIONS.find((o) => o.key === value)?.label ?? 'Today'
+
+  function handleOpen() {
+    if (Platform.OS === 'web') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const domNode = (anchorRef.current as any) as HTMLElement | null
+      if (domNode && typeof domNode.getBoundingClientRect === 'function') {
+        const r = domNode.getBoundingClientRect()
+        setAnchorPos({ top: r.bottom + 4, right: window.innerWidth - r.right })
+      }
+    } else {
+      anchorRef.current?.measureInWindow((x: number, y: number, w: number, h: number) => {
+        setAnchorPos({ top: y + h + 4, right: 16 })
+        void x; void w
+      })
+    }
+    setOpen(true)
+  }
+
+  const menuItems = DATE_FILTER_OPTIONS.map((opt) => (
+    <Pressable
+      key={opt.key}
+      onPress={() => { onChange(opt.key); setOpen(false) }}
+      style={{
+        paddingHorizontal: 14, paddingVertical: 9,
+        backgroundColor: value === opt.key ? '#EEF2FF' : 'transparent',
+      }}
+    >
+      <Text style={{ fontSize: 13, color: value === opt.key ? '#4772FA' : '#374151', fontWeight: value === opt.key ? '600' : '400' }}>
+        {opt.label}
+      </Text>
+    </Pressable>
+  ))
+
   return (
-    <View style={{ position: 'relative' }}>
+    <View ref={anchorRef}>
       <Pressable
-        onPress={() => setOpen((v) => !v)}
+        onPress={handleOpen}
         style={{
           flexDirection: 'row', alignItems: 'center', gap: 4,
           paddingHorizontal: 10, paddingVertical: 5,
@@ -49,29 +84,23 @@ function DateFilterPicker({
         <Text style={{ fontSize: 12, fontWeight: '600', color: '#374151' }}>{label}</Text>
         <ChevronDown size={12} color="#6B7280" />
       </Pressable>
-      {open && (
-        <View style={{
-          position: 'absolute', top: 32, right: 0, zIndex: 100,
-          backgroundColor: '#fff', borderRadius: 10,
-          shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 12, elevation: 12,
-          paddingVertical: 4, minWidth: 120,
-        }}>
-          {DATE_FILTER_OPTIONS.map((opt) => (
-            <Pressable
-              key={opt.key}
-              onPress={() => { onChange(opt.key); setOpen(false) }}
-              style={{
-                paddingHorizontal: 14, paddingVertical: 9,
-                backgroundColor: value === opt.key ? '#EEF2FF' : 'transparent',
-              }}
-            >
-              <Text style={{ fontSize: 13, color: value === opt.key ? '#4772FA' : '#374151', fontWeight: value === opt.key ? '600' : '400' }}>
-                {opt.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
+
+      <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
+        <Pressable style={{ flex: 1 }} onPress={() => setOpen(false)}>
+          <View
+            style={{
+              position: 'absolute',
+              top: anchorPos.top,
+              right: anchorPos.right,
+              backgroundColor: '#fff', borderRadius: 10,
+              shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 16, elevation: 20,
+              paddingVertical: 4, minWidth: 130,
+            }}
+          >
+            {menuItems}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   )
 }

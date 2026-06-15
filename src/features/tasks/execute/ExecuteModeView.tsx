@@ -37,6 +37,15 @@ import { isToday, isPast, format, addDays } from 'date-fns'
 const BLUE = '#6366F1'
 const INDIGO = '#6366F1'
 
+const DATE_GROUP_THEME: Record<DateGroup, { bgLight: string; stroke: string; text: string }> = {
+  overdue:   { bgLight: '#fff1f1', stroke: '#ef4444', text: '#7f1d1d' },
+  today:     { bgLight: '#eff6ff', stroke: '#3b82f6', text: '#1e3a8a' },
+  tomorrow:  { bgLight: '#f5f3ff', stroke: '#7c3aed', text: '#3b0764' },
+  thisWeek:  { bgLight: '#f0fdf4', stroke: '#22c55e', text: '#14532d' },
+  later:     { bgLight: '#fffbeb', stroke: '#f59e0b', text: '#78350f' },
+  noDueDate: { bgLight: '#f8fafc', stroke: '#94a3b8', text: '#334155' },
+}
+
 // Desktop column layout: fixed-width slots so time/due/priority line up vertically
 const COL_TAGS = 110
 const COL_TIME = 52
@@ -1223,7 +1232,9 @@ export function ExecuteTaskList() {
           const isDragging = draggingIdx === index
           const showDropBefore = insertIdx !== null && insertIdx === index && draggingIdx !== null && draggingIdx !== index && draggingIdx !== index - 1
 
-          const bgColor = isCurrent ? '#EEF2FF' : 'transparent'
+          const dueGroup = classifyTask(t)
+          const dueTheme = DATE_GROUP_THEME[dueGroup]
+          const bgColor = isCurrent ? '#E0E7FF' : dueTheme.bgLight
           const k = entryKey(checklistId, t.id)
           const elapsed = entry ? liveSeconds(entry, timerRunningKey, timerStartedAt, k) : 0
           const timeLabel = isDone || elapsed > 0 ? fmtMins(elapsed) : `${entry?.estimateMin ?? DEFAULT_ESTIMATE}m`
@@ -1234,9 +1245,9 @@ export function ExecuteTaskList() {
               style={{
                 flexDirection: 'row', alignItems: 'center', gap: 8,
                 paddingHorizontal: 10, paddingVertical: 7,
-                borderRadius: 8, marginHorizontal: 4, marginVertical: 1,
+                borderRadius: 8, marginHorizontal: 4, marginVertical: 2,
                 backgroundColor: bgColor, opacity: isDragging ? 0.3 : 1,
-                borderLeftWidth: isCurrent ? 3 : 0, borderLeftColor: BLUE,
+                borderLeftWidth: 3, borderLeftColor: isCurrent ? BLUE : dueTheme.stroke,
               }}
             >
               {/* Drag handle */}
@@ -1579,243 +1590,221 @@ export function ExecuteViewContent({ onClose, onSwitchToLog }: { onClose: () => 
       {/* Fixed header card */}
       <View>
         <View
-          className={isMobile ? 'mx-4 mt-3 rounded-2xl px-4 py-3' : 'mx-4 mt-3 rounded-2xl px-5 py-4'}
           style={{
-            gap: isMobile ? 8 : 8,
+            marginHorizontal: 12,
+            marginTop: 8,
+            borderRadius: 16,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            gap: 6,
             backgroundColor: 'white',
             borderWidth: 1.5,
             borderColor: isRunning ? INDIGO : '#E5E7EB',
             shadowColor: isRunning ? INDIGO : '#000',
-            shadowOpacity: isRunning ? 0.12 : 0.04,
-            shadowRadius: isRunning ? 12 : 4,
+            shadowOpacity: isRunning ? 0.10 : 0.03,
+            shadowRadius: isRunning ? 8 : 3,
             shadowOffset: { width: 0, height: 2 },
-            elevation: isRunning ? 4 : 1,
+            elevation: isRunning ? 3 : 1,
           }}
         >
-          {/* Arrow nav + timer + position pill */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: isMobile ? 6 : 8 }}>
+          {/* Row 1: nav + clock + title */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Pressable hitSlop={12} onPress={prevTask} style={{ opacity: currentIndex === 0 ? 0.25 : 1 }}>
-              <ChevronLeft size={isMobile ? 20 : 24} color="#6B7280" />
+              <ChevronLeft size={18} color="#6B7280" />
             </Pressable>
-            <View style={{ alignItems: 'center', gap: 4 }}>
-              <Pressable onPress={() => setShowFullScreen(true)}>
-                <FlipClock totalSeconds={currentSeconds} color={isRunning ? INDIGO : '#94A3B8'} size={isMobile ? 'md' : 'lg'} />
-              </Pressable>
-              {pomodoroOn && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: pomodoroIsBreak ? '#ECFDF5' : '#EEF2FF', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
-                  <Timer size={10} color={pomodoroIsBreak ? '#16A34A' : BLUE} />
-                  <Text style={{ fontSize: 10, fontWeight: '700', color: pomodoroIsBreak ? '#16A34A' : BLUE }}>
-                    {pomodoroIsBreak ? 'Break' : 'Focus'} {fmtClock(pomodoroSecs)}
-                  </Text>
-                </View>
+
+            {/* Clock (compact) */}
+            <Pressable onPress={() => setShowFullScreen(true)}>
+              <View style={{ backgroundColor: isRunning ? '#EEF2FF' : '#F8FAFC', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 3 }}>
+                <FlipClock totalSeconds={currentSeconds} color={isRunning ? INDIGO : '#94A3B8'} size="sm" />
+              </View>
+            </Pressable>
+
+            {/* Title */}
+            <View style={{ flex: 1, minWidth: 0 }}>
+              {currentTask && (
+                editingTitle ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <TextInput
+                      value={titleDraft}
+                      onChangeText={setTitleDraft}
+                      autoFocus
+                      blurOnSubmit
+                      onSubmitEditing={() => {
+                        setEditingTitle(false)
+                        const content = titleDraft.trim()
+                        if (content && content !== currentTask.content) {
+                          updateTask({ taskId: currentTask.id, payload: { content } })
+                        }
+                      }}
+                      onBlur={() => {
+                        setEditingTitle(false)
+                        const content = titleDraft.trim()
+                        if (content && content !== currentTask.content) {
+                          updateTask({ taskId: currentTask.id, payload: { content } })
+                        }
+                      }}
+                      style={{ flex: 1, fontSize: 14, fontWeight: '600', color: '#222', borderBottomWidth: 1, borderBottomColor: BLUE, paddingBottom: 1 }}
+                    />
+                    <Pressable hitSlop={8} onPress={() => { setEditingTitle(false); setTitleDraft(currentTask.content) }}>
+                      <X size={14} color="#9ca3af" />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable onPress={() => { setTitleDraft(currentTask.content); setEditingTitle(true) }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: '#111827', lineHeight: 19 }} numberOfLines={2}>
+                      <InlineMarkdown content={currentTask.content} />
+                    </Text>
+                    <Pencil size={11} color="#D1D5DB" />
+                  </Pressable>
+                )
               )}
             </View>
-            <Pressable hitSlop={12} onPress={nextTask} style={{ opacity: currentIndex >= orderedTasks.length - 1 ? 0.25 : 1 }}>
-              <ChevronRight size={isMobile ? 20 : 24} color="#6B7280" />
-            </Pressable>
-            <View style={{ position: 'absolute', right: 0, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: 'rgba(107,114,128,0.1)' }}>
-              <Text style={{ fontSize: 10, fontWeight: '600', color: '#9ca3af' }}>
-                {currentIndex + 1}/{orderedTasks.length}
-              </Text>
+
+            {/* Position pill + next */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: '#9ca3af' }}>{currentIndex + 1}/{orderedTasks.length}</Text>
+              <Pressable hitSlop={12} onPress={nextTask} style={{ opacity: currentIndex >= orderedTasks.length - 1 ? 0.25 : 1 }}>
+                <ChevronRight size={18} color="#6B7280" />
+              </Pressable>
             </View>
           </View>
+
           {showFullScreen && <FullScreenCounterModal onClose={() => setShowFullScreen(false)} />}
 
-          {/* Editable title */}
-          {currentTask && (
-            editingTitle ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <TextInput
-                  value={titleDraft}
-                  onChangeText={setTitleDraft}
-                  autoFocus
-                  multiline
-                  blurOnSubmit
-                  onSubmitEditing={() => {
-                    setEditingTitle(false)
-                    const content = titleDraft.trim()
-                    if (content && content !== currentTask.content) {
-                      updateTask({ taskId: currentTask.id, payload: { content } })
-                    }
-                  }}
-                  onBlur={() => {
-                    setEditingTitle(false)
-                    const content = titleDraft.trim()
-                    if (content && content !== currentTask.content) {
-                      updateTask({ taskId: currentTask.id, payload: { content } })
-                    }
-                  }}
-                  style={{ flex: 1, fontSize: 15, fontWeight: '600', color: '#222', textAlign: 'center', borderBottomWidth: 1, borderBottomColor: BLUE, paddingBottom: 2 }}
-                />
-                <Pressable hitSlop={8} onPress={() => { setEditingTitle(false); setTitleDraft(currentTask.content) }}>
-                  <X size={16} color="#9ca3af" />
-                </Pressable>
-              </View>
-            ) : (
-              <Pressable
-                onPress={() => { setTitleDraft(currentTask.content); setEditingTitle(true) }}
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-              >
-                <Text className="text-base font-semibold text-center" style={{ color: '#222', flex: 1 }} numberOfLines={2}>
-                  <InlineMarkdown content={currentTask.content} />
-                </Text>
-                <Pencil size={13} color="#9ca3af" />
-              </Pressable>
-            )
-          )}
+          {/* Row 2: chips + controls */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {/* Chips (scrollable) */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 5, flexDirection: 'row', alignItems: 'center' }} style={{ flex: 1 }}>
 
-          {/* Chips: estimate, date, priority */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+              {/* Estimate */}
+              {currentEntry && (
+                editingEstimate ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: BLUE }}>
+                    <TextInput
+                      value={estimateDraft}
+                      onChangeText={setEstimateDraft}
+                      keyboardType="number-pad"
+                      autoFocus
+                      selectTextOnFocus
+                      onSubmitEditing={commitEstimate}
+                      onBlur={commitEstimate}
+                      style={{ fontSize: 11, fontWeight: '600', color: '#1a1a1a', minWidth: 20, maxWidth: 36 }}
+                    />
+                    <Text style={{ fontSize: 11, color: '#6B7280' }}>m</Text>
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={() => { setEstimateDraft(String(currentEntry.estimateMin)); setEditingEstimate(true) }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB' }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '500', color: '#6B7280' }}>{currentEntry.estimateMin}m</Text>
+                  </Pressable>
+                )
+              )}
 
-            {/* Estimate — inline editable */}
-            {currentEntry && (
-              editingEstimate ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: BLUE }}>
-                  <Text style={{ fontSize: 12, color: '#6B7280' }}>Est. </Text>
-                  <TextInput
-                    value={estimateDraft}
-                    onChangeText={setEstimateDraft}
-                    keyboardType="number-pad"
-                    autoFocus
-                    selectTextOnFocus
-                    onSubmitEditing={commitEstimate}
-                    onBlur={commitEstimate}
-                    style={{ fontSize: 12, fontWeight: '600', color: '#1a1a1a', minWidth: 24, maxWidth: 44 }}
-                  />
-                  <Text style={{ fontSize: 12, color: '#6B7280' }}>m</Text>
-                </View>
-              ) : (
+              {/* Date chip */}
+              {currentTask && (
                 <Pressable
-                  onPress={() => { setEstimateDraft(String(currentEntry.estimateMin)); setEditingEstimate(true) }}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB' }}
+                  onPress={() => { setShowDatePicker((v) => !v); setShowPriorityPicker(false) }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderWidth: 1, borderColor: showDatePicker ? BLUE : '#D1D5DB', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 }}
                 >
-                  <Text style={{ fontSize: 12, fontWeight: '500', color: '#6B7280' }}>Est. {currentEntry.estimateMin}m</Text>
-                  <Pencil size={10} color="#D1D5DB" />
+                  <Calendar size={10} color={currentTask.due ? (isPast(parseApiDate(currentTask.due)!) && !isToday(parseApiDate(currentTask.due)!) ? '#DC2626' : '#374151') : '#9ca3af'} />
+                  <Text style={{ fontSize: 11, fontWeight: '500', color: currentTask.due ? (isPast(parseApiDate(currentTask.due)!) && !isToday(parseApiDate(currentTask.due)!) ? '#DC2626' : '#374151') : '#9ca3af' }}>
+                    {currentTask.due ? humanizeDueDate(currentTask.due) : 'Date'}
+                  </Text>
                 </Pressable>
-              )
-            )}
+              )}
 
-            {/* Date chip */}
-            {currentTask && (
-              <Pressable
-                onPress={() => { setShowDatePicker((v) => !v); setShowPriorityPicker(false) }}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: showDatePicker ? BLUE : '#D1D5DB', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 }}
-              >
-                <Calendar size={11} color={currentTask.due ? (isPast(parseApiDate(currentTask.due)!) && !isToday(parseApiDate(currentTask.due)!) ? '#DC2626' : '#374151') : '#9ca3af'} />
-                <Text style={{ fontSize: 11, fontWeight: '500', color: currentTask.due ? (isPast(parseApiDate(currentTask.due)!) && !isToday(parseApiDate(currentTask.due)!) ? '#DC2626' : '#374151') : '#9ca3af' }}>
-                  {currentTask.due ? humanizeDueDate(currentTask.due) : 'Set date'}
-                </Text>
-                <Pencil size={10} color={showDatePicker ? BLUE : '#D1D5DB'} />
-              </Pressable>
-            )}
-
-            {/* Priority chip */}
-            {currentTask && (
-              <Pressable
-                onPress={() => { setShowPriorityPicker((v) => !v); setShowDatePicker(false) }}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: currentTask.priority > 0 && currentTask.priority <= 10 ? (priorityRowBg(currentTask.priority) ?? '#f3f4f6') : '#f3f4f6', borderWidth: 1, borderColor: showPriorityPicker ? BLUE : 'transparent' }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: currentTask.priority > 0 && currentTask.priority <= 10 ? priorityTextColor(currentTask.priority) : '#9ca3af' }}>
-                  {currentTask.priority > 0 && currentTask.priority <= 10 ? priorityDisplay(currentTask.priority) : 'No P'}
-                </Text>
-                <Pencil size={10} color={showPriorityPicker ? BLUE : '#D1D5DB'} />
-              </Pressable>
-            )}
-
-            {/* Pomodoro toggle */}
-            <Pressable
-              onPress={togglePomodoro}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: pomodoroOn ? '#EEF2FF' : '#F3F4F6', borderWidth: 1, borderColor: pomodoroOn ? BLUE : 'transparent' }}
-            >
-              <Timer size={11} color={pomodoroOn ? BLUE : '#9ca3af'} />
-              <Text style={{ fontSize: 11, fontWeight: '600', color: pomodoroOn ? BLUE : '#9ca3af' }}>25m</Text>
-            </Pressable>
-
-            {/* Focus mode toggle */}
-            <Pressable
-              onPress={() => setFocusMode(f => !f)}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: focusMode ? '#FEF3C7' : '#F3F4F6', borderWidth: 1, borderColor: focusMode ? '#D97706' : 'transparent' }}
-            >
-              {focusMode ? <EyeOff size={11} color="#D97706" /> : <List size={11} color="#9ca3af" />}
-              <Text style={{ fontSize: 11, fontWeight: '600', color: focusMode ? '#D97706' : '#9ca3af' }}>
-                {focusMode ? 'Focused' : 'List'}
-              </Text>
-            </Pressable>
-
-            {/* Defer actions — inline in chips row so no extra card row needed */}
-            {currentTask && (
-              <>
+              {/* Priority chip */}
+              {currentTask && (
                 <Pressable
-                  onPress={() => {
-                    const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd')
-                    updateTask({ taskId: currentTask.id, payload: { due_date: tomorrow } })
-                    nextTask()
-                  }}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#F5F3FF', borderWidth: 1, borderColor: 'transparent' }}
+                  onPress={() => { setShowPriorityPicker((v) => !v); setShowDatePicker(false) }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: currentTask.priority > 0 && currentTask.priority <= 10 ? (priorityRowBg(currentTask.priority) ?? '#f3f4f6') : '#f3f4f6', borderWidth: 1, borderColor: showPriorityPicker ? BLUE : 'transparent' }}
                 >
-                  <Sunrise size={11} color="#8B5CF6" />
-                  <Text style={{ fontSize: 11, fontWeight: '600', color: '#8B5CF6' }}>Tomorrow</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: currentTask.priority > 0 && currentTask.priority <= 10 ? priorityTextColor(currentTask.priority) : '#9ca3af' }}>
+                    {currentTask.priority > 0 && currentTask.priority <= 10 ? priorityDisplay(currentTask.priority) : 'P?'}
+                  </Text>
                 </Pressable>
-                <Pressable
-                  onPress={() => {
-                    updateTask({ taskId: currentTask.id, payload: { priority: 9 } })
-                    nextTask()
-                  }}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#F5F3FF', borderWidth: 1, borderColor: 'transparent' }}
-                >
-                  <ArrowDown size={11} color="#7c3aed" />
-                  <Text style={{ fontSize: 11, fontWeight: '600', color: '#7c3aed' }}>De-pri</Text>
-                </Pressable>
-              </>
-            )}
-          </ScrollView>
+              )}
 
-          {/* Tags */}
-          {currentTask?.tags_as_text && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexGrow: 1 }}>
-              {currentTask.tags_as_text.split(/\s+/).filter(Boolean).map((tag) => (
+              {/* Tags inline */}
+              {currentTask?.tags_as_text && currentTask.tags_as_text.split(/\s+/).filter(Boolean).map((tag) => (
                 <Text key={tag} style={{ fontSize: 11, color: BLUE, fontWeight: '500' }}>
                   {tag.startsWith('#') ? tag : `#${tag}`}
                 </Text>
               ))}
+
+              {/* List / Focus toggle */}
+              <Pressable
+                onPress={() => setFocusMode(f => !f)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: focusMode ? '#FEF3C7' : '#F3F4F6', borderWidth: 1, borderColor: focusMode ? '#D97706' : 'transparent' }}
+              >
+                {focusMode ? <EyeOff size={10} color="#D97706" /> : <List size={10} color="#9ca3af" />}
+                <Text style={{ fontSize: 11, fontWeight: '600', color: focusMode ? '#D97706' : '#9ca3af' }}>
+                  {focusMode ? 'Focus' : 'List'}
+                </Text>
+              </Pressable>
+
+              {/* Pomodoro */}
+              <Pressable
+                onPress={togglePomodoro}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: pomodoroOn ? '#EEF2FF' : '#F3F4F6', borderWidth: 1, borderColor: pomodoroOn ? BLUE : 'transparent' }}
+              >
+                <Timer size={10} color={pomodoroOn ? BLUE : '#9ca3af'} />
+                {pomodoroOn
+                  ? <Text style={{ fontSize: 11, fontWeight: '600', color: pomodoroIsBreak ? '#16A34A' : BLUE }}>{pomodoroIsBreak ? 'Break' : 'Focus'} {fmtClock(pomodoroSecs)}</Text>
+                  : <Text style={{ fontSize: 11, fontWeight: '600', color: '#9ca3af' }}>25m</Text>
+                }
+              </Pressable>
+
+              {/* Tomorrow */}
+              {currentTask && (
+                <Pressable
+                  onPress={() => { const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd'); updateTask({ taskId: currentTask.id, payload: { due_date: tomorrow } }); nextTask() }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#F5F3FF' }}
+                >
+                  <Sunrise size={10} color="#8B5CF6" />
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: '#8B5CF6' }}>Tomorrow</Text>
+                </Pressable>
+              )}
+
+              {/* De-pri */}
+              {currentTask && (
+                <Pressable
+                  onPress={() => { updateTask({ taskId: currentTask.id, payload: { priority: 9 } }); nextTask() }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#F5F3FF' }}
+                >
+                  <ArrowDown size={10} color="#7c3aed" />
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: '#7c3aed' }}>De-pri</Text>
+                </Pressable>
+              )}
+
+              {/* Raw / MindMap */}
+              {onJumpToRaw && currentTask && (
+                <Pressable onPress={() => onJumpToRaw(currentTask.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}>
+                  <AlignLeft size={10} color="#6366F1" />
+                  <Text style={{ fontSize: 11, fontWeight: '500', color: '#475569' }}>Raw</Text>
+                </Pressable>
+              )}
+              {onJumpToMindmap && currentTask && (
+                <Pressable onPress={() => onJumpToMindmap(currentTask.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}>
+                  <Network size={10} color="#6366F1" />
+                  <Text style={{ fontSize: 11, fontWeight: '500', color: '#475569' }}>Map</Text>
+                </Pressable>
+              )}
             </ScrollView>
-          )}
 
-          {/* Jump to Raw / MindMap */}
-          {(onJumpToRaw || onJumpToMindmap) && currentTask && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-              {onJumpToRaw && (
-                <Pressable
-                  onPress={() => onJumpToRaw(currentTask.id)}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
-                >
-                  <AlignLeft size={12} color="#6366F1" />
-                  <Text style={{ fontSize: 12, fontWeight: '500', color: '#475569' }}>Raw</Text>
-                  <ChevronRight size={11} color="#94A3B8" />
-                </Pressable>
-              )}
-              {onJumpToMindmap && (
-                <Pressable
-                  onPress={() => onJumpToMindmap(currentTask.id)}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
-                >
-                  <Network size={12} color="#6366F1" />
-                  <Text style={{ fontSize: 12, fontWeight: '500', color: '#475569' }}>Mind Map</Text>
-                  <ChevronRight size={11} color="#94A3B8" />
-                </Pressable>
-              )}
+            {/* Timer controls (fixed right side) */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Pressable hitSlop={8} onPress={resetCurrent}><RotateCcw size={14} color="#C4C4C4" /></Pressable>
+              <Pressable hitSlop={8} onPress={() => adjust(-ESTIMATE_STEP)}><Minus size={18} color="#9CA3AF" /></Pressable>
+              <Pressable onPress={togglePlay} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isRunning ? INDIGO : '#1E293B', alignItems: 'center', justifyContent: 'center', shadowColor: isRunning ? INDIGO : '#000', shadowOpacity: 0.25, shadowRadius: 6, elevation: 3 }}>
+                {isRunning ? <Pause size={15} color="white" /> : <Play size={15} color="white" />}
+              </Pressable>
+              <Pressable hitSlop={8} onPress={() => adjust(ESTIMATE_STEP)}><Plus size={18} color="#9CA3AF" /></Pressable>
+              <MuteButton />
             </View>
-          )}
-
-          {/* Timer controls */}
-          <View className={isMobile ? 'flex-row items-center justify-center mt-1' : 'flex-row items-center justify-center mt-2'} style={{ gap: isMobile ? 16 : 20 }}>
-            <Pressable hitSlop={8} onPress={resetCurrent}><RotateCcw size={isMobile ? 20 : 24} color="#9ca3af" /></Pressable>
-            <Pressable hitSlop={8} onPress={() => adjust(-ESTIMATE_STEP)}><Minus size={isMobile ? 24 : 28} color="#666" /></Pressable>
-            <Pressable onPress={togglePlay} className="items-center justify-center rounded-full" style={{ width: isMobile ? 52 : 60, height: isMobile ? 52 : 60, backgroundColor: isRunning ? INDIGO : '#1E293B' }}>
-              {isRunning ? <Pause size={isMobile ? 22 : 28} color="white" /> : <Play size={isMobile ? 22 : 28} color="white" />}
-            </Pressable>
-            <Pressable hitSlop={8} onPress={() => adjust(ESTIMATE_STEP)}><Plus size={isMobile ? 24 : 28} color="#666" /></Pressable>
-            <MuteButton />
           </View>
 
 

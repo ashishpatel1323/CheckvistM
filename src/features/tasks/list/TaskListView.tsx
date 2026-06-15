@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback, PanResponder } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical, TrendingUp, Play, Pause } from 'lucide-react-native'
+import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical, TrendingUp, Play, Pause, type LucideIcon } from 'lucide-react-native'
 import { ProgressTab } from '@/features/progress/ProgressTab'
 import { useTasksQuery } from './useTasksQuery'
 import { buildTaskTree } from '@/lib/taskTree'
@@ -13,7 +13,7 @@ import { FlatTaskList } from './FlatTaskList'
 import { MindMapView } from './MindMapView'
 import { SearchView } from '@/features/tasks/search/SearchView'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { useTaskView } from './useTaskView'
+import { useTaskView, type TaskView } from './useTaskView'
 import { useTabBarConfig, PINNED_TAB_COUNT } from './useTabBarConfig'
 import { BottomSheet } from '@/components/BottomSheet'
 import { ChecklistSwitcher } from '@/features/checklists/ChecklistSwitcher'
@@ -437,15 +437,15 @@ const INACTIVE = '#9ca3af'
 
 const ITEM_HEIGHT = 64
 
-type TabEntry = { key: string; icon: React.ComponentType<{ size: number; color: string }>; label: string; shortcut: string }
+type TabEntry = { key: TaskView; icon: LucideIcon; label: string; shortcut: string }
 
 interface MoreModalProps {
   open: boolean
   onClose: () => void
   orderedTabs: TabEntry[]
-  activeView: string
+  activeView: TaskView
   pinnedCount: number
-  onSelect: (key: string) => void
+  onSelect: (key: TaskView) => void
   reorderTab: (from: number, to: number) => void
 }
 
@@ -604,9 +604,10 @@ function MoreModal({ open, onClose, orderedTabs, activeView, pinnedCount, onSele
   )
 }
 
-const TABS = [
-  { key: 'date',     icon: LayoutList,   label: 'Tasks',    shortcut: 'T' },
-  { key: 'matrix',   icon: LayoutGrid,   label: 'Matrix',   shortcut: 'X' },
+const TABS: TabEntry[] = [
+  { key: 'date',     icon: LayoutList,   label: 'List',     shortcut: 'T' },
+  { key: 'kanban',   icon: LayoutGrid,   label: 'Kanban',   shortcut: 'K' },
+  { key: 'matrix',   icon: Network,      label: 'Matrix',   shortcut: 'X' },
   { key: 'execute',  icon: Timer,        label: 'Execute',  shortcut: 'E' },
   { key: 'progress', icon: TrendingUp,   label: 'Progress', shortcut: 'P' },
   { key: 'log',      icon: ClipboardList,label: 'Log',      shortcut: 'L' },
@@ -615,7 +616,7 @@ const TABS = [
   { key: 'mindmap',  icon: Network,      label: 'Map',      shortcut: 'M' },
   { key: 'search',   icon: Search,       label: 'Search',   shortcut: 'S' },
   { key: 'raw',      icon: Globe,        label: 'Raw',      shortcut: 'W' },
-] as const
+]
 
 export function TaskListView({ checklistId }: TaskListViewProps) {
   const { width } = useWindowDimensions()
@@ -629,12 +630,12 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
 const { view, setView, focusedTaskId } = useTaskView()
   const { order: tabOrder, moveTab, reorderTab } = useTabBarConfig()
   const [logInitialMode, setLogInitialMode] = useState<'calendar' | 'agenda'>('calendar')
-  const [dateSubView, setDateSubView] = useState<'list' | 'kanban'>('list')
+
   const [showMoreSheet, setShowMoreSheet] = useState(false)
   const [customizing, setCustomizing] = useState(false)
 
   const orderedTabs = useMemo(
-    () => tabOrder.map((key) => TABS.find((t) => t.key === key)).filter((t): t is (typeof TABS)[number] => !!t),
+    () => tabOrder.map((key) => TABS.find((t) => t.key === key)).filter((t): t is TabEntry => t != null),
     [tabOrder]
   )
   const pinnedTabs = orderedTabs.slice(0, PINNED_TAB_COUNT)
@@ -648,10 +649,10 @@ const { view, setView, focusedTaskId } = useTaskView()
   const { data: checklists } = useChecklists()
   const checklistName = checklists?.find((c) => c.id === activeChecklistId)?.name
 
-  const groups = useMemo(() => {
-    if (!tasks) return []
-    const { allNodes } = buildTaskTree(tasks)
-    return groupTasksByDate(allNodes)
+  const { groups, roots: taskRoots } = useMemo(() => {
+    if (!tasks) return { groups: [], roots: [] }
+    const { allNodes, roots } = buildTaskTree(tasks)
+    return { groups: groupTasksByDate(allNodes), roots }
   }, [tasks])
 
   const isEmpty = !isLoading && !isError && groups.length === 0
@@ -913,31 +914,10 @@ const { view, setView, focusedTaskId } = useTaskView()
           {!isLoading && !isError && !isEmpty && tasks && (
             <View className="flex-1" style={{ paddingBottom: isMobile ? tabBarH : 0 }}>
               {view === 'date' && (
-                <View style={{ flex: 1 }}>
-                  {/* List / Kanban toggle */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
-                    <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderRadius: 8, padding: 2 }}>
-                      <Pressable
-                        onPress={() => setDateSubView('list')}
-                        style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: dateSubView === 'list' ? 'white' : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                      >
-                        <LayoutList size={13} color={dateSubView === 'list' ? BLUE : '#9CA3AF'} />
-                        <Text style={{ fontSize: 11, fontWeight: '600', color: dateSubView === 'list' ? BLUE : '#9CA3AF' }}>List</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setDateSubView('kanban')}
-                        style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: dateSubView === 'kanban' ? 'white' : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                      >
-                        <LayoutGrid size={13} color={dateSubView === 'kanban' ? BLUE : '#9CA3AF'} />
-                        <Text style={{ fontSize: 11, fontWeight: '600', color: dateSubView === 'kanban' ? BLUE : '#9CA3AF' }}>Kanban</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                  {dateSubView === 'list'
-                    ? <PriorityDateView groups={groups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} />
-                    : <KanbanView groups={groups} checklistId={checklistId} />
-                  }
-                </View>
+                <PriorityDateView groups={groups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} />
+              )}
+              {view === 'kanban' && (
+                <KanbanView groups={groups} roots={taskRoots} checklistId={checklistId} />
               )}
               {view === 'list' && (
                 <FlatTaskList tasks={tasks} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} />

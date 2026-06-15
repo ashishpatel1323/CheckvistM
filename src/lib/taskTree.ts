@@ -2,6 +2,8 @@ import type { CheckvistTask } from '@/api/types'
 
 export interface TaskNode extends CheckvistTask {
   children: TaskNode[]
+  /** Depth in the tree. L1 = direct child of the checklist (parent_id null). */
+  level: number
 }
 
 export interface TaskTreeResult {
@@ -30,7 +32,7 @@ export function buildTaskTree(flat: CheckvistTask[]): TaskTreeResult {
   const nodeMap = new Map<number, TaskNode>()
 
   for (const task of openTasks) {
-    nodeMap.set(task.id, { ...task, children: [] })
+    nodeMap.set(task.id, { ...task, children: [], level: 1 })
   }
 
   const roots: TaskNode[] = []
@@ -43,13 +45,14 @@ export function buildTaskTree(flat: CheckvistTask[]): TaskTreeResult {
     }
   }
 
-  function sortChildren(nodes: TaskNode[]) {
+  function sortChildren(nodes: TaskNode[], depth: number) {
     for (const node of nodes) {
+      node.level = depth
       node.children.sort((a, b) => a.position - b.position)
-      sortChildren(node.children)
+      sortChildren(node.children, depth + 1)
     }
   }
-  sortChildren(roots)
+  sortChildren(roots, 1)
   roots.sort((a, b) => a.position - b.position)
 
   return {
