@@ -210,6 +210,25 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
           isEditing && { backgroundColor: '#EEF2FF' },
         ]}
       >
+        {/* Curved elbow: vertical from row top to center, then horizontal to bullet */}
+        {depth > 0 && (
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              height: 18,
+              width: indent + 18,
+              borderLeftWidth: (isEditing || hasActiveDescendant) ? 2 : 1,
+              borderBottomWidth: (isEditing || hasActiveDescendant) ? 2 : 1,
+              borderBottomLeftRadius: 8,
+              borderLeftColor: (isEditing || hasActiveDescendant) ? BLUE : '#DDDDE3',
+              borderBottomColor: (isEditing || hasActiveDescendant) ? BLUE : '#DDDDE3',
+            }}
+          />
+        )}
+
         {/* Indented row with bullet */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: indent + 8 }}>
 
@@ -292,7 +311,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
       )}
 
       {hasChildren && expanded && (
-        <View style={{ borderLeftWidth: hasActiveDescendant ? 2 : 1, borderLeftColor: hasActiveDescendant ? BLUE : '#DDDDE3', marginLeft: indent + 18 }}>
+        <View style={{ borderLeftWidth: 1, borderLeftColor: hasActiveDescendant ? BLUE : '#DDDDE3', marginLeft: indent + 18 }}>
           {task.children.map((child) => (
             <OutlineRow
               key={child.id}
