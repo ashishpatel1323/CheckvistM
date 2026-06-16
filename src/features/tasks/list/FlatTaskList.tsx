@@ -244,11 +244,6 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
 
   const ops = useMemo<OutlineOps>(() => ({
     createSiblingAfter: (task: TaskNode) => {
-      // Get siblings: if task has a parent, use parent's children; otherwise use currentRoots
-      const parentNode = task.parent_id != null ? nodeMap.get(task.parent_id) : null
-      const siblings = parentNode ? parentNode.children : currentRoots
-
-      const taskIndex = siblings.findIndex((s) => s.id === task.id)
       const newPosition = task.position + 1
 
       createMutate(
@@ -292,9 +287,6 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
       const parentNode = nodeMap.get(task.parent_id)
       if (!parentNode) return
 
-      const grandparentNode = parentNode.parent_id != null ? nodeMap.get(parentNode.parent_id) : null
-      const parentSiblings = grandparentNode ? grandparentNode.children : currentRoots
-      const parentIndex = parentSiblings.findIndex((s) => s.id === parentNode.id)
       const newPosition = parentNode.position + 1
 
       updateMutate({
