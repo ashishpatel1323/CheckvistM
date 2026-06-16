@@ -218,23 +218,13 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
         {/* Indented row with bullet */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: indent + 8 }}>
 
-          {/* Expand/collapse toggle or bullet */}
+          {/* Bullet — always a circle; press to zoom in */}
           <Pressable
-            onPress={() => hasChildren ? toggleExpanded(task.id) : (onZoomIn && onZoomIn(task))}
+            onPress={() => onZoomIn && onZoomIn(task)}
             hitSlop={8}
             style={styles.bulletWrap}
           >
-            {hasChildren ? (
-              // Triangle bullet — rotates when expanded; blue when active or has active child
-              <View style={[
-                styles.triangle,
-                expanded && styles.triangleExpanded,
-                !expanded && (isEditing || hasActiveDescendant) && { borderLeftColor: BLUE },
-              ]} />
-            ) : (
-              // Filled circle — blue when this row is active
-              <View style={[styles.dot, isEditing && styles.dotActive]} />
-            )}
+            <View style={[styles.dot, (isEditing || hasActiveDescendant) && styles.dotActive]} />
           </Pressable>
 
           {/* Row content */}
@@ -286,6 +276,17 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
                 setShowPriorityPicker={setShowPriorityPicker}
                 onDatePress={() => ops.openDatePicker(task.id)}
               />
+            </Pressable>
+          )}
+
+          {/* Expand / collapse toggle on the right */}
+          {hasChildren && !isEditing && (
+            <Pressable
+              onPress={() => toggleExpanded(task.id)}
+              hitSlop={8}
+              style={styles.expandToggle}
+            >
+              <Text style={styles.expandToggleText}>{expanded ? '−' : '+'}</Text>
             </Pressable>
           )}
         </View>
@@ -405,19 +406,18 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: BLUE,
   },
-  triangle: {
-    width: 0,
-    height: 0,
-    borderTopWidth: 5,
-    borderBottomWidth: 5,
-    borderLeftWidth: 8,
-    borderTopColor: 'transparent',
-    borderBottomColor: 'transparent',
-    borderLeftColor: '#A0A0A8',
+  expandToggle: {
+    paddingHorizontal: 10,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  triangleExpanded: {
-    transform: [{ rotate: '90deg' }],
-    borderLeftColor: '#4772FA',
+  expandToggleText: {
+    fontSize: 16,
+    lineHeight: 20,
+    color: '#9CA3AF',
+    fontWeight: '400',
   },
   contentRow: {
     flex: 1,

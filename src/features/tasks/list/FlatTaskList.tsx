@@ -190,7 +190,6 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
   )
 
   const handleZoomIn = useCallback((task: TaskNode) => {
-    if (!task.children.length) return
     setBreadcrumbs((prev) => [...prev, { id: task.id, label: task.content, children: task.children }])
     setFocusedId(null)
   }, [setFocusedId])
