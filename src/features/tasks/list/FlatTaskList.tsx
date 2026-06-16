@@ -60,6 +60,7 @@ interface InnerProps extends FlatTaskListProps {
 const BLUE = '#4772FA'
 
 interface OutlineToolbarProps {
+  disabled: boolean
   onIndentOut: () => void
   onIndentIn: () => void
   onMoveUp: () => void
@@ -70,7 +71,7 @@ interface OutlineToolbarProps {
   onClose: () => void
 }
 
-function OutlineToolbar({ onIndentOut, onIndentIn, onMoveUp, onMoveDown, onDate, onComplete, onDelete, onClose }: OutlineToolbarProps) {
+function OutlineToolbar({ disabled, onIndentOut, onIndentIn, onMoveUp, onMoveDown, onDate, onComplete, onDelete, onClose }: OutlineToolbarProps) {
   return (
     <View style={{
       flexDirection: 'row',
@@ -86,25 +87,25 @@ function OutlineToolbar({ onIndentOut, onIndentIn, onMoveUp, onMoveDown, onDate,
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ flexDirection: 'row', gap: 4, paddingHorizontal: 4 }}
       >
-        <ToolbarButton onPress={onIndentOut} label="⇤">
+        <ToolbarButton onPress={onIndentOut} label="⇤" disabled={disabled}>
           <ChevronLeft size={18} color="#374151" />
         </ToolbarButton>
-        <ToolbarButton onPress={onIndentIn} label="⇥">
+        <ToolbarButton onPress={onIndentIn} label="⇥" disabled={disabled}>
           <ChevronRight size={18} color="#374151" />
         </ToolbarButton>
-        <ToolbarButton onPress={onMoveUp} label="↑">
+        <ToolbarButton onPress={onMoveUp} label="↑" disabled={disabled}>
           <ChevronUp size={18} color="#374151" />
         </ToolbarButton>
-        <ToolbarButton onPress={onMoveDown} label="↓">
+        <ToolbarButton onPress={onMoveDown} label="↓" disabled={disabled}>
           <ChevronDown size={18} color="#374151" />
         </ToolbarButton>
-        <ToolbarButton onPress={onDate} label="Date">
+        <ToolbarButton onPress={onDate} label="Date" disabled={disabled}>
           <Calendar size={18} color="#374151" />
         </ToolbarButton>
-        <ToolbarButton onPress={onComplete} label="✓">
+        <ToolbarButton onPress={onComplete} label="✓" disabled={disabled}>
           <CheckSquare size={18} color="#374151" />
         </ToolbarButton>
-        <ToolbarButton onPress={onDelete} label="Del">
+        <ToolbarButton onPress={onDelete} label="Del" disabled={disabled}>
           <Text style={{ fontSize: 16 }}>🗑</Text>
         </ToolbarButton>
       </ScrollView>
@@ -119,12 +120,13 @@ interface ToolbarButtonProps {
   onPress: () => void
   label: string
   children: React.ReactNode
+  disabled?: boolean
 }
 
-function ToolbarButton({ onPress, children }: ToolbarButtonProps) {
+function ToolbarButton({ onPress, children, disabled }: ToolbarButtonProps) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
       style={{
         width: 40,
         height: 40,
@@ -132,6 +134,7 @@ function ToolbarButton({ onPress, children }: ToolbarButtonProps) {
         backgroundColor: '#F3F4F6',
         alignItems: 'center',
         justifyContent: 'center',
+        opacity: disabled ? 0.3 : 1,
       }}
     >
       {children}
@@ -187,7 +190,6 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
   )
 
   const handleZoomIn = useCallback((task: TaskNode) => {
-    if (!task.children.length) return
     setBreadcrumbs((prev) => [...prev, { id: task.id, label: task.content, children: task.children }])
     setFocusedId(null)
   }, [setFocusedId])
@@ -244,11 +246,6 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
 
   const ops = useMemo<OutlineOps>(() => ({
     createSiblingAfter: (task: TaskNode) => {
-      // Get siblings: if task has a parent, use parent's children; otherwise use currentRoots
-      const parentNode = task.parent_id != null ? nodeMap.get(task.parent_id) : null
-      const siblings = parentNode ? parentNode.children : currentRoots
-
-      const taskIndex = siblings.findIndex((s) => s.id === task.id)
       const newPosition = task.position + 1
 
       createMutate(
@@ -292,9 +289,6 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
       const parentNode = nodeMap.get(task.parent_id)
       if (!parentNode) return
 
-      const grandparentNode = parentNode.parent_id != null ? nodeMap.get(parentNode.parent_id) : null
-      const parentSiblings = grandparentNode ? grandparentNode.children : currentRoots
-      const parentIndex = parentSiblings.findIndex((s) => s.id === parentNode.id)
       const newPosition = parentNode.position + 1
 
       updateMutate({
@@ -412,19 +406,18 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
 
         <DragGhost />
 
-        {/* Editing toolbar */}
-        {activeId !== null && activeNode !== null && (
-          <OutlineToolbar
-            onIndentOut={() => ops.indentOut(activeNode)}
-            onIndentIn={() => ops.indentIn(activeNode)}
-            onMoveUp={() => ops.moveUp(activeNode)}
-            onMoveDown={() => ops.moveDown(activeNode)}
-            onDate={() => setDatePickerTaskId(activeId)}
-            onComplete={() => { closeMutate(activeId); setActiveId(null) }}
-            onDelete={() => { deleteMutate(activeId); setActiveId(null) }}
-            onClose={() => setActiveId(null)}
-          />
-        )}
+        {/* Editing toolbar — always visible, disabled when nothing selected */}
+        <OutlineToolbar
+          disabled={activeNode === null}
+          onIndentOut={() => activeNode && ops.indentOut(activeNode)}
+          onIndentIn={() => activeNode && ops.indentIn(activeNode)}
+          onMoveUp={() => activeNode && ops.moveUp(activeNode)}
+          onMoveDown={() => activeNode && ops.moveDown(activeNode)}
+          onDate={() => { if (activeId) setDatePickerTaskId(activeId) }}
+          onComplete={() => { if (activeId) { closeMutate(activeId); setActiveId(null) } }}
+          onDelete={() => { if (activeId) { deleteMutate(activeId); setActiveId(null) } }}
+          onClose={() => setActiveId(null)}
+        />
 
         {/* Date picker */}
         {datePickerTaskId !== null && (

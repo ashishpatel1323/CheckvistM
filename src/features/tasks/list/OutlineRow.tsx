@@ -26,6 +26,11 @@ interface OutlineRowProps {
 
 const BLUE = '#4772FA'
 
+function containsId(task: TaskNode, id: number): boolean {
+  if (task.id === id) return true
+  return task.children.some((c) => containsId(c, id))
+}
+
 export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, onZoomIn }: OutlineRowProps) {
   const toast = useToast()
   const expanded = useExpandedIds((s) => s.expanded.has(task.id))
@@ -58,6 +63,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
   const isFocused = focusedId === task.id
   const isDropTarget = dropTargetId === task.id
   const isDragging = draggingId === task.id
+  const hasActiveDescendant = activeId != null && hasChildren && task.children.some((c) => containsId(c, activeId))
 
   useEffect(() => {
     const measure = () => {
@@ -131,12 +137,11 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
   const handleBlur = useCallback(() => {
     if (!submittedRef.current) {
       handleSave()
-      if (activeId === task.id) {
-        setActiveId(null)
-      }
+      // Don't clear activeId here — toolbar tap causes blur before onPress fires,
+      // clearing it would make the toolbar lose its target task
     }
     submittedRef.current = false
-  }, [handleSave, activeId, task.id, setActiveId])
+  }, [handleSave])
 
   const handlePriorityChange = (priority: number) => {
     updateTask(
@@ -205,25 +210,50 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
           isEditing && { backgroundColor: '#EEF2FF' },
         ]}
       >
+        {/* Parent-to-guide connector: fills the gap from bullet center to the bottom of this row */}
+        {hasChildren && expanded && (
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: indent + 18,
+              top: 18,
+              bottom: 0,
+              width: hasActiveDescendant ? 2 : 1,
+              backgroundColor: hasActiveDescendant ? BLUE : '#DDDDE3',
+            }}
+          />
+        )}
+
+        {/* Curved elbow for nested items: L-shape from guide (left=0) curving right to bullet */}
+        {depth > 0 && (
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              height: 18,
+              width: indent + 18,
+              borderLeftWidth: (isEditing || hasActiveDescendant) ? 2 : 1,
+              borderBottomWidth: (isEditing || hasActiveDescendant) ? 2 : 1,
+              borderBottomLeftRadius: 10,
+              borderLeftColor: (isEditing || hasActiveDescendant) ? BLUE : '#DDDDE3',
+              borderBottomColor: (isEditing || hasActiveDescendant) ? BLUE : '#DDDDE3',
+            }}
+          />
+        )}
+
         {/* Indented row with bullet */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: indent + 8 }}>
 
-          {/* Expand/collapse toggle or bullet */}
+          {/* Bullet — always a circle; press to zoom in */}
           <Pressable
-            onPress={() => hasChildren ? toggleExpanded(task.id) : (onZoomIn && onZoomIn(task))}
+            onPress={() => onZoomIn && onZoomIn(task)}
             hitSlop={8}
             style={styles.bulletWrap}
           >
-            {hasChildren ? (
-              // Triangle bullet — rotates when expanded
-              <View style={[
-                styles.triangle,
-                expanded && styles.triangleExpanded,
-              ]} />
-            ) : (
-              // Filled circle for leaf
-              <View style={styles.dot} />
-            )}
+            <View style={[styles.dot, (isEditing || hasActiveDescendant) && styles.dotActive]} />
           </Pressable>
 
           {/* Row content */}
@@ -277,6 +307,17 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
               />
             </Pressable>
           )}
+
+          {/* Expand / collapse toggle on the right */}
+          {hasChildren && !isEditing && (
+            <Pressable
+              onPress={() => toggleExpanded(task.id)}
+              hitSlop={8}
+              style={styles.expandToggle}
+            >
+              <Text style={styles.expandToggleText}>{expanded ? '−' : '+'}</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -285,32 +326,31 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
       )}
 
       {hasChildren && expanded && (
-        <>
-          {/* Vertical guide line */}
+        <View style={{ marginLeft: indent + 18 }}>
+          {/* Guide line as plain View — avoids the 1px border-offset that misaligns elbows */}
           <View
+            pointerEvents="none"
             style={{
               position: 'absolute',
-              left: indent + 8 + 10, // align with bullet center
-              top: 32,
-              width: 1,
-              backgroundColor: '#DDDDE3',
-              // can't use absolute easily in RN without known height; use border on children wrapper
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: hasActiveDescendant ? 2 : 1,
+              backgroundColor: hasActiveDescendant ? BLUE : '#DDDDE3',
             }}
           />
-          <View style={{ borderLeftWidth: 1, borderLeftColor: '#DDDDE3', marginLeft: indent + 18 }}>
-            {task.children.map((child) => (
-              <OutlineRow
-                key={child.id}
-                task={child}
-                checklistId={checklistId}
-                isMobile={isMobile}
-                depth={depth + 1}
-                focusedId={focusedId}
-                onZoomIn={onZoomIn}
-              />
-            ))}
-          </View>
-        </>
+          {task.children.map((child) => (
+            <OutlineRow
+              key={child.id}
+              task={child}
+              checklistId={checklistId}
+              isMobile={isMobile}
+              depth={depth + 1}
+              focusedId={focusedId}
+              onZoomIn={onZoomIn}
+            />
+          ))}
+        </View>
       )}
 
       <BottomSheet open={showPriorityPicker} onClose={() => setShowPriorityPicker(false)} title="Set Priority">
@@ -388,19 +428,24 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: '#C4C4C8',
   },
-  triangle: {
-    width: 0,
-    height: 0,
-    borderTopWidth: 5,
-    borderBottomWidth: 5,
-    borderLeftWidth: 8,
-    borderTopColor: 'transparent',
-    borderBottomColor: 'transparent',
-    borderLeftColor: '#A0A0A8',
+  dotActive: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: BLUE,
   },
-  triangleExpanded: {
-    transform: [{ rotate: '90deg' }],
-    borderLeftColor: '#4772FA',
+  expandToggle: {
+    paddingHorizontal: 10,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  expandToggleText: {
+    fontSize: 16,
+    lineHeight: 20,
+    color: '#9CA3AF',
+    fontWeight: '400',
   },
   contentRow: {
     flex: 1,
