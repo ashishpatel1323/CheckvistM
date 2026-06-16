@@ -1,11 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { View, Text, Pressable, Platform, StyleSheet } from 'react-native'
+import { View, Text, Pressable, Platform, StyleSheet, TextInput } from 'react-native'
 import { Clock, MessageSquare } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
 import { useExpandedIds } from './useExpandedIds'
 import { PriorityPicker, priorityDisplay, priorityTextColor } from '@/features/tasks/shared/PriorityPicker'
-import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { useUpdateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
 import { InlineMarkdown } from '@/components/InlineMarkdown'
@@ -13,6 +12,8 @@ import { BottomSheet } from '@/components/BottomSheet'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useDragContext } from './DragContext'
 import { hapticMedium } from '@/platform/haptics'
+import { useOutlineEdit } from './useOutlineEdit'
+import { useOutlineOps } from './outlineContext'
 
 interface OutlineRowProps {
   task: TaskNode
@@ -30,8 +31,24 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
   const expanded = useExpandedIds((s) => s.expanded.has(task.id))
   const toggleExpanded = useExpandedIds((s) => s.toggle)
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
-  const [showDatePicker, setShowDatePicker] = useState(false)
   const rowRef = useRef<View>(null)
+  const inputRef = useRef<TextInput>(null)
+  const submittedRef = useRef(false)
+
+  const activeId = useOutlineEdit((s) => s.activeId)
+  const setActiveId = useOutlineEdit((s) => s.setActiveId)
+  const ops = useOutlineOps()
+
+  const isEditing = activeId === task.id
+
+  const [localText, setLocalText] = useState(task.content)
+
+  // Keep localText in sync when not editing
+  useEffect(() => {
+    if (!isEditing) {
+      setLocalText(task.content)
+    }
+  }, [task.content, isEditing])
 
   const { mutate: updateTask } = useUpdateTask(checklistId)
   const { rowLayouts, measureFns, startDrag, updateDrag, endDrag, dropTargetId, dropZone, draggingId } = useDragContext()
@@ -57,22 +74,76 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
     return () => { measureFns.current.delete(task.id) }
   }, [task.id, task.parent_id, task.position, rowLayouts, measureFns])
 
+  // Auto-focus TextInput when this row becomes active
+  useEffect(() => {
+    if (isEditing) {
+      setTimeout(() => {
+        inputRef.current?.focus()
+      }, 50)
+    }
+  }, [isEditing])
+
+  // Web keyboard handler for Tab/Shift+Tab/Escape
+  useEffect(() => {
+    if (!isEditing || Platform.OS !== 'web') return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          ops.indentOut(task)
+        } else {
+          ops.indentIn(task)
+        }
+      } else if (e.key === 'Escape') {
+        handleSave()
+        setActiveId(null)
+      }
+    }
+
+    const domInput = (inputRef.current as unknown as HTMLInputElement)
+    if (domInput) {
+      domInput.addEventListener('keydown', handleKeyDown)
+      return () => domInput.removeEventListener('keydown', handleKeyDown)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing, task, ops])
+
+  const handleSave = useCallback(() => {
+    const trimmed = localText.trim()
+    if (trimmed && trimmed !== task.content) {
+      updateTask(
+        { taskId: task.id, payload: { content: trimmed } },
+        {
+          onSuccess: () => toast.success('Task updated'),
+          onError: () => toast.error('Failed to update task'),
+        }
+      )
+    }
+  }, [localText, task.content, task.id, updateTask, toast])
+
+  const handleEnter = useCallback(() => {
+    submittedRef.current = true
+    handleSave()
+    ops.createSiblingAfter(task)
+  }, [handleSave, ops, task])
+
+  const handleBlur = useCallback(() => {
+    if (!submittedRef.current) {
+      handleSave()
+      if (activeId === task.id) {
+        setActiveId(null)
+      }
+    }
+    submittedRef.current = false
+  }, [handleSave, activeId, task.id, setActiveId])
+
   const handlePriorityChange = (priority: number) => {
     updateTask(
       { taskId: task.id, payload: { priority } },
       {
         onSuccess: () => toast.success('Priority updated'),
         onError: () => toast.error('Failed to update priority'),
-      }
-    )
-  }
-
-  const handleDateChange = (date: string | null) => {
-    updateTask(
-      { taskId: task.id, payload: { due_date: date } },
-      {
-        onSuccess: () => toast.success('Due date updated'),
-        onError: () => toast.error('Failed to update due date'),
       }
     )
   }
@@ -98,7 +169,8 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
 
   const handleCancel = useCallback(() => { endDrag() }, [endDrag])
 
-  const dragGesture = Platform.OS !== 'web'
+  // Disable drag when editing
+  const dragGesture = Platform.OS !== 'web' && !isEditing
     ? Gesture.Pan()
       .activateAfterLongPress(400)
       .runOnJS(true)
@@ -130,6 +202,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
           styles.rowContainer,
           isDragging && styles.rowDragging,
           isDropTarget && dropZone === 'onto' && { backgroundColor: '#EEF2FF' },
+          isEditing && { backgroundColor: '#EEF2FF' },
         ]}
       >
         {/* Indented row with bullet */}
@@ -154,28 +227,54 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
           </Pressable>
 
           {/* Row content */}
-          {dragGesture ? (
+          {isEditing ? (
+            // Edit mode: TextInput in place
+            <TextInput
+              ref={inputRef}
+              value={localText}
+              onChangeText={setLocalText}
+              onBlur={handleBlur}
+              onSubmitEditing={handleEnter}
+              submitBehavior="submit"
+              multiline={false}
+              style={[
+                styles.textInput,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ...(Platform.OS === 'web' ? [{ outlineWidth: 0 } as any] : []),
+              ]}
+            />
+          ) : dragGesture ? (
             <GestureDetector gesture={dragGesture}>
               <Pressable
-                onPress={() => onZoomIn && onZoomIn(task)}
+                onPress={() => setActiveId(task.id)}
                 style={[
                   styles.contentRow,
                   isFocused && styles.contentRowFocused,
                 ]}
                 {...webProps}
               >
-                <RowContent task={task} isFocused={isFocused} dueDateColor={dueDateColor}
-                  setShowPriorityPicker={setShowPriorityPicker} setShowDatePicker={setShowDatePicker} />
+                <RowContent
+                  task={task}
+                  isFocused={isFocused}
+                  dueDateColor={dueDateColor}
+                  setShowPriorityPicker={setShowPriorityPicker}
+                  onDatePress={() => ops.openDatePicker(task.id)}
+                />
               </Pressable>
             </GestureDetector>
           ) : (
             <Pressable
-              onPress={() => onZoomIn && onZoomIn(task)}
+              onPress={() => setActiveId(task.id)}
               style={[styles.contentRow, isFocused && styles.contentRowFocused]}
               {...webProps}
             >
-              <RowContent task={task} isFocused={isFocused} dueDateColor={dueDateColor}
-                setShowPriorityPicker={setShowPriorityPicker} setShowDatePicker={setShowDatePicker} />
+              <RowContent
+                task={task}
+                isFocused={isFocused}
+                dueDateColor={dueDateColor}
+                setShowPriorityPicker={setShowPriorityPicker}
+                onDatePress={() => ops.openDatePicker(task.id)}
+              />
             </Pressable>
           )}
         </View>
@@ -217,15 +316,6 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
       <BottomSheet open={showPriorityPicker} onClose={() => setShowPriorityPicker(false)} title="Set Priority">
         <PriorityPicker value={task.priority} onChange={(p) => { handlePriorityChange(p); setShowPriorityPicker(false) }} />
       </BottomSheet>
-
-      {showDatePicker && (
-        <QuickDatePicker
-          taskId={task.id}
-          onSelect={(date) => { handleDateChange(date); setShowDatePicker(false) }}
-          onClose={() => setShowDatePicker(false)}
-          isMobile
-        />
-      )}
     </>
   )
 }
@@ -235,10 +325,10 @@ interface RowContentProps {
   isFocused: boolean
   dueDateColor: string
   setShowPriorityPicker: (v: boolean) => void
-  setShowDatePicker: (v: boolean) => void
+  onDatePress: () => void
 }
 
-function RowContent({ task, dueDateColor, setShowPriorityPicker, setShowDatePicker }: RowContentProps) {
+function RowContent({ task, dueDateColor, setShowPriorityPicker, onDatePress }: RowContentProps) {
   return (
     <View style={styles.contentInner}>
       <Text style={styles.taskText} numberOfLines={1}>
@@ -267,7 +357,7 @@ function RowContent({ task, dueDateColor, setShowPriorityPicker, setShowDatePick
           </Pressable>
         )}
         {task.due && (
-          <Pressable hitSlop={6} onPress={() => setShowDatePicker(true)}>
+          <Pressable hitSlop={6} onPress={onDatePress}>
             <Text style={[styles.metaText, { color: dueDateColor }]}>
               {humanizeDueDate(task.due)}
             </Text>
@@ -287,7 +377,7 @@ const styles = StyleSheet.create({
   },
   bulletWrap: {
     width: 20,
-    height: 32,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -316,7 +406,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 32,
+    minHeight: 36,
     paddingRight: 12,
     paddingVertical: 4,
   },
@@ -332,10 +422,20 @@ const styles = StyleSheet.create({
   },
   taskText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     lineHeight: 20,
     color: '#1C1C1E',
     letterSpacing: 0,
+  },
+  textInput: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
+    color: '#1C1C1E',
+    paddingVertical: 8,
+    paddingRight: 12,
+    minHeight: 36,
+    backgroundColor: 'transparent',
   },
   metaRow: {
     flexDirection: 'row',
