@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, Platform } from 'react-native'
 import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import type { GroupedTasks, DateGroup } from '@/lib/dateSort'
-import { PriorityTaskRow, COL_TAGS, COL_TIME, COL_DATE, COL_PRI } from './PriorityTaskRow'
+import { PriorityTaskRow } from './PriorityTaskRow'
 import { classifyPriority } from '@/features/tasks/shared/PriorityPicker'
 import type { PriorityBucket } from '@/features/tasks/shared/PriorityPicker'
 import { useUpdateTask } from './useTasksQuery'
@@ -252,23 +252,6 @@ function DateGroupCard({
           : <ChevronDown size={16} color="#9CA3AF" />}
       </Pressable>
 
-      {/* Column headers */}
-      {!collapsed && (
-        <View style={{
-          flexDirection: 'row', alignItems: 'center',
-          paddingHorizontal: 14, paddingVertical: 4,
-          backgroundColor: '#FAFAFA',
-          borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
-        }}>
-          <View style={{ width: 20 }} />
-          <View style={{ width: 10 }} />
-          <Text style={{ flex: 1, fontSize: 9, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>TASK</Text>
-          <View style={{ width: COL_TAGS }}><Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>TAGS</Text></View>
-          <View style={{ width: COL_TIME }}><Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>TIME</Text></View>
-          <View style={{ width: COL_DATE }}><Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>DUE</Text></View>
-          <View style={{ width: COL_PRI }}><Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>PRI</Text></View>
-        </View>
-      )}
 
       {/* L2 priority sub-sections */}
       {!collapsed && activeBuckets.map((bucket) => (

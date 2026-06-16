@@ -22,6 +22,7 @@ export const COL_TIME = 52
 export const COL_DATE = 68
 export const COL_PRI  = 36
 
+
 interface PriorityTaskRowProps {
   task: TaskNode
   checklistId: number
@@ -87,9 +88,9 @@ export function PriorityTaskRow({
         delayLongPress={500}
         style={{
           flexDirection: 'row',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           paddingHorizontal: 14,
-          paddingVertical: 11,
+          paddingVertical: 10,
           borderBottomWidth: isLast ? 0 : 1,
           borderBottomColor: '#F3F4F6',
           backgroundColor: isFocused ? '#F5F8FF' : '#FFFFFF',
@@ -103,9 +104,10 @@ export function PriorityTaskRow({
           style={{
             width: 20,
             height: 20,
+            marginTop: 1,
             borderRadius: 4,
             borderWidth: 2,
-            borderColor: task.status === 1 ? checkColor : checkColor,
+            borderColor: checkColor,
             backgroundColor: task.status === 1 ? checkColor : 'transparent',
             alignItems: 'center',
             justifyContent: 'center',
@@ -117,82 +119,77 @@ export function PriorityTaskRow({
           )}
         </Pressable>
 
-        {/* Title */}
-        <View style={{ flex: 1, minWidth: 0 }}>
+        {/* Title + meta chips */}
+        <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
           <Text
-            numberOfLines={1}
+            numberOfLines={2}
             style={{
               fontSize: 14,
               color: task.status === 1 ? '#9CA3AF' : '#111827',
               textDecorationLine: task.status === 1 ? 'line-through' : 'none',
               fontWeight: '400',
+              lineHeight: 20,
             }}
           >
             {task.content}
           </Text>
+
+          {/* Meta row: date · duration · priority · tags */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {/* Due date */}
+            <Pressable
+              onPress={(e) => { e.stopPropagation?.(); setShowDatePicker(true) }}
+              hitSlop={6}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 2,
+                borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2,
+                backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB',
+              }}
+            >
+              <Calendar size={9} color={task.due ? dateColor : '#9CA3AF'} />
+              <Text style={{ fontSize: 10, fontWeight: '500', color: task.due ? dateColor : '#9CA3AF' }}>
+                {task.due ? humanizeDueDate(task.due) : 'Date'}
+              </Text>
+            </Pressable>
+
+            {/* Duration */}
+            {task.duration && (
+              <Pressable
+                onPress={(e) => { e.stopPropagation?.(); setShowDurationPicker(true) }}
+                hitSlop={6}
+                style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: '#EEF2FF' }}
+              >
+                <Text style={{ fontSize: 10, fontWeight: '600', color: '#4772FA' }}>
+                  {task.duration.formatted}
+                </Text>
+              </Pressable>
+            )}
+
+            {/* Priority */}
+            <Pressable
+              onPress={(e) => { e.stopPropagation?.(); setShowPriorityPicker(true) }}
+              hitSlop={6}
+              style={{
+                paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
+                backgroundColor: task.priority > 0 && task.priority <= 10 ? priorityRowBg(task.priority) : '#F5F3FF',
+              }}
+            >
+              <Text style={{
+                fontSize: 10, fontWeight: '700',
+                color: task.priority > 0 && task.priority <= 10 ? priorityTextColor(task.priority) : '#7c3aed',
+              }}>
+                {task.priority > 0 && task.priority <= 10 ? priorityDisplay(task.priority) : 'TBD'}
+              </Text>
+            </Pressable>
+
+            {/* Tags */}
+            {task.tags_as_text ? (
+              <Text numberOfLines={1} style={{ fontSize: 10, fontWeight: '500', color: '#4772FA', flexShrink: 1 }}>
+                {task.tags_as_text.split(/\s+/).filter(Boolean).map((t) => (t.startsWith('#') ? t : `#${t}`)).join(' ')}
+              </Text>
+            ) : null}
+          </View>
         </View>
-
-        {/* Tags column */}
-        <View style={{ width: COL_TAGS }}>
-          {task.tags_as_text ? (
-            <Text numberOfLines={1} style={{ fontSize: 9, fontWeight: '500', color: '#4772FA' }}>
-              {task.tags_as_text.split(/\s+/).filter(Boolean).map((t) => (t.startsWith('#') ? t : `#${t}`)).join(' ')}
-            </Text>
-          ) : null}
-        </View>
-
-        {/* Time (duration) column */}
-        <Pressable
-          onPress={() => setShowDurationPicker(true)}
-          hitSlop={6}
-          style={{ width: COL_TIME, alignItems: 'flex-start' }}
-        >
-          <View style={{
-            paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
-            backgroundColor: task.duration ? '#EEF2FF' : '#F9FAFB',
-          }}>
-            <Text style={{ fontSize: 10, fontWeight: '600', color: task.duration ? '#4772FA' : '#D1D5DB' }}>
-              {task.duration?.formatted ?? '—'}
-            </Text>
-          </View>
-        </Pressable>
-
-        {/* Due date column */}
-        <Pressable
-          onPress={() => setShowDatePicker(true)}
-          hitSlop={6}
-          style={{ width: COL_DATE, alignItems: 'flex-start' }}
-        >
-          <View style={{
-            flexDirection: 'row', alignItems: 'center', gap: 2,
-            borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2,
-            backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB',
-          }}>
-            <Calendar size={9} color={task.due ? dateColor : '#9CA3AF'} />
-            <Text style={{ fontSize: 9, fontWeight: '500', color: task.due ? dateColor : '#9CA3AF' }}>
-              {task.due ? humanizeDueDate(task.due) : 'Date'}
-            </Text>
-          </View>
-        </Pressable>
-
-        {/* Priority column */}
-        <Pressable
-          onPress={() => setShowPriorityPicker(true)}
-          hitSlop={6}
-          style={{ width: COL_PRI, alignItems: 'flex-start' }}
-        >
-          <View style={{
-            paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
-            backgroundColor: task.priority > 0 && task.priority <= 10 ? priorityRowBg(task.priority) : '#F5F3FF',
-          }}>
-            <Text style={{
-              fontSize: 10, fontWeight: '700',
-              color: task.priority > 0 && task.priority <= 10 ? priorityTextColor(task.priority) : '#7c3aed',
-            }}>
-              {task.priority > 0 && task.priority <= 10 ? priorityDisplay(task.priority) : 'TBD'}
-            </Text>
-          </View>
-        </Pressable>
       </Pressable>
 
       {/* Context menu */}
