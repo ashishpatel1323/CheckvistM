@@ -254,7 +254,16 @@ function HabitCircle({ done, scheduled, future, selected, accentColor, onPress, 
     >
       {done && <Text style={{ color: '#fff', fontSize: size * 0.45, fontWeight: '700' }}>✓</Text>}
       {!done && !future && scheduled && <Text style={{ color: FAILURE_RED, fontSize: size * 0.5, fontWeight: '700' }}>✕</Text>}
-      {done && rank != null && (
+      {done && rank === 1 && (
+        <View style={{
+          position: 'absolute',
+          top: -size * 0.35,
+          right: -size * 0.35,
+        }}>
+          <Text style={{ fontSize: size * 0.65 }}>⭐</Text>
+        </View>
+      )}
+      {done && rank != null && rank > 1 && (
         <View style={{
           position: 'absolute',
           top: -badgeSize * 0.4,

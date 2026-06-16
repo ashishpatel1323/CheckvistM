@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { View, Text, Pressable, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
 import { useExpandedIds } from './useExpandedIds'
-import { ChevronRight, Circle, CheckCircle, CornerUpRight, ExternalLink, Clock, MessageSquare } from 'lucide-react-native'
+import { ChevronRight, Circle, CheckCircle, CornerUpRight, ExternalLink, Clock, MessageSquare, Calendar } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
 import { PriorityPicker, priorityBadgeClass, priorityDisplay, priorityRowBg, priorityTextColor } from '@/features/tasks/shared/PriorityPicker'
@@ -191,7 +191,7 @@ export function TaskRow({
           </Pressable>
 
           {/* Due date */}
-          {task.due && (
+          {task.due ? (
             <Pressable
               onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false) }}
               hitSlop={6}
@@ -199,6 +199,14 @@ export function TaskRow({
               <Text style={{ fontSize: 12, fontWeight: '500', color: dateColorClass.includes('red') ? '#E53935' : '#4772FA' }}>
                 {humanizeDueDate(task.due)}
               </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false) }}
+              hitSlop={6}
+              style={{ opacity: 0.3 }}
+            >
+              <Calendar size={14} color="#6B7280" />
             </Pressable>
           )}
 
