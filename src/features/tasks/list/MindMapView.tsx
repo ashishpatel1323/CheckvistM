@@ -252,9 +252,10 @@ interface MindMapViewProps {
   focusedId: number | null
   setFocusedId: (id: number | null) => void
   initialFocusId?: number | null
+  timerBar?: React.ReactNode
 }
 
-export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initialFocusId }: MindMapViewProps) {
+export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initialFocusId, timerBar }: MindMapViewProps) {
   const { width: screenW, height: screenH } = useWindowDimensions()
   const { activeChecklistId } = useActiveChecklist()
   const { data: checklists } = useChecklists()
@@ -277,6 +278,8 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
   const editInputRef = useRef<TextInput>(null)
   const lastPressTimes = useRef<Map<number, number>>(new Map())
   const { mutateAsync: createTask } = useCreateTask(checklistId)
+  const createTaskRef = useRef(createTask)
+  useEffect(() => { createTaskRef.current = createTask }, [createTask])
   const { mutateAsync: deleteTask } = useDeleteTask(checklistId)
   const deleteTaskRef = useRef(deleteTask)
   useEffect(() => { deleteTaskRef.current = deleteTask }, [deleteTask])
@@ -287,6 +290,25 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
   const toast = useToast()
   const toastRef = useRef(toast)
   useEffect(() => { toastRef.current = toast }, [toast])
+
+  // Cut/copy/paste clipboard (stores a subtree snapshot)
+  interface ClipboardNode { id: number; content: string; children: ClipboardNode[] }
+  const [clipboard, setClipboard] = useState<{ nodes: ClipboardNode[]; isCut: boolean } | null>(null)
+  const clipboardRef = useRef(clipboard)
+  useEffect(() => { clipboardRef.current = clipboard }, [clipboard])
+
+  function snapshotSubtree(nodeId: number): ClipboardNode | null {
+    const n = nodeMap.get(nodeId)
+    if (!n) return null
+    return { id: n.id, content: n.content, children: n.children.map((c) => snapshotSubtree(c.id)!).filter(Boolean) }
+  }
+
+  async function pasteSubtree(node: ClipboardNode, parentId: number | null): Promise<void> {
+    const created = await createTaskRef.current({ content: node.content, ...(parentId != null ? { parent_id: parentId } : {}) })
+    for (const child of node.children) {
+      await pasteSubtree(child, created.id)
+    }
+  }
 
   // Drag state for leaf-node reparenting (web only)
   interface RenderDrag { nodeId: number; label: string; screenX: number; screenY: number; dropTargetId: number | null }
@@ -353,16 +375,14 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
       cur = nodeMap.get(cur.parent_id)
     }
 
-    // Drill into the direct parent so the task appears as a top-level node in the drilled view
-    if (ancestorPath.length > 0) {
-      setDrillPath(ancestorPath)
-      // Uncollapse every node along the ancestor path
-      setCollapsed((prev) => {
-        const next = new Set(prev)
-        ancestorPath.forEach((id) => next.delete(id))
-        return next
-      })
-    }
+    // Drill into the task itself so it becomes the root and shows its children
+    const drillTo = [...ancestorPath, initialFocusId]
+    setDrillPath(drillTo)
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      drillTo.forEach((id) => next.delete(id))
+      return next
+    })
     setFocusedId(initialFocusId)
   }, [initialFocusId, nodeMap, setFocusedId])
 
@@ -568,11 +588,46 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
       } else if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
         e.preventDefault()
         setShowShortcuts((v) => !v)
+      } else if (e.key === 'c' && (e.metaKey || e.ctrlKey) && focusedId != null) {
+        e.preventDefault(); e.stopPropagation()
+        const snap = snapshotSubtree(focusedId)
+        if (snap) { setClipboard({ nodes: [snap], isCut: false }); toastRef.current.success('Copied') }
+      } else if (e.key === 'x' && (e.metaKey || e.ctrlKey) && focusedId != null) {
+        e.preventDefault(); e.stopPropagation()
+        const snap = snapshotSubtree(focusedId)
+        if (snap) {
+          setClipboard({ nodes: [snap], isCut: true })
+          setFocusedIdRef.current(null)
+          deleteTaskRef.current(focusedId)
+          toastRef.current.success('Cut')
+        }
+      } else if (e.key === 'v' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault(); e.stopPropagation()
+        const cb = clipboardRef.current
+        if (!cb) return
+        const pasteParentId = focusedIdRef.current
+        ;(async () => {
+          try {
+            for (const node of cb.nodes) await pasteSubtree(node, pasteParentId)
+            if (pasteParentId != null) {
+              setCollapsed((prev) => { const n = new Set(prev); n.delete(pasteParentId); return n })
+            }
+            toastRef.current.success('Pasted')
+            if (cb.isCut) setClipboard(null)
+          } catch {
+            toastRef.current.error('Paste failed')
+          }
+        })()
       } else if (e.key === 'Delete' && focusedId != null) {
         e.preventDefault(); e.stopPropagation()
         const idToDelete = focusedId
         setFocusedIdRef.current(null)
         deleteTaskRef.current(idToDelete)
+      } else if (e.key === 'F2' && focusedId != null) {
+        e.preventDefault(); e.stopPropagation()
+        const node = nodeMap.get(focusedId)
+        if (node) { setEditingText(node.content); setEditingNodeId(focusedId) }
+        setTimeout(() => editInputRef.current?.focus(), 50)
       } else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && focusedId != null) {
         e.preventDefault(); e.stopPropagation()
         // Add sibling: create task under same parent
@@ -651,8 +706,8 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
         e.preventDefault()
         // Find hit node at click position
         const rect = el.getBoundingClientRect()
-        const cx = (e.clientX - rect.left + scrollPos.current.x) / scaleRef.current
-        const cy = (e.clientY - rect.top + scrollPos.current.y) / scaleRef.current
+        const cx = (e.clientX - rect.left + scrollPos.current.x - 40) / scaleRef.current
+        const cy = (e.clientY - rect.top + scrollPos.current.y - 40) / scaleRef.current
         const hit = nodesRef.current.find(
           (n) => n.id !== -1 && cx >= n.x && cx <= n.x + n.w && cy >= n.y && cy <= n.y + n.h
         )
@@ -687,8 +742,8 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
       // Left-click on a leaf node (no children) → potential drag-to-reparent
       if (e.button === 0 && !isSpacePan) {
         const rect = el.getBoundingClientRect()
-        const cx = (e.clientX - rect.left + scrollPos.current.x) / scaleRef.current
-        const cy = (e.clientY - rect.top + scrollPos.current.y) / scaleRef.current
+        const cx = (e.clientX - rect.left + scrollPos.current.x - 40) / scaleRef.current
+        const cy = (e.clientY - rect.top + scrollPos.current.y - 40) / scaleRef.current
         const hit = nodesRef.current.find(
           (n) => n.id !== -1 && !n.hasChildren &&
                  cx >= n.x && cx <= n.x + n.w && cy >= n.y && cy <= n.y + n.h
@@ -704,8 +759,8 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
       const isBlanCanvas = target.tagName === 'svg' || target.tagName === 'SVG'
       if (e.button === 0 && isBlanCanvas) {
         const rect = el.getBoundingClientRect()
-        const cx = (e.clientX - rect.left + scrollPos.current.x) / scaleRef.current
-        const cy = (e.clientY - rect.top + scrollPos.current.y) / scaleRef.current
+        const cx = (e.clientX - rect.left + scrollPos.current.x - 40) / scaleRef.current
+        const cy = (e.clientY - rect.top + scrollPos.current.y - 40) / scaleRef.current
         marqueeStartRef.current = { x: cx, y: cy }
         setMarquee({ x: cx, y: cy, w: 0, h: 0 })
         if (!e.ctrlKey && !e.metaKey) setSelectedIds(new Set())
@@ -738,8 +793,8 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
         }
         if (dragRef.current.active) {
           const rect = el.getBoundingClientRect()
-          const cx = (e.clientX - rect.left + scrollPos.current.x) / scaleRef.current
-          const cy = (e.clientY - rect.top + scrollPos.current.y) / scaleRef.current
+          const cx = (e.clientX - rect.left + scrollPos.current.x - 40) / scaleRef.current
+          const cy = (e.clientY - rect.top + scrollPos.current.y - 40) / scaleRef.current
           const hit = nodesRef.current.find(
             (n) => n.id !== -1 && n.id !== dragRef.current!.nodeId &&
                    cx >= n.x && cx <= n.x + n.w && cy >= n.y && cy <= n.y + n.h
@@ -769,8 +824,8 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
       }
       if (marqueeStartRef.current) {
         const rect = el.getBoundingClientRect()
-        const cx = (e.clientX - rect.left + scrollPos.current.x) / scaleRef.current
-        const cy = (e.clientY - rect.top + scrollPos.current.y) / scaleRef.current
+        const cx = (e.clientX - rect.left + scrollPos.current.x - 40) / scaleRef.current
+        const cy = (e.clientY - rect.top + scrollPos.current.y - 40) / scaleRef.current
         setMarquee({
           x: Math.min(marqueeStartRef.current.x, cx),
           y: Math.min(marqueeStartRef.current.y, cy),
@@ -874,6 +929,14 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
     <View className="flex-1 bg-white" style={fullScreen && Platform.OS === 'web' ? { position: 'fixed' as never, inset: 0, zIndex: 999 } : undefined}>
       {/* ── Toolbar ─────────────────────────────────────────────────── */}
       <View className="flex-row items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-white flex-wrap">
+
+        {/* Timer bar — shown when opened from Execute split view */}
+        {timerBar && (
+          <>
+            {timerBar}
+            <View style={{ width: 1, height: 20, backgroundColor: '#e5e7eb', marginHorizontal: 4 }} />
+          </>
+        )}
 
         {/* Fold / Unfold */}
         <ToolbarBtn label="Fold All"   onPress={() => setCollapsed(new Set(allParentIds))} />
@@ -1136,6 +1199,16 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
                 action: () => { unfoldSubtree(contextMenu.nodeId); hideContextMenu() },
               },
               {
+                label: 'Edit',
+                icon: '✎',
+                action: () => {
+                  const n = nodeMap.get(contextMenu.nodeId)
+                  if (n) { setEditingText(n.content); setEditingNodeId(contextMenu.nodeId) }
+                  hideContextMenu()
+                  setTimeout(() => editInputRef.current?.focus(), 50)
+                },
+              },
+              {
                 label: 'Insert Child',
                 icon: '+',
                 action: () => {
@@ -1143,6 +1216,44 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
                   setNewChildText('')
                   setTimeout(() => newChildInputRef.current?.focus(), 50)
                   hideContextMenu()
+                },
+              },
+              {
+                label: 'Copy',
+                icon: '⎘',
+                action: () => {
+                  const snap = snapshotSubtree(contextMenu.nodeId)
+                  if (snap) { setClipboard({ nodes: [snap], isCut: false }); toast.success('Copied') }
+                  hideContextMenu()
+                },
+              },
+              {
+                label: 'Cut',
+                icon: '✂',
+                action: async () => {
+                  const snap = snapshotSubtree(contextMenu.nodeId)
+                  if (snap) {
+                    setClipboard({ nodes: [snap], isCut: true })
+                    hideContextMenu()
+                    await deleteTask(contextMenu.nodeId)
+                    setFocusedId(null)
+                    toast.success('Cut')
+                  } else { hideContextMenu() }
+                },
+              },
+              {
+                label: 'Paste',
+                icon: '⎙',
+                disabled: clipboard == null,
+                action: async () => {
+                  hideContextMenu()
+                  if (!clipboard) return
+                  try {
+                    for (const node of clipboard.nodes) await pasteSubtree(node, contextMenu.nodeId)
+                    setCollapsed((prev) => { const n = new Set(prev); n.delete(contextMenu.nodeId); return n })
+                    toast.success('Pasted')
+                    if (clipboard.isCut) setClipboard(null)
+                  } catch { toast.error('Paste failed') }
                 },
               },
               {
@@ -1272,6 +1383,10 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
 
               {/* Rows */}
               {[
+                { action: 'Edit Node', keys: ['F2'] },
+                { action: 'Copy', keys: ['⌘', '+', 'C'] },
+                { action: 'Cut', keys: ['⌘', '+', 'X'] },
+                { action: 'Paste', keys: ['⌘', '+', 'V'] },
                 { action: 'Add Child', keys: ['Tab'] },
                 { action: 'Add Parent', keys: ['⌘', '+', 'Enter'] },
                 { action: 'Add Sibling', keys: ['Enter'] },
@@ -1311,117 +1426,121 @@ export function MindMapView({ tasks, checklistId, focusedId, setFocusedId, initi
         </Modal>
       )}
 
-      {/* ── New child input (Tab) — anchored near the parent node ─── */}
+      {/* ── Inline new-child node (Tab / Insert Child) ── */}
       {newChildParentId != null && (() => {
-        // Compute canvas position of the parent node → screen coords
         const parentNode = newChildParentId === -1 ? null : nodes.find((n) => n.id === newChildParentId)
         const scrollEl = canvasContainerRef.current as unknown as HTMLElement | null
         const containerRect = scrollEl?.getBoundingClientRect()
-        const canvasX = parentNode ? parentNode.x * scale : 100
-        const canvasY = parentNode ? (parentNode.y + parentNode.h) * scale : 100
-        const screenX = containerRect ? canvasX - (scrollEl?.scrollLeft ?? 0) + containerRect.left : canvasX
-        const screenY = containerRect ? canvasY - (scrollEl?.scrollTop ?? 0) + containerRect.top + 8 : canvasY
-        const inputW = 300
+
+        // Position: to the right of the parent (child level), vertically centred on parent
+        const childDepth = parentNode ? parentNode.depth + 1 : 1
+        const nodeCanvasX = PAD + RW + HG + (childDepth - 1) * (NW + HG)
+        const nodeCanvasY = parentNode
+          ? parentNode.y + parentNode.h / 2 - (NODE_PAD_V * 2 + LINE_H) / 2
+          : PAD
+        const nodeCanvasH = NODE_PAD_V * 2 + LINE_H
+        const nodeCanvasW = NW
+
+        const screenX = containerRect
+          ? nodeCanvasX * scale - (scrollEl?.scrollLeft ?? 0) + containerRect.left + 40 // +40 for the SVG margin
+          : nodeCanvasX * scale
+        const screenY = containerRect
+          ? nodeCanvasY * scale - (scrollEl?.scrollTop ?? 0) + containerRect.top + 40
+          : nodeCanvasY * scale
+
+        // Use depth colour for the new node
+        const col = depthColor(childDepth)
+        const nodeW = nodeCanvasW * scale
+        const nodeH = Math.max(nodeCanvasH * scale, 34)
+
         const vpW = typeof window !== 'undefined' ? window.innerWidth : 800
         const vpH = typeof window !== 'undefined' ? window.innerHeight : 600
-        const clampedX = Math.min(Math.max(screenX, 8), vpW - inputW - 8)
-        const clampedY = screenY + 130 > vpH ? screenY - 145 : screenY
+        const clampedX = Math.min(Math.max(screenX, 8), vpW - nodeW - 8)
+        const clampedY = Math.min(Math.max(screenY, 8), vpH - nodeH - 8)
+
         return (
-        <View
-          style={{
-            position: 'fixed' as never,
-            left: clampedX, top: clampedY,
-            width: inputW,
-            backgroundColor: 'white',
-            borderRadius: 12, borderWidth: 2, borderColor: '#7c3aed',
-            shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 16, elevation: 16,
-            zIndex: 9998,
-          }}
-        >
-          <Text className="text-xs text-violet-500 font-semibold px-3 pt-2">
-            {newChildParentId === -1
-              ? 'New root task'
-              : `New child of "${nodeMap.get(newChildParentId)
-                  ? stripMarkdown(nodeMap.get(newChildParentId)!.content).slice(0, 28)
-                  : '…'}"`}
-          </Text>
-          <TextInput
-            ref={newChildInputRef}
-            value={newChildText}
-            onChangeText={setNewChildText}
-            placeholder="Task name…"
-            placeholderTextColor="#9ca3af"
-            className="px-3 py-2 text-sm text-gray-800"
-            autoFocus
-            onSubmitEditing={submitNewChild}
-            onKeyPress={(e) => {
-              if (e.nativeEvent.key === 'Escape') { setNewChildParentId(null); setNewChildText('') }
+          <View
+            style={{
+              position: 'fixed' as never,
+              left: clampedX, top: clampedY,
+              width: nodeW, height: nodeH,
+              backgroundColor: col.bg,
+              borderRadius: 10, borderWidth: 2.5, borderColor: col.stroke,
+              shadowColor: col.stroke, shadowOpacity: 0.35, shadowRadius: 10, elevation: 12,
+              zIndex: 9998,
+              justifyContent: 'center',
             }}
-            blurOnSubmit={false}
-          />
-          <View className="flex-row justify-end gap-2 px-3 pb-2">
-            <Pressable onPress={() => { setNewChildParentId(null); setNewChildText('') }}>
-              <Text className="text-xs text-gray-400 py-1">Esc to cancel</Text>
-            </Pressable>
-            <Pressable onPress={submitNewChild} className="px-3 py-1 bg-violet-500 rounded-lg active:bg-violet-600">
-              <Text className="text-xs text-white font-medium">Add ↵</Text>
-            </Pressable>
+          >
+            <TextInput
+              ref={newChildInputRef}
+              value={newChildText}
+              onChangeText={setNewChildText}
+              placeholder="New node…"
+              placeholderTextColor={col.stroke + '88'}
+              autoFocus
+              onSubmitEditing={submitNewChild}
+              onKeyPress={(e) => {
+                if (e.nativeEvent.key === 'Escape') { setNewChildParentId(null); setNewChildText('') }
+              }}
+              blurOnSubmit
+              style={{
+                fontSize: NODE_FONT * scale,
+                color: col.text,
+                paddingHorizontal: NODE_PAD_H * scale,
+                paddingVertical: 0,
+                textAlign: 'center',
+              }}
+            />
           </View>
-        </View>
         )
       })()}
 
-      {/* ── Inline edit popup (double-click) — anchored near the node ── */}
+      {/* ── Inline edit overlay (double-click / F2) — overlays the node itself ── */}
       {editingNodeId != null && Platform.OS === 'web' && (() => {
         const editNode = nodes.find((n) => n.id === editingNodeId)
+        if (!editNode) return null
         const scrollEl = canvasContainerRef.current as unknown as HTMLElement | null
         const containerRect = scrollEl?.getBoundingClientRect()
-        const canvasX = editNode ? editNode.x * scale : 100
-        const canvasY = editNode ? (editNode.y + editNode.h) * scale : 100
-        const screenX = containerRect ? canvasX - (scrollEl?.scrollLeft ?? 0) + containerRect.left : canvasX
-        const screenY = containerRect ? canvasY - (scrollEl?.scrollTop ?? 0) + containerRect.top + 8 : canvasY
-        const inputW = 320
-        const vpW = typeof window !== 'undefined' ? window.innerWidth : 800
-        const vpH = typeof window !== 'undefined' ? window.innerHeight : 600
-        const clampedX = Math.min(Math.max(screenX, 8), vpW - inputW - 8)
-        const clampedY = screenY + 110 > vpH ? screenY - 120 : screenY
+        const screenX = containerRect
+          ? editNode.x * scale - (scrollEl?.scrollLeft ?? 0) + containerRect.left + 40
+          : editNode.x * scale
+        const screenY = containerRect
+          ? editNode.y * scale - (scrollEl?.scrollTop ?? 0) + containerRect.top + 40
+          : editNode.y * scale
+        const nodeW = editNode.w * scale
+        const nodeH = editNode.h * scale
+        const col = depthColor(editNode.depth)
         return (
           <View style={{
             position: 'fixed' as never,
-            left: clampedX, top: clampedY,
-            width: inputW,
-            backgroundColor: 'white',
-            borderRadius: 12, borderWidth: 2, borderColor: '#7c3aed',
-            shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 16, elevation: 16,
+            left: screenX, top: screenY,
+            width: nodeW, height: nodeH,
+            backgroundColor: col.bg,
+            borderRadius: 10, borderWidth: 2.5, borderColor: col.stroke,
+            shadowColor: col.stroke, shadowOpacity: 0.4, shadowRadius: 12, elevation: 14,
             zIndex: 9999,
+            justifyContent: 'center',
           }}>
-            <Text style={{ fontSize: 11, color: '#7c3aed', fontWeight: '600', paddingHorizontal: 12, paddingTop: 8 }}>
-              Edit node
-            </Text>
             <TextInput
               ref={editInputRef}
               value={editingText}
               onChangeText={setEditingText}
               placeholder="Task name…"
-              placeholderTextColor="#9ca3af"
-              multiline
+              placeholderTextColor={col.stroke + '88'}
               autoFocus
-              style={{ fontSize: 13, color: '#111827', paddingHorizontal: 12, paddingVertical: 6, minHeight: 36 }}
+              style={{
+                fontSize: NODE_FONT * scale,
+                color: col.text,
+                paddingHorizontal: NODE_PAD_H * scale,
+                paddingVertical: 0,
+                textAlign: 'center',
+              }}
               onSubmitEditing={submitEdit}
               onKeyPress={(e) => {
                 if (e.nativeEvent.key === 'Escape') { setEditingNodeId(null) }
-                if (e.nativeEvent.key === 'Enter') { submitEdit() }
               }}
-              blurOnSubmit={false}
+              blurOnSubmit
             />
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>
-              <Pressable onPress={() => setEditingNodeId(null)}>
-                <Text style={{ fontSize: 11, color: '#9ca3af', paddingVertical: 4 }}>Esc to cancel</Text>
-              </Pressable>
-              <Pressable onPress={submitEdit} style={{ paddingHorizontal: 12, paddingVertical: 4, backgroundColor: '#7c3aed', borderRadius: 8 }}>
-                <Text style={{ fontSize: 11, color: 'white', fontWeight: '600' }}>Save ↵</Text>
-              </Pressable>
-            </View>
           </View>
         )
       })()}

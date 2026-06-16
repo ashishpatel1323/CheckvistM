@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { View, Text, Pressable, Platform } from 'react-native'
 import { useRouter } from 'expo-router'
+import { Calendar } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
 import { useCloseTask, useUpdateTask } from './useTasksQuery'
@@ -15,6 +16,11 @@ import { updateDurationTag } from '@/lib/durationTagUtils'
 import { useTaskView } from './useTaskView'
 import { isPast, isToday } from 'date-fns'
 import { priorityDisplay, priorityTextColor, priorityRowBg } from '@/features/tasks/shared/PriorityPicker'
+
+export const COL_TAGS = 110
+export const COL_TIME = 52
+export const COL_DATE = 68
+export const COL_PRI  = 36
 
 interface PriorityTaskRowProps {
   task: TaskNode
@@ -126,48 +132,67 @@ export function PriorityTaskRow({
           </Text>
         </View>
 
-        {/* Priority badge */}
-        <Pressable
-          onPress={() => setShowPriorityPicker(true)}
-          hitSlop={6}
-          style={{
-            paddingHorizontal: 5,
-            paddingVertical: 2,
-            borderRadius: 4,
-            backgroundColor: task.priority > 0 && task.priority <= 10 ? priorityRowBg(task.priority) : '#F5F3FF',
-          }}
-        >
-          <Text style={{
-            fontSize: 11,
-            fontWeight: '700',
-            color: task.priority > 0 && task.priority <= 10 ? priorityTextColor(task.priority) : '#7c3aed',
-          }}>
-            {task.priority > 0 && task.priority <= 10 ? priorityDisplay(task.priority) : 'TBD'}
-          </Text>
-        </Pressable>
+        {/* Tags column */}
+        <View style={{ width: COL_TAGS }}>
+          {task.tags_as_text ? (
+            <Text numberOfLines={1} style={{ fontSize: 9, fontWeight: '500', color: '#4772FA' }}>
+              {task.tags_as_text.split(/\s+/).filter(Boolean).map((t) => (t.startsWith('#') ? t : `#${t}`)).join(' ')}
+            </Text>
+          ) : null}
+        </View>
 
-        {/* Duration badge */}
+        {/* Time (duration) column */}
         <Pressable
           onPress={() => setShowDurationPicker(true)}
           hitSlop={6}
-          style={{
-            paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
-            backgroundColor: task.duration ? '#F3E8FF' : '#F9FAFB',
-          }}
+          style={{ width: COL_TIME, alignItems: 'flex-start' }}
         >
-          <Text style={{ fontSize: 11, fontWeight: '600', color: task.duration ? '#7C3AED' : '#D1D5DB' }}>
-            {task.duration?.formatted ?? '—'}
-          </Text>
+          <View style={{
+            paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
+            backgroundColor: task.duration ? '#EEF2FF' : '#F9FAFB',
+          }}>
+            <Text style={{ fontSize: 10, fontWeight: '600', color: task.duration ? '#4772FA' : '#D1D5DB' }}>
+              {task.duration?.formatted ?? '—'}
+            </Text>
+          </View>
         </Pressable>
 
-        {/* Due date */}
-        {task.due ? (
-          <Pressable onPress={() => setShowDatePicker(true)} hitSlop={6}>
-            <Text style={{ fontSize: 12, fontWeight: '500', color: dateColor, flexShrink: 0 }}>
-              {humanizeDueDate(task.due)}
+        {/* Due date column */}
+        <Pressable
+          onPress={() => setShowDatePicker(true)}
+          hitSlop={6}
+          style={{ width: COL_DATE, alignItems: 'flex-start' }}
+        >
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', gap: 2,
+            borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2,
+            backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB',
+          }}>
+            <Calendar size={9} color={task.due ? dateColor : '#9CA3AF'} />
+            <Text style={{ fontSize: 9, fontWeight: '500', color: task.due ? dateColor : '#9CA3AF' }}>
+              {task.due ? humanizeDueDate(task.due) : 'Date'}
             </Text>
-          </Pressable>
-        ) : null}
+          </View>
+        </Pressable>
+
+        {/* Priority column */}
+        <Pressable
+          onPress={() => setShowPriorityPicker(true)}
+          hitSlop={6}
+          style={{ width: COL_PRI, alignItems: 'flex-start' }}
+        >
+          <View style={{
+            paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
+            backgroundColor: task.priority > 0 && task.priority <= 10 ? priorityRowBg(task.priority) : '#F5F3FF',
+          }}>
+            <Text style={{
+              fontSize: 10, fontWeight: '700',
+              color: task.priority > 0 && task.priority <= 10 ? priorityTextColor(task.priority) : '#7c3aed',
+            }}>
+              {task.priority > 0 && task.priority <= 10 ? priorityDisplay(task.priority) : 'TBD'}
+            </Text>
+          </View>
+        </Pressable>
       </Pressable>
 
       {/* Context menu */}

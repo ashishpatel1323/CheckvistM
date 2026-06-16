@@ -1,0 +1,26 @@
+diff --git a/build/reactNativeConfig/config.js b/build/reactNativeConfig/config.js
+index 65ef8980f00d2a6e071021e61c5de85cb2c00358..497b6ba4dedb43f4359d996e6ad855d86e1fb87f 100644
+--- a/build/reactNativeConfig/config.js
++++ b/build/reactNativeConfig/config.js	
+@@ -54,12 +54,19 @@ exports.loadConfigAsync = loadConfigAsync;
+ function requireConfig(filepath, configContents) {
+     try {
+         const config = (0, require_from_string_1.default)(configContents, filepath, {
+-            prependPaths: [mockedNativeModules],
++            prependPaths: [mockedNativeModules, path_1.default.dirname(filepath)],
+         });
+         return config.default ?? config ?? null;
+     }
+     catch {
+-        return null;
++        // Fallback: require the file directly if require-from-string fails
++        try {
++            const direct = require(filepath);
++            return direct.default ?? direct ?? null;
++        }
++        catch {
++            return null;
++        }
+     }
+ }
+ //# sourceMappingURL=config.js.map

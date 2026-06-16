@@ -13,6 +13,7 @@
 
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
+import { useSyncState } from '@/lib/sync/syncState'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Platform } from 'react-native'
 import { format, parseISO } from 'date-fns'
@@ -167,6 +168,18 @@ export const useSystemLog = create<SystemLogStore>()(
       syncSession: async (key, taskName, entry) => {
         if (!entry.startedAt || entry.actualSeconds < 5) return
 
+        // Optimistic local update so Execute tab sees it immediately without waiting for fetchTodaySessions
+        const optimisticSession: SyncedSession = {
+          key,
+          taskId: entry.taskId,
+          checklistId: Number(key.split(':')[0]),
+          taskName,
+          startedAt: entry.startedAt,
+          actualSeconds: entry.actualSeconds,
+          completedAt: entry.completedAt,
+        }
+        set((s) => ({ remoteSessions: { ...s.remoteSessions, [key]: optimisticSession } }))
+
         try {
           const systemListId = await get().ensureSystemList()
           const dateStr = key.split(':')[1]
@@ -175,19 +188,35 @@ export const useSystemLog = create<SystemLogStore>()(
 
           const existingSystemTaskId = get().sessionTaskIds[key]
           if (existingSystemTaskId) {
-            // Update existing system task
             await updateTask(systemListId, existingSystemTaskId, { content })
           } else {
-            // Create new child task under the day task
-            const created = await createTask(systemListId, {
-              content,
-              parent_id: dayTaskId,
-            })
-            set((s) => ({ sessionTaskIds: { ...s.sessionTaskIds, [key]: created.id } }))
+            const created = await createTask(systemListId, { content, parent_id: dayTaskId })
+            set((s) => ({
+              sessionTaskIds: { ...s.sessionTaskIds, [key]: created.id },
+              remoteSessions: { ...s.remoteSessions, [key]: { ...optimisticSession, systemTaskId: created.id } },
+            }))
           }
+          const mins = Math.round(entry.actualSeconds / 60)
+          useSyncState.getState().addHistoryItem({
+            id: `session-${key}-${Date.now()}`,
+            entityType: 'session',
+            operation: existingSystemTaskId ? 'update' : 'create',
+            localId: key,
+            label: `Session synced · ${taskName} (${mins}m)`,
+            syncedAt: Date.now(),
+            status: 'synced',
+          })
         } catch (e) {
-          // Non-fatal — local data is still in useExecuteLog
           console.warn('[SystemLog] sync failed:', e)
+          useSyncState.getState().addHistoryItem({
+            id: `session-${key}-${Date.now()}`,
+            entityType: 'session',
+            operation: 'create',
+            localId: key,
+            label: `Session sync failed · ${taskName}`,
+            syncedAt: Date.now(),
+            status: 'failed',
+          })
         }
       },
 

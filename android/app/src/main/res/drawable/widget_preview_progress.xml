@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Preview of the Progress Trackers widget shown in the picker -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- Background card -->
+  <item>
+    <shape android:shape="rectangle">
+      <solid android:color="#FFFFFF" />
+      <corners android:radius="16dp" />
+    </shape>
+  </item>
+  <!-- Blue top accent strip -->
+  <item android:top="0dp" android:bottom="244dp">
+    <shape android:shape="rectangle">
+      <solid android:color="#2B5BAD" />
+      <corners android:topLeftRadius="16dp" android:topRightRadius="16dp" />
+    </shape>
+  </item>
+</layer-list>

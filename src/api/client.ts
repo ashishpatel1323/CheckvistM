@@ -12,7 +12,7 @@ export const apiClient = axios.create({
   },
 })
 
-// Request interceptor: append token query param
+// Request interceptor: append token query param + bust browser HTTP cache on GETs
 apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const url = config.url ?? ''
   const skip = AUTH_SKIP_PATHS.some((path) => url.includes(path))
@@ -21,6 +21,13 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
     if (token) {
       config.params = { ...config.params, token }
     }
+  }
+  // Prevent browser from serving 304 stale responses — Checkvist uses ETags
+  // which causes newly created tasks to be invisible until the ETag expires.
+  if (config.method === 'get' || config.method === undefined) {
+    config.headers = config.headers ?? {}
+    config.headers['Cache-Control'] = 'no-cache'
+    config.headers['Pragma'] = 'no-cache'
   }
   return config
 })
@@ -73,7 +80,7 @@ apiClient.interceptors.response.use(
         params.append('token', currentToken)
 
         const response = await axios.post<{ token: string }>(
-          'https://checkvist.com/auth/refresh_token.json?version=2',
+          'https://checkvist.com/auth/refresh_token.json',
           params,
           { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
         )
@@ -90,12 +97,17 @@ apiClient.interceptors.response.use(
         }
 
         return apiClient(originalRequest)
-      } catch {
+      } catch (refreshError: unknown) {
         isRefreshing = false
         refreshSubscribers = []
-        await clearTokenAsync()
-        router.replace('/login')
-        return Promise.reject(error)
+        // Only force-logout on a definitive auth rejection (401/403).
+        // Network errors, timeouts, or 5xx should NOT clear the session.
+        const status = axios.isAxiosError(refreshError) ? refreshError.response?.status : null
+        if (status === 401 || status === 403) {
+          await clearTokenAsync()
+          router.replace('/login')
+        }
+        return Promise.reject(refreshError)
       }
     }
 

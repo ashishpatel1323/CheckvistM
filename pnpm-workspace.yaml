@@ -1,0 +1,4 @@
+allowBuilds:
+  '@sentry/cli': true
+patchedDependencies:
+  expo-modules-autolinking@2.0.8: patches/expo-modules-autolinking@2.0.8.patch

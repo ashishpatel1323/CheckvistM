@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, Platform } from 'react-native'
 import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import type { GroupedTasks, DateGroup } from '@/lib/dateSort'
-import { PriorityTaskRow } from './PriorityTaskRow'
+import { PriorityTaskRow, COL_TAGS, COL_TIME, COL_DATE, COL_PRI } from './PriorityTaskRow'
 import { classifyPriority } from '@/features/tasks/shared/PriorityPicker'
 import type { PriorityBucket } from '@/features/tasks/shared/PriorityPicker'
 import { useUpdateTask } from './useTasksQuery'
@@ -95,6 +95,13 @@ function PrioritySubSection({
     })
   }
 
+  // Calibrate: demote tasks beyond position 3 in HIGH bucket to P4 (medium)
+  const MAX_HIGH = 3
+  function calibrate() {
+    const excess = orderedTasks.slice(MAX_HIGH)
+    excess.forEach((t) => updateTask({ taskId: t.id, payload: { priority: 4 } }))
+  }
+
   // Keyboard: ArrowUp/ArrowDown moves focused task within this bucket
   // Handled via focusedId + useEffect to detect keyboard
   const focusedIdx = orderedTasks.findIndex((t) => t.id === focusedId)
@@ -125,6 +132,22 @@ function PrioritySubSection({
           </Text>
           <Text style={{ fontSize: 11, color: meta.color, opacity: 0.65 }}>{meta.sublabel}</Text>
         </View>
+        {/* Calibrate button — only on HIGH bucket when there are excess items */}
+        {bucket === 'high' && tasks.length > MAX_HIGH && (
+          <Pressable
+            onPress={(e) => { e.stopPropagation(); calibrate() }}
+            hitSlop={8}
+            style={{
+              paddingHorizontal: 8, paddingVertical: 3,
+              borderRadius: 6,
+              backgroundColor: meta.color,
+            }}
+          >
+            <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff', letterSpacing: 0.3 }}>
+              Calibrate
+            </Text>
+          </Pressable>
+        )}
         <Text style={{ fontSize: 13, color: '#9CA3AF', marginRight: 4 }}>{tasks.length}</Text>
         {collapsed
           ? <ChevronRight size={14} color="#9CA3AF" />
@@ -228,6 +251,24 @@ function DateGroupCard({
           ? <ChevronRight size={16} color="#9CA3AF" />
           : <ChevronDown size={16} color="#9CA3AF" />}
       </Pressable>
+
+      {/* Column headers */}
+      {!collapsed && (
+        <View style={{
+          flexDirection: 'row', alignItems: 'center',
+          paddingHorizontal: 14, paddingVertical: 4,
+          backgroundColor: '#FAFAFA',
+          borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+        }}>
+          <View style={{ width: 20 }} />
+          <View style={{ width: 10 }} />
+          <Text style={{ flex: 1, fontSize: 9, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>TASK</Text>
+          <View style={{ width: COL_TAGS }}><Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>TAGS</Text></View>
+          <View style={{ width: COL_TIME }}><Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>TIME</Text></View>
+          <View style={{ width: COL_DATE }}><Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>DUE</Text></View>
+          <View style={{ width: COL_PRI }}><Text style={{ fontSize: 9, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>PRI</Text></View>
+        </View>
+      )}
 
       {/* L2 priority sub-sections */}
       {!collapsed && activeBuckets.map((bucket) => (

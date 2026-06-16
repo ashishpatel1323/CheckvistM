@@ -1,7 +1,8 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
-import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback } from 'react-native'
+import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback, PanResponder } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical } from 'lucide-react-native'
+import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical, TrendingUp, Play, Pause, type LucideIcon } from 'lucide-react-native'
+import { ProgressTab } from '@/features/progress/ProgressTab'
 import { useTasksQuery } from './useTasksQuery'
 import { buildTaskTree } from '@/lib/taskTree'
 import { groupTasksByDate } from '@/lib/dateSort'
@@ -12,19 +13,27 @@ import { FlatTaskList } from './FlatTaskList'
 import { MindMapView } from './MindMapView'
 import { SearchView } from '@/features/tasks/search/SearchView'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { useTaskView } from './useTaskView'
+import Svg, { Circle, Line, Text as SvgText, G, Defs, RadialGradient, Stop, Path } from 'react-native-svg'
+import { useTaskView, type TaskView } from './useTaskView'
 import { useTabBarConfig, PINNED_TAB_COUNT } from './useTabBarConfig'
 import { BottomSheet } from '@/components/BottomSheet'
 import { ChecklistSwitcher } from '@/features/checklists/ChecklistSwitcher'
 import { useCreateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
-import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList } from '@/features/tasks/execute/ExecuteModeView'
+import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList, TodaySessionsCard, ExecuteViewContent, useExecCtx } from '@/features/tasks/execute/ExecuteModeView'
+import { useSystemLog } from '@/features/tasks/execute/useSystemLog'
+import { useExecuteLog, summarizeDaySessions, entryKey, DEFAULT_ESTIMATE } from '@/features/tasks/execute/useExecuteLog'
+import { format } from 'date-fns'
 import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
 import { EisenhowerMatrixView } from './EisenhowerMatrixView'
+import { KanbanView } from './KanbanView'
 import { RoutinesView } from '@/features/tasks/routines/RoutinesView'
+import { TimerModeView, MiniTimerBar } from '@/features/tasks/routines/TimerModeView'
+import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
+import { MuteButton } from '@/features/tasks/shared/MuteButton'
 
 interface TaskListViewProps {
   checklistId: number
@@ -38,12 +47,78 @@ interface ExecuteRawSplitViewProps {
 
 type RightPanel = { type: 'raw'; taskId: number } | { type: 'mindmap'; taskId: number } | null
 
+function RightPanelTimerBar({ onClose }: { onClose: () => void }) {
+  const { currentTask, currentSeconds, isRunning, togglePlay } = useExecCtx()
+  const mins = Math.floor(currentSeconds / 60).toString().padStart(2, '0')
+  const secs = (currentSeconds % 60).toString().padStart(2, '0')
+  const INDIGO = '#6366F1'
+  return (
+    <View style={{
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      paddingHorizontal: 12, paddingVertical: 7,
+      borderBottomWidth: 1, borderBottomColor: '#F1F5F9',
+      backgroundColor: '#FAFAFA',
+    }}>
+      <Pressable
+        hitSlop={8}
+        onPress={onClose}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: 'white' }}
+      >
+        <Timer size={12} color="#6B7280" />
+        <Text style={{ fontSize: 12, fontWeight: '500', color: '#374151' }}>Execute</Text>
+      </Pressable>
+
+      <View style={{ flex: 1 }} />
+
+      {currentTask && (
+        <Text style={{ fontSize: 12, color: '#64748B', fontWeight: '500' }} numberOfLines={1}>
+          {currentTask.content.replace(/\*\*/g, '').replace(/\*/g, '')}
+        </Text>
+      )}
+
+      <Pressable
+        onPress={togglePlay}
+        style={{
+          flexDirection: 'row', alignItems: 'center', gap: 5,
+          paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
+          backgroundColor: isRunning ? INDIGO : '#1E293B',
+        }}
+      >
+        {isRunning
+          ? <Pause size={11} color="white" />
+          : <Play size={11} color="white" />}
+        <Text style={{ fontSize: 13, fontWeight: '700', color: 'white', fontVariant: ['tabular-nums'] }}>
+          {mins}:{secs}
+        </Text>
+      </Pressable>
+    </View>
+  )
+}
+
 function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitViewProps) {
-  const [rightPanel, setRightPanel] = useState<RightPanel>(null)
+  const setLastRawTaskId = useExecuteLog((s) => s.setLastRawTaskId)
+  const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
+    // Restore raw panel from persisted state for refresh recovery
+    const savedId = useExecuteLog.getState().lastRawTaskId
+    return savedId != null ? { type: 'raw', taskId: savedId } : null
+  })
   const [focusedId, setFocusedId] = useState<number | null>(null)
 
   function openRaw(taskId: number) {
     setRightPanel({ type: 'raw', taskId })
+    setLastRawTaskId(taskId)
+    // Auto-start timer for this task
+    const log = useExecuteLog.getState()
+    const key = entryKey(checklistId, taskId)
+    if (!log.entries[key]) log.seed(key, taskId, DEFAULT_ESTIMATE)
+    if (log.timerRunningKey !== key) log.play(key)
+  }
+
+  function closeRaw() {
+    setRightPanel(null)
+    setLastRawTaskId(null)
+    // Auto-pause timer when raw view closes
+    useExecuteLog.getState().pause()
   }
 
   function openMindmap(taskId: number) {
@@ -51,47 +126,50 @@ function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitVie
     setRightPanel({ type: 'mindmap', taskId })
   }
 
+  // Auto-resume timer when returning to Execute tab with raw panel still open
+  useEffect(() => {
+    if (rightPanel?.type === 'raw') {
+      const log = useExecuteLog.getState()
+      const key = entryKey(checklistId, rightPanel.taskId)
+      if (!log.entries[key]) log.seed(key, rightPanel.taskId, DEFAULT_ESTIMATE)
+      if (log.timerRunningKey !== key) log.play(key)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const hasPanel = rightPanel !== null
 
   return (
     <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={openRaw} onJumpToMindmap={openMindmap}>
-      <View style={{ flex: 1, flexDirection: 'column' }}>
-        {/* Full-width horizontal control bar */}
-        <ExecuteControlBar onClose={onClose} />
-
-        {/* Left / right split below the bar */}
-        <View style={{ flex: 1, flexDirection: 'row' }}>
-          <View style={{ width: hasPanel ? '25%' : '100%' }}>
-            <ExecuteTaskList />
-          </View>
-          {hasPanel && (
-            <>
-              <View style={{ width: 1, backgroundColor: '#E5E7EB' }} />
-              <View style={{ flex: 1, position: 'relative' }}>
-                {/* Close panel button */}
-                <Pressable
-                  hitSlop={8}
-                  onPress={() => setRightPanel(null)}
-                  style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, padding: 4, borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.06)' }}
-                >
-                  <X size={14} color="#6B7280" />
-                </Pressable>
-                {rightPanel.type === 'raw' && (
-                  <RawView checklistId={checklistId} taskId={rightPanel.taskId} />
-                )}
-                {rightPanel.type === 'mindmap' && (
-                  <MindMapView
-                    tasks={tasks}
-                    checklistId={checklistId}
-                    focusedId={focusedId}
-                    setFocusedId={setFocusedId}
-                    initialFocusId={rightPanel.taskId}
-                  />
-                )}
-              </View>
-            </>
-          )}
+      <View style={{ flex: 1, flexDirection: 'row' }}>
+        {/* Left pane: full ExecuteViewContent with all features */}
+        <View style={{ width: hasPanel ? '40%' : '100%', borderRightWidth: hasPanel ? 1 : 0, borderRightColor: '#E5E7EB' }}>
+          <ExecuteViewContent onClose={onClose} />
         </View>
+
+        {/* Right panel: timer bar embedded inside raw/mindmap toolbars */}
+        {hasPanel && (
+          <View style={{ flex: 1, flexDirection: 'column' }}>
+            {rightPanel.type === 'raw' && (
+              <RawView
+                checklistId={checklistId}
+                taskId={rightPanel.taskId}
+                onClose={closeRaw}
+                timerBar={<RightPanelTimerBar onClose={closeRaw} />}
+              />
+            )}
+            {rightPanel.type === 'mindmap' && (
+              <MindMapView
+                tasks={tasks}
+                checklistId={checklistId}
+                focusedId={focusedId}
+                setFocusedId={setFocusedId}
+                initialFocusId={rightPanel.taskId}
+                timerBar={<RightPanelTimerBar onClose={() => setRightPanel(null)} />}
+              />
+            )}
+          </View>
+        )}
       </View>
     </ExecuteStateProvider>
   )
@@ -112,7 +190,176 @@ interface Sparkle {
   startY: number
 }
 
-function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () => void }) {
+function fmtDur(seconds: number): string {
+  const s = Math.floor(seconds)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) return `${h}h ${m}m ${sec}s`
+  if (m > 0) return `${m}m ${sec}s`
+  return `${sec}s`
+}
+
+function StatBadge({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <View style={{ alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 10, minWidth: 90, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' }}>
+      <Text style={{ fontSize: 22, fontWeight: '700', color: '#fff' }}>{value}</Text>
+      {sub ? <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 1 }}>{sub}</Text> : null}
+      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2, letterSpacing: 0.5 }}>{label}</Text>
+    </View>
+  )
+}
+
+function SessionsStatBadge() {
+  const entries = useExecuteLog((s) => s.entries)
+  const timerRunningKey = useExecuteLog((s) => s.timerRunningKey)
+  const timerStartedAt = useExecuteLog((s) => s.timerStartedAt)
+  const remoteSessions = useSystemLog((s) => s.remoteSessions)
+  const todayStr = format(new Date(), 'yyyy-MM-dd')
+
+  const { sessionCount, sessionTotalSeconds } = useMemo(() => {
+    return summarizeDaySessions(todayStr, entries, remoteSessions, timerRunningKey, timerStartedAt)
+  }, [entries, remoteSessions, timerRunningKey, timerStartedAt, todayStr])
+
+  return <StatBadge label="SESSIONS" value={String(sessionCount)} sub={fmtDur(sessionTotalSeconds)} />
+}
+
+function RoutinesStatBadge() {
+  const routines = useRoutineStore((s) => s.routines)
+  const checkins = useRoutineStore((s) => s.checkins)
+  const getTodayCheckin = useRoutineStore((s) => s.getTodayCheckin)
+  const loadRoutines = useRoutineStore((s) => s.loadRoutines)
+
+  useEffect(() => { loadRoutines() }, [loadRoutines])
+
+  const { done, total } = useMemo(() => {
+    let doneCount = 0
+    for (const r of routines) {
+      const checkin = getTodayCheckin(r.taskId)
+      const completedIds = checkin?.completedStepIds ?? []
+      const allDone = r.steps.length > 0 && r.steps.every(s => completedIds.includes(s.id))
+      if (allDone) doneCount++
+    }
+    return { done: doneCount, total: routines.length }
+  }, [routines, checkins, getTodayCheckin])
+
+  return <StatBadge label="ROUTINES" value={`${done}/${total}`} sub={total > 0 ? `${Math.round((done / total) * 100)}%` : undefined} />
+}
+
+function AnalogClock({ size = 260, date }: { size?: number; date: Date }) {
+  const cx = size / 2
+  const cy = size / 2
+  const r = size / 2 - size * 0.03
+
+  const h = date.getHours() % 12
+  const m = date.getMinutes()
+  const s = date.getSeconds()
+
+  const secDeg  = s * 6
+  const minDeg  = m * 6 + s * 0.1
+  const hourDeg = h * 30 + m * 0.5
+
+  // Tapered hand using a thin Path (wide at pivot, pointed at tip)
+  const taperedHand = (deg: number, length: number, baseWidth: number, color: string) => {
+    const rad    = ((deg - 90) * Math.PI) / 180
+    const tipX   = cx + Math.cos(rad) * length
+    const tipY   = cy + Math.sin(rad) * length
+    const tailL  = length * 0.2
+    const tailRad = ((deg + 90) * Math.PI) / 180
+    const tailX  = cx + Math.cos(tailRad) * tailL
+    const tailY  = cy + Math.sin(tailRad) * tailL
+    const perpRad = ((deg) * Math.PI) / 180
+    const bx = Math.cos(perpRad) * baseWidth
+    const by = Math.sin(perpRad) * baseWidth
+    const d = `M ${cx - bx} ${cy - by} L ${tipX} ${tipY} L ${cx + bx} ${cy + by} L ${tailX} ${tailY} Z`
+    return <Path key={color + deg} d={d} fill={color} />
+  }
+
+  const ticks = Array.from({ length: 60 }, (_, i) => {
+    const isHour    = i % 5 === 0
+    const isQuarter = i % 15 === 0
+    const deg = i * 6
+    const rad = ((deg - 90) * Math.PI) / 180
+    const tickLen = isQuarter ? r * 0.13 : isHour ? r * 0.10 : r * 0.055
+    const outer = r - size * 0.015
+    const inner = outer - tickLen
+    return (
+      <Line
+        key={i}
+        x1={cx + Math.cos(rad) * inner} y1={cy + Math.sin(rad) * inner}
+        x2={cx + Math.cos(rad) * outer} y2={cy + Math.sin(rad) * outer}
+        stroke="#1a1a1a"
+        strokeWidth={isQuarter ? size * 0.022 : isHour ? size * 0.016 : size * 0.008}
+        strokeLinecap="round"
+      />
+    )
+  })
+
+  const numerals = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((n, i) => {
+    const deg = i * 30
+    const rad = ((deg - 90) * Math.PI) / 180
+    const nr  = r * 0.75
+    return (
+      <SvgText
+        key={n}
+        x={cx + Math.cos(rad) * nr}
+        y={cy + Math.sin(rad) * nr}
+        textAnchor="middle"
+        alignmentBaseline="central"
+        fill="#111111"
+        fontSize={size * 0.075}
+        fontWeight="400"
+      >
+        {n}
+      </SvgText>
+    )
+  })
+
+  return (
+    <Svg width={size} height={size}>
+      <Defs>
+        <RadialGradient id="clkFace" cx="48%" cy="42%" r="58%">
+          <Stop offset="0%"   stopColor="#ffffff" />
+          <Stop offset="100%" stopColor="#d8d8d8" />
+        </RadialGradient>
+        <RadialGradient id="clkBezel" cx="50%" cy="50%" r="50%">
+          <Stop offset="0%"   stopColor="#e0e0e0" />
+          <Stop offset="100%" stopColor="#9a9a9a" />
+        </RadialGradient>
+      </Defs>
+
+      {/* Bezel */}
+      <Circle cx={cx} cy={cy} r={r + size * 0.03} fill="url(#clkBezel)" />
+      {/* Shadow ring */}
+      <Circle cx={cx} cy={cy} r={r + size * 0.015} fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth={size * 0.012} />
+      {/* White face */}
+      <Circle cx={cx} cy={cy} r={r} fill="url(#clkFace)" />
+
+      {/* Ticks + numerals */}
+      {ticks}
+      {numerals}
+
+      {/* Hour hand — short, wide, dark charcoal */}
+      {taperedHand(hourDeg, r * 0.50, size * 0.022, '#1a1a1a')}
+      {/* Minute hand — longer, slightly narrower */}
+      {taperedHand(minDeg,  r * 0.70, size * 0.016, '#1a1a1a')}
+      {/* Second hand — thin orange line with tail */}
+      <Line
+        x1={cx + Math.cos(((secDeg + 90) * Math.PI) / 180) * r * 0.22}
+        y1={cy + Math.sin(((secDeg + 90) * Math.PI) / 180) * r * 0.22}
+        x2={cx + Math.cos(((secDeg - 90) * Math.PI) / 180) * r * 0.85}
+        y2={cy + Math.sin(((secDeg - 90) * Math.PI) / 180) * r * 0.85}
+        stroke="#F59E0B" strokeWidth={size * 0.008} strokeLinecap="round"
+      />
+
+      {/* Center cap */}
+      <Circle cx={cx} cy={cy} r={size * 0.038} fill="#F59E0B" />
+      <Circle cx={cx} cy={cy} r={size * 0.015} fill="#fff" />
+    </Svg>
+  )
+}
+
+function TimeZoomOverlay({ timeStr, pct, onClose }: { timeStr: string; pct: number; onClose: () => void }) {
   const pctIdx = timeStr.indexOf(' (')
   const timeLabel = pctIdx === -1 ? timeStr : timeStr.slice(0, pctIdx)
   const pctLabel = pctIdx === -1 ? '' : timeStr.slice(pctIdx + 1)
@@ -121,6 +368,14 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
   const opacityAnim = useRef(new Animated.Value(0)).current
   const [sparkles, setSparkles] = useState<Sparkle[]>([])
   const sparkleIdRef = useRef(0)
+  const autoCloseProgress = useRef(new Animated.Value(0)).current
+  const [clockDate, setClockDate] = useState(() => new Date())
+
+  // Tick clock every second
+  useEffect(() => {
+    const id = setInterval(() => setClockDate(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
 
   // Entry animation
   useEffect(() => {
@@ -129,6 +384,8 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
       Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
     ]).start()
   }, [])
+
+  const dismissRef = useRef<() => void>(() => {})
 
   // Continuously spawn sparkles
   useEffect(() => {
@@ -178,25 +435,28 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
       Animated.timing(opacityAnim, { toValue: 0, duration: 220, useNativeDriver: true }),
     ]).start(onClose)
   }
+  dismissRef.current = dismiss
+
+  // Auto-close after 3 seconds
+  useEffect(() => {
+    Animated.timing(autoCloseProgress, { toValue: 1, duration: 3000, useNativeDriver: false }).start()
+    const t = setTimeout(() => dismissRef.current(), 3000)
+    return () => clearTimeout(t)
+  }, [])
+
+  const clockSize = Math.min(width, height) * 0.82
 
   return (
     <Modal visible transparent animationType="none" onRequestClose={dismiss}>
       <TouchableWithoutFeedback onPress={dismiss}>
-        <Animated.View style={{
-          flex: 1,
-          backgroundColor: 'rgba(10,10,20,0.88)',
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: opacityAnim,
-        }}>
+        <Animated.View style={{ flex: 1, backgroundColor: 'rgba(10,10,20,0.92)', opacity: opacityAnim }}>
+
           {/* Sparkles */}
           {sparkles.map(sp => (
             <Animated.Text
               key={sp.id}
               style={{
-                position: 'absolute',
-                left: 0,
-                top: 0,
+                position: 'absolute', left: 0, top: 0,
                 color: sp.color,
                 fontSize: 18 + Math.random() * 16,
                 transform: [{ translateX: sp.x }, { translateY: sp.y }, { scale: sp.scale }],
@@ -207,24 +467,71 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
             </Animated.Text>
           ))}
 
-          {/* Time */}
-          <Animated.View style={{ transform: [{ scale: scaleAnim }], alignItems: 'center' }}>
-            <Text style={{
-              fontSize: 88,
-              fontWeight: '800',
-              color: '#FFFFFF',
-              letterSpacing: -2,
-              textShadowColor: 'rgba(167,139,250,0.8)',
-              textShadowOffset: { width: 0, height: 0 },
-              textShadowRadius: 40,
-            }}>
-              {timeLabel}{' '}
-              <Text style={{ fontSize: 32, fontWeight: '700', letterSpacing: -1 }}>{pctLabel}</Text>
-            </Text>
-            <Text style={{ fontSize: 15, color: 'rgba(255,255,255,0.45)', marginTop: 4, letterSpacing: 3 }}>
-              TAP TO CLOSE
-            </Text>
+          {/* Clock — centered in the full screen */}
+          <View style={{
+            position: 'absolute',
+            top: 0, left: 0, right: 0, bottom: 0,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <AnalogClock size={clockSize} date={clockDate} />
+          </View>
+
+          {/* Bottom info panel */}
+          <Animated.View style={{
+            position: 'absolute',
+            bottom: 0, left: 0, right: 0,
+            transform: [{ scale: scaleAnim }],
+            backgroundColor: 'rgba(10,10,20,0.75)',
+            paddingTop: 18,
+            paddingBottom: 32,
+            paddingHorizontal: 24,
+            alignItems: 'center',
+            gap: 12,
+          }}>
+            {/* Digital time + percentage */}
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{
+                fontSize: 52,
+                fontWeight: '800',
+                color: '#FFFFFF',
+                letterSpacing: -1,
+                textShadowColor: 'rgba(245,158,11,0.7)',
+                textShadowOffset: { width: 0, height: 0 },
+                textShadowRadius: 20,
+              }}>
+                {timeLabel}
+              </Text>
+              <Text style={{ fontSize: 20, fontWeight: '600', color: 'rgba(255,255,255,0.65)', marginTop: -2 }}>
+                {pctLabel}
+              </Text>
+            </View>
+
+            {/* Day progress bar */}
+            <View style={{ width: '100%', height: 5, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 3, overflow: 'hidden' }}>
+              <View style={{
+                width: `${pct}%`, height: '100%', borderRadius: 3,
+                backgroundColor: pct > 80 ? '#EF4444' : pct > 60 ? '#F59E0B' : '#F59E0B',
+              }} />
+            </View>
+
+            {/* Stats row */}
+            <View style={{ flexDirection: 'row', gap: 16 }}>
+              <SessionsStatBadge />
+              <RoutinesStatBadge />
+            </View>
+
+            {/* Auto-close countdown */}
+            <View style={{ width: '100%', height: 2, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 1, overflow: 'hidden' }}>
+              <Animated.View style={{
+                width: autoCloseProgress.interpolate({ inputRange: [0, 1], outputRange: ['100%', '0%'] }),
+                height: '100%', backgroundColor: 'rgba(245,158,11,0.6)', borderRadius: 1,
+              }} />
+            </View>
+
+            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', letterSpacing: 3 }}>TAP TO CLOSE</Text>
           </Animated.View>
+
         </Animated.View>
       </TouchableWithoutFeedback>
     </Modal>
@@ -301,7 +608,7 @@ function DailyProgressBar() {
         borderBottomColor: '#EFEFEF',
       }}
     >
-      {showZoom && <TimeZoomOverlay timeStr={timeStr} onClose={() => setShowZoom(false)} />}
+      {showZoom && <TimeZoomOverlay timeStr={timeStr} pct={pct} onClose={() => setShowZoom(false)} />}
 
       {/* Time label + track in a single compact row */}
       <View style={{ position: 'relative' }}>
@@ -390,32 +697,217 @@ function DailyProgressBar() {
 const BLUE = '#4772FA'
 const INACTIVE = '#9ca3af'
 
-const TABS = [
-  { key: 'date',    icon: LayoutList,    label: 'Tasks'   },
-  { key: 'matrix',  icon: LayoutGrid,    label: 'Matrix'  },
-  { key: 'execute', icon: Timer,         label: 'Execute' },
-  { key: 'log',      icon: ClipboardList, label: 'Log'      },
-  { key: 'routines', icon: Repeat,        label: 'Routines' },
-  { key: 'list',    icon: AlignLeft,     label: 'Outline' },
-  { key: 'mindmap', icon: Network,       label: 'Map'     },
-  { key: 'search',  icon: Search,        label: 'Search'  },
-  { key: 'raw',     icon: Globe,         label: 'Raw'     },
-] as const
+const ITEM_HEIGHT = 64
+
+type TabEntry = { key: TaskView; icon: LucideIcon; label: string; shortcut: string }
+
+interface MoreModalProps {
+  open: boolean
+  onClose: () => void
+  orderedTabs: TabEntry[]
+  activeView: TaskView
+  pinnedCount: number
+  onSelect: (key: TaskView) => void
+  reorderTab: (from: number, to: number) => void
+}
+
+function MoreModal({ open, onClose, orderedTabs, activeView, pinnedCount, onSelect, reorderTab }: MoreModalProps) {
+  const insets = useSafeAreaInsets()
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const [scrollEnabled, setScrollEnabled] = useState(true)
+  const dragIdxRef = useRef<number | null>(null)
+  const hoverIdxRef = useRef<number | null>(null)
+  const listTopYRef = useRef(0)
+  const countRef = useRef(orderedTabs.length)
+  const containerRef = useRef<View | null>(null)
+  const dragOffsetY = useRef(new Animated.Value(0)).current
+
+  useEffect(() => { countRef.current = orderedTabs.length }, [orderedTabs.length])
+
+  function resetDrag() {
+    dragIdxRef.current = null
+    hoverIdxRef.current = null
+    dragOffsetY.setValue(0)
+    setDragIdx(null)
+    setHoverIdx(null)
+    setScrollEnabled(true)
+  }
+
+  const panResponder = useRef(
+    PanResponder.create({
+      // Only capture touches starting in the grip column (leftmost 48px)
+      onStartShouldSetPanResponder: (evt) => evt.nativeEvent.locationX < 48,
+      onPanResponderGrant: (evt) => {
+        containerRef.current?.measure((_x, _y, _w, _h, _px, py) => {
+          listTopYRef.current = py
+        })
+        const relY = evt.nativeEvent.pageY - listTopYRef.current
+        const idx = Math.max(0, Math.min(countRef.current - 1, Math.floor(relY / ITEM_HEIGHT)))
+        dragIdxRef.current = idx
+        hoverIdxRef.current = idx
+        dragOffsetY.setValue(0)
+        setDragIdx(idx)
+        setHoverIdx(idx)
+        setScrollEnabled(false)
+      },
+      onPanResponderMove: (evt, gs) => {
+        if (dragIdxRef.current === null) return
+        dragOffsetY.setValue(gs.dy)
+        const relY = evt.nativeEvent.pageY - listTopYRef.current
+        const hover = Math.max(0, Math.min(countRef.current - 1, Math.floor(relY / ITEM_HEIGHT)))
+        if (hover !== hoverIdxRef.current) {
+          hoverIdxRef.current = hover
+          setHoverIdx(hover)
+        }
+      },
+      onPanResponderRelease: () => {
+        if (dragIdxRef.current !== null && hoverIdxRef.current !== null) {
+          reorderTab(dragIdxRef.current, hoverIdxRef.current)
+        }
+        resetDrag()
+      },
+      onPanResponderTerminate: resetDrag,
+    })
+  ).current
+
+  return (
+    <Modal visible={open} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+        {/* Header */}
+        <View style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+          paddingHorizontal: 20, paddingTop: insets.top + 14, paddingBottom: 14,
+          borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
+        }}>
+          <View style={{ width: 40 }} />
+          <Text style={{ fontSize: 18, fontWeight: '700', color: '#111' }}>More</Text>
+          <Pressable onPress={onClose} hitSlop={12}>
+            <X size={22} color="#555" />
+          </Pressable>
+        </View>
+
+        <Text style={{ fontSize: 11, color: '#B0B0B0', textAlign: 'center', paddingVertical: 8 }}>
+          Hold ≡ to drag · First {pinnedCount} tabs pinned to tab bar
+        </Text>
+
+        {/* Draggable list */}
+        <ScrollView scrollEnabled={scrollEnabled} showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+          <View
+            ref={(r) => {
+              containerRef.current = r
+              r?.measure((_x, _y, _w, _h, _px, py) => { listTopYRef.current = py })
+            }}
+            {...panResponder.panHandlers}
+            style={{ overflow: 'visible' }}
+          >
+            {orderedTabs.map(({ key, icon: Icon, label }, idx) => {
+              const active = activeView === key
+              const pinned = idx < pinnedCount
+              const isDragging = dragIdx === idx
+              const isTarget = hoverIdx === idx && dragIdx !== null && dragIdx !== idx
+
+              return (
+                <Animated.View
+                  key={key}
+                  style={[
+                    {
+                      height: ITEM_HEIGHT,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingRight: 20,
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#F3F4F6',
+                      backgroundColor: isDragging ? '#EEF2FF' : isTarget ? '#F0F4FF' : '#fff',
+                    },
+                    isDragging && {
+                      transform: [{ translateY: dragOffsetY }],
+                      zIndex: 100,
+                      elevation: 8,
+                      shadowColor: '#000',
+                      shadowOpacity: 0.12,
+                      shadowRadius: 8,
+                      shadowOffset: { width: 0, height: 3 },
+                      opacity: 0.9,
+                    },
+                  ]}
+                >
+                  {/* Grip zone — PanResponder captures locationX < 48 touches here */}
+                  <View style={{ width: 48, alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                    <GripVertical size={20} color={isDragging ? '#9CA3AF' : '#D1D5DB'} />
+                  </View>
+
+                  {/* Row content — tappable */}
+                  <Pressable
+                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16, height: '100%' }}
+                    onPress={() => { if (dragIdx === null) onSelect(key) }}
+                  >
+                    <Icon size={30} color={active ? BLUE : '#444'} />
+                    <Text style={{
+                      flex: 1, fontSize: 17,
+                      fontWeight: active ? '600' : '400',
+                      color: active ? BLUE : '#1C1C1E',
+                    }}>
+                      {label}
+                    </Text>
+                    {pinned && (
+                      <Text style={{ fontSize: 12, color: '#C4C4C4' }}>Pinned</Text>
+                    )}
+                  </Pressable>
+                </Animated.View>
+              )
+            })}
+          </View>
+        </ScrollView>
+
+        <View style={{ height: insets.bottom }} />
+      </View>
+    </Modal>
+  )
+}
+
+const TABS: TabEntry[] = [
+  { key: 'date',     icon: LayoutList,   label: 'List',     shortcut: 'T' },
+  { key: 'kanban',   icon: LayoutGrid,   label: 'Kanban',   shortcut: 'K' },
+  { key: 'matrix',   icon: Network,      label: 'Matrix',   shortcut: 'X' },
+  { key: 'execute',  icon: Timer,        label: 'Execute',  shortcut: 'E' },
+  { key: 'progress', icon: TrendingUp,   label: 'Progress', shortcut: 'P' },
+  { key: 'log',      icon: ClipboardList,label: 'Log',      shortcut: 'L' },
+  { key: 'routines', icon: Repeat,       label: 'Routines', shortcut: 'R' },
+  { key: 'list',     icon: AlignLeft,    label: 'Outline',  shortcut: 'O' },
+  { key: 'mindmap',  icon: Network,      label: 'Map',      shortcut: 'M' },
+  { key: 'search',   icon: Search,       label: 'Search',   shortcut: 'S' },
+  { key: 'raw',      icon: Globe,        label: 'Raw',      shortcut: 'W' },
+]
 
 export function TaskListView({ checklistId }: TaskListViewProps) {
   const { width } = useWindowDimensions()
   const isMobile = width < 768
+  const showTabLabels = width >= 1080
   const { data: tasks, isLoading, isError, refetch, isFetching } = useTasksQuery(checklistId)
   const [showFabInput, setShowFabInput] = useState(false)
   const [newTaskText, setNewTaskText] = useState('')
   const [focusedId, setFocusedId] = useState<number | null>(null)
+  const [showShortcuts, setShowShortcuts] = useState(false)
 const { view, setView, focusedTaskId } = useTaskView()
-  const { order: tabOrder, moveTab } = useTabBarConfig()
+  const { order: tabOrder, moveTab, reorderTab } = useTabBarConfig()
+  const [logInitialMode, setLogInitialMode] = useState<'calendar' | 'agenda'>('calendar')
+
   const [showMoreSheet, setShowMoreSheet] = useState(false)
   const [customizing, setCustomizing] = useState(false)
+  const [pendingTabSwitch, setPendingTabSwitch] = useState<Parameters<typeof setView>[0] | null>(null)
+
+  function guardedSetView(key: Parameters<typeof setView>[0]) {
+    const log = useExecuteLog.getState()
+    if (view === 'execute' && log.timerRunningKey && key !== 'execute') {
+      setPendingTabSwitch(key)
+      return
+    }
+    setView(key)
+  }
 
   const orderedTabs = useMemo(
-    () => tabOrder.map((key) => TABS.find((t) => t.key === key)).filter((t): t is (typeof TABS)[number] => !!t),
+    () => tabOrder.map((key) => TABS.find((t) => t.key === key)).filter((t): t is TabEntry => t != null),
     [tabOrder]
   )
   const pinnedTabs = orderedTabs.slice(0, PINNED_TAB_COUNT)
@@ -425,13 +917,14 @@ const { view, setView, focusedTaskId } = useTaskView()
   const { mutate: createTask, isPending } = useCreateTask(checklistId)
   const toast = useToast()
   const { activeChecklistId } = useActiveChecklist()
+  const { activeTimer, timerMinimized } = useRoutineStore()
   const { data: checklists } = useChecklists()
   const checklistName = checklists?.find((c) => c.id === activeChecklistId)?.name
 
-  const groups = useMemo(() => {
-    if (!tasks) return []
-    const { allNodes } = buildTaskTree(tasks)
-    return groupTasksByDate(allNodes)
+  const { groups, roots: taskRoots } = useMemo(() => {
+    if (!tasks) return { groups: [], roots: [] }
+    const { allNodes, roots } = buildTaskTree(tasks)
+    return { groups: groupTasksByDate(allNodes), roots }
   }, [tasks])
 
   const isEmpty = !isLoading && !isError && groups.length === 0
@@ -464,6 +957,33 @@ const { view, setView, focusedTaskId } = useTaskView()
     )
   }
 
+  // Ctrl-key tab shortcuts (web desktop only)
+  useEffect(() => {
+    if (Platform.OS !== 'web' || isMobile) return
+    const shortcutMap: Record<string, string> = {}
+    for (const tab of TABS) shortcutMap[tab.shortcut.toLowerCase()] = tab.key
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Control') { setShowShortcuts(true); return }
+      if (!e.ctrlKey) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
+      const tabKey = shortcutMap[e.key.toLowerCase()]
+      if (tabKey) { e.preventDefault(); guardedSetView(tabKey as Parameters<typeof setView>[0]); setShowShortcuts(false) }
+    }
+    const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Control') setShowShortcuts(false) }
+    const onBlur = () => setShowShortcuts(false)
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [isMobile, setView])
+
   return (
     <View className="flex-1" style={{ backgroundColor: '#F5F5F5' }}>
 
@@ -473,7 +993,7 @@ const { view, setView, focusedTaskId } = useTaskView()
         style={{
           paddingTop: insets.top + 8,
           paddingBottom: 10,
-          gap: 12,
+          gap: showTabLabels ? 12 : 4,
           borderBottomWidth: 1,
           borderBottomColor: '#EFEFEF',
           elevation: 2,
@@ -487,20 +1007,39 @@ const { view, setView, focusedTaskId } = useTaskView()
         </View>
 
         {/* Web: show tabs inline in header */}
-        {!isMobile && TABS.map(({ key, icon: Icon, label }) => {
+        {!isMobile && TABS.map(({ key, icon: Icon, label, shortcut }) => {
           const active = view === key
           return (
             <Pressable
               key={key}
-              onPress={() => setView(key)}
+              onPress={() => guardedSetView(key)}
               hitSlop={6}
-              className="flex-row items-center gap-1 px-2 py-1 rounded-lg"
-              style={{ backgroundColor: active ? '#EEF2FF' : 'transparent' }}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 4,
+                paddingHorizontal: showTabLabels ? 8 : 6, paddingVertical: 4, borderRadius: 8,
+                backgroundColor: active ? '#EEF2FF' : 'transparent',
+                position: 'relative',
+              }}
             >
               <Icon size={16} color={active ? BLUE : '#666'} style={{ opacity: active ? 1 : 0.7 }} />
-              <Text className="text-xs font-medium" style={{ color: active ? BLUE : '#666', opacity: active ? 1 : 0.8 }}>
-                {label}
-              </Text>
+              {showTabLabels && (
+                <Text className="text-xs font-medium" style={{ color: active ? BLUE : '#666', opacity: active ? 1 : 0.8 }}>
+                  {label}
+                </Text>
+              )}
+              {showShortcuts && (
+                <View style={{
+                  position: 'absolute', top: -8, right: -4,
+                  backgroundColor: '#1C1C1E',
+                  borderRadius: 4,
+                  paddingHorizontal: 4, paddingVertical: 1,
+                  minWidth: 16, alignItems: 'center',
+                }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.5 }}>
+                    {shortcut}
+                  </Text>
+                </View>
+              )}
             </Pressable>
           )
         })}
@@ -511,6 +1050,9 @@ const { view, setView, focusedTaskId } = useTaskView()
             <Plus size={20} color={showFabInput ? BLUE : '#666'} />
           </Pressable>
         )}
+
+        {/* TTS mute/unmute */}
+        <MuteButton />
 
         {/* Refresh button */}
         <Pressable hitSlop={8} onPress={() => refetch()} disabled={isFetching} style={{ opacity: isFetching ? 0.4 : 1 }}>
@@ -577,6 +1119,7 @@ const { view, setView, focusedTaskId } = useTaskView()
               checklistId={checklistId}
               onClose={() => setView('date')}
               onJumpToMindmap={(id) => { setView('mindmap', id) }}
+              onSwitchToLog={() => { setLogInitialMode('agenda'); setView('log') }}
             />
           </View>
         ) : (
@@ -587,7 +1130,16 @@ const { view, setView, focusedTaskId } = useTaskView()
       {/* ── Execution log view ──────────────────────────────────── */}
       {view === 'log' && (
         <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
-          <ExecutionLogView checklistId={checklistId} taskNames={taskNames} />
+          <ExecutionLogView checklistId={checklistId} taskNames={taskNames} initialViewMode={logInitialMode} />
+        </View>
+      )}
+
+      {/* ── Progress view ───────────────────────────────────────── */}
+      {view === 'progress' && (
+        <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
+          <ErrorBoundary>
+            <ProgressTab />
+          </ErrorBoundary>
         </View>
       )}
 
@@ -611,7 +1163,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       )}
 
       {/* ── Task views ──────────────────────────────────────────── */}
-      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'matrix' && !isSearch && (
+      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'matrix' && view !== 'progress' && !isSearch && (
         <>
           {isLoading && <TaskSkeleton count={8} />}
 
@@ -635,6 +1187,9 @@ const { view, setView, focusedTaskId } = useTaskView()
             <View className="flex-1" style={{ paddingBottom: isMobile ? tabBarH : 0 }}>
               {view === 'date' && (
                 <PriorityDateView groups={groups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} />
+              )}
+              {view === 'kanban' && (
+                <KanbanView groups={groups} roots={taskRoots} checklistId={checklistId} />
               )}
               {view === 'list' && (
                 <FlatTaskList tasks={tasks} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} />
@@ -727,6 +1282,16 @@ const { view, setView, focusedTaskId } = useTaskView()
       )}
 
       {/* ── Bottom tab bar (mobile only) ────────────────────────── */}
+      {/* Mini timer bar — sits above the tab bar when timer is minimized */}
+      {activeTimer && timerMinimized && (
+        <View style={{ position: 'absolute', bottom: isMobile ? tabBarH : 0, left: 0, right: 0, zIndex: 40 }}>
+          <MiniTimerBar />
+        </View>
+      )}
+
+      {/* Full-screen timer — rendered here so it persists across tab switches */}
+      {activeTimer && !timerMinimized && <TimerModeView />}
+
       {isMobile && (
         <View
           className="absolute bottom-0 left-0 right-0 flex-row bg-white"
@@ -745,7 +1310,7 @@ const { view, setView, focusedTaskId } = useTaskView()
             return (
               <Pressable
                 key={key}
-                onPress={() => { setView(key); if (showFabInput) setShowFabInput(false) }}
+                onPress={() => { guardedSetView(key); if (showFabInput) setShowFabInput(false) }}
                 className="flex-1 items-center justify-center gap-0.5"
                 style={{ paddingBottom: 6 }}
               >
@@ -789,82 +1354,48 @@ const { view, setView, focusedTaskId } = useTaskView()
         </View>
       )}
 
-      {/* ── More / customize tabs sheet (mobile only) ───────────── */}
+      {/* ── More — full-screen modal with drag-and-drop (mobile only) ── */}
       {isMobile && (
-        <BottomSheet
+        <MoreModal
           open={showMoreSheet}
-          onClose={() => { setShowMoreSheet(false); setCustomizing(false) }}
-          title={customizing ? 'Reorder tabs' : 'More'}
-        >
-          <View style={{ gap: 4 }}>
-            {orderedTabs.map(({ key, icon: Icon, label }, idx) => {
-              const active = view === key
-              const pinned = idx < PINNED_TAB_COUNT
-              return (
-                <Pressable
-                  key={key}
-                  onPress={() => {
-                    if (customizing) return
-                    setView(key)
-                    if (showFabInput) setShowFabInput(false)
-                    setShowMoreSheet(false)
-                  }}
-                  className="flex-row items-center px-3 py-2.5 rounded-xl"
-                  style={{ backgroundColor: active && !customizing ? '#EEF2FF' : 'transparent', gap: 12 }}
-                >
-                  {customizing && <GripVertical size={16} color="#D1D5DB" />}
-                  <Icon size={20} color={active && !customizing ? BLUE : '#666'} />
-                  <Text
-                    className="flex-1 text-sm font-medium"
-                    style={{ color: active && !customizing ? BLUE : '#333' }}
-                  >
-                    {label}
-                  </Text>
-                  {!customizing && pinned && (
-                    <Text className="text-xs" style={{ color: '#9ca3af' }}>Pinned</Text>
-                  )}
-                  {customizing && (
-                    <View className="flex-row items-center" style={{ gap: 4 }}>
-                      <Pressable
-                        hitSlop={8}
-                        onPress={() => moveTab(key, 'up')}
-                        disabled={idx === 0}
-                        style={{ opacity: idx === 0 ? 0.3 : 1, padding: 4 }}
-                      >
-                        <ChevronUp size={18} color="#666" />
-                      </Pressable>
-                      <Pressable
-                        hitSlop={8}
-                        onPress={() => moveTab(key, 'down')}
-                        disabled={idx === orderedTabs.length - 1}
-                        style={{ opacity: idx === orderedTabs.length - 1 ? 0.3 : 1, padding: 4 }}
-                      >
-                        <ChevronDown size={18} color="#666" />
-                      </Pressable>
-                    </View>
-                  )}
-                </Pressable>
-              )
-            })}
-          </View>
-
-          {customizing && (
-            <Text className="text-xs mt-2 px-1" style={{ color: '#9ca3af' }}>
-              The first {PINNED_TAB_COUNT} tabs appear in the bottom bar. Reorder to change which ones are pinned.
-            </Text>
-          )}
-
-          <Pressable
-            onPress={() => setCustomizing((v) => !v)}
-            className="items-center justify-center mt-3 py-2.5 rounded-xl"
-            style={{ backgroundColor: '#F5F5F5' }}
-          >
-            <Text className="text-sm font-semibold" style={{ color: BLUE }}>
-              {customizing ? 'Done' : 'Customize tab order'}
-            </Text>
-          </Pressable>
-        </BottomSheet>
+          onClose={() => setShowMoreSheet(false)}
+          orderedTabs={orderedTabs}
+          activeView={view}
+          pinnedCount={PINNED_TAB_COUNT}
+          onSelect={(key) => { guardedSetView(key); if (showFabInput) setShowFabInput(false); setShowMoreSheet(false) }}
+          reorderTab={reorderTab}
+        />
       )}
+
+      {/* ── Execute focus exit warning ───────────────────────────── */}
+      <Modal visible={pendingTabSwitch !== null} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 16, padding: 24, width: '100%', maxWidth: 360, gap: 16 }}>
+            <Text style={{ fontSize: 17, fontWeight: '800', color: '#111827' }}>Stay on track 🧠</Text>
+            <Text style={{ fontSize: 14, color: '#4B5563', lineHeight: 20 }}>
+              You are currently focusing on this task.{'\n'}Moving away will pause this session and log it.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Pressable
+                onPress={() => setPendingTabSwitch(null)}
+                style={{ flex: 1, borderRadius: 10, paddingVertical: 12, backgroundColor: BLUE, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '700', color: 'white' }}>Stay</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  useExecuteLog.getState().pause()
+                  setView(pendingTabSwitch!)
+                  setPendingTabSwitch(null)
+                }}
+                style={{ flex: 1, borderRadius: 10, paddingVertical: 12, backgroundColor: '#F3F4F6', alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#6B7280' }}>Leave & Pause</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }

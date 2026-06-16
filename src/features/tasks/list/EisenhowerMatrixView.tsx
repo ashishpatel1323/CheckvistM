@@ -1,12 +1,14 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
-import { View, Text, ScrollView, Pressable, Platform, Alert } from 'react-native'
-import { CheckSquare, Flag, Zap, Clock, HelpCircle, Timer, ChevronDown } from 'lucide-react-native'
+import { View, Text, ScrollView, Pressable, Platform, Alert, Modal } from 'react-native'
+import { CheckSquare, Flag, Zap, Clock, HelpCircle, Timer, ChevronDown, Calendar } from 'lucide-react-native'
 import type { CheckvistTask } from '@/api/types'
 import { classifyPriority, type PriorityBucket, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
 import { classifyTask } from '@/lib/dateSort'
 import { useUpdateTask } from './useTasksQuery'
 import { useOrderedTaskGroup } from '@/features/tasks/shared/useOrderedTaskGroup'
 import { InlineMarkdown } from '@/components/InlineMarkdown'
+import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
+import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
 
 // Date filter options for the matrix view
 export type MatrixDateFilter = 'today' | 'tomorrow' | 'thisWeek' | 'overdue' | 'later' | 'noDueDate' | 'all'
@@ -23,7 +25,7 @@ const DATE_FILTER_OPTIONS: { key: MatrixDateFilter; label: string }[] = [
 
 function matchesDateFilter(task: CheckvistTask, filter: MatrixDateFilter): boolean {
   if (filter === 'all') return true
-  const bucket = classifyTask({ ...task, children: [], depth: 0 } as Parameters<typeof classifyTask>[0])
+  const bucket = classifyTask({ ...task, children: [], level: 1 } as unknown as Parameters<typeof classifyTask>[0])
   return bucket === filter
 }
 
@@ -35,11 +37,46 @@ function DateFilterPicker({
   onChange: (v: MatrixDateFilter) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [anchorPos, setAnchorPos] = useState<{ top: number; right: number }>({ top: 48, right: 16 })
+  const anchorRef = useRef<View>(null)
   const label = DATE_FILTER_OPTIONS.find((o) => o.key === value)?.label ?? 'Today'
+
+  function handleOpen() {
+    if (Platform.OS === 'web') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const domNode = (anchorRef.current as any) as HTMLElement | null
+      if (domNode && typeof domNode.getBoundingClientRect === 'function') {
+        const r = domNode.getBoundingClientRect()
+        setAnchorPos({ top: r.bottom + 4, right: window.innerWidth - r.right })
+      }
+    } else {
+      anchorRef.current?.measureInWindow((x: number, y: number, w: number, h: number) => {
+        setAnchorPos({ top: y + h + 4, right: 16 })
+        void x; void w
+      })
+    }
+    setOpen(true)
+  }
+
+  const menuItems = DATE_FILTER_OPTIONS.map((opt) => (
+    <Pressable
+      key={opt.key}
+      onPress={() => { onChange(opt.key); setOpen(false) }}
+      style={{
+        paddingHorizontal: 14, paddingVertical: 9,
+        backgroundColor: value === opt.key ? '#EEF2FF' : 'transparent',
+      }}
+    >
+      <Text style={{ fontSize: 13, color: value === opt.key ? '#4772FA' : '#374151', fontWeight: value === opt.key ? '600' : '400' }}>
+        {opt.label}
+      </Text>
+    </Pressable>
+  ))
+
   return (
-    <View style={{ position: 'relative' }}>
+    <View ref={anchorRef}>
       <Pressable
-        onPress={() => setOpen((v) => !v)}
+        onPress={handleOpen}
         style={{
           flexDirection: 'row', alignItems: 'center', gap: 4,
           paddingHorizontal: 10, paddingVertical: 5,
@@ -49,29 +86,23 @@ function DateFilterPicker({
         <Text style={{ fontSize: 12, fontWeight: '600', color: '#374151' }}>{label}</Text>
         <ChevronDown size={12} color="#6B7280" />
       </Pressable>
-      {open && (
-        <View style={{
-          position: 'absolute', top: 32, right: 0, zIndex: 100,
-          backgroundColor: '#fff', borderRadius: 10,
-          shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 12, elevation: 12,
-          paddingVertical: 4, minWidth: 120,
-        }}>
-          {DATE_FILTER_OPTIONS.map((opt) => (
-            <Pressable
-              key={opt.key}
-              onPress={() => { onChange(opt.key); setOpen(false) }}
-              style={{
-                paddingHorizontal: 14, paddingVertical: 9,
-                backgroundColor: value === opt.key ? '#EEF2FF' : 'transparent',
-              }}
-            >
-              <Text style={{ fontSize: 13, color: value === opt.key ? '#4772FA' : '#374151', fontWeight: value === opt.key ? '600' : '400' }}>
-                {opt.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
+
+      <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
+        <Pressable style={{ flex: 1 }} onPress={() => setOpen(false)}>
+          <View
+            style={{
+              position: 'absolute',
+              top: anchorPos.top,
+              right: anchorPos.right,
+              backgroundColor: '#fff', borderRadius: 10,
+              shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 16, elevation: 20,
+              paddingVertical: 4, minWidth: 130,
+            }}
+          >
+            {menuItems}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   )
 }
@@ -136,10 +167,11 @@ const QUADRANTS: [QuadrantConfig, QuadrantConfig, QuadrantConfig, QuadrantConfig
 
 export type TimeBucket = 'tbd' | '5min' | '10min' | 'long'
 
+// Checkvist stores tags WITHOUT '#' in tags_as_text (comma-separated)
 const TIME_TAG_MAP: Record<Exclude<TimeBucket, 'tbd'>, string> = {
-  '5min': '#5min',
-  '10min': '#10min',
-  long: '#long',
+  '5min': '5min',
+  '10min': '10min',
+  long: 'long',
 }
 
 const ALL_TIME_TAGS = Object.values(TIME_TAG_MAP)
@@ -154,11 +186,11 @@ interface TimeQuadrantConfig {
   Icon: typeof Timer
 }
 
-const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfig] = [
+export const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfig] = [
   {
     bucket: 'tbd',
-    label: 'Block 1',
-    sublabel: 'No time defined',
+    label: 'Unscheduled',
+    sublabel: 'No duration set',
     color: '#6B7280',
     bg: '#F9FAFB',
     border: '#E5E7EB',
@@ -166,7 +198,7 @@ const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfi
   },
   {
     bucket: '5min',
-    label: 'Block 2',
+    label: 'Quick',
     sublabel: '≤ 5 minutes',
     color: '#0369a1',
     bg: '#EFF6FF',
@@ -175,8 +207,8 @@ const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfi
   },
   {
     bucket: '10min',
-    label: 'Block 3',
-    sublabel: '> 5 min up to 10 min',
+    label: 'Short',
+    sublabel: '6 – 15 minutes',
     color: '#0891b2',
     bg: '#ECFEFF',
     border: '#A5F3FC',
@@ -184,8 +216,8 @@ const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfi
   },
   {
     bucket: 'long',
-    label: 'Block 4',
-    sublabel: '> 10 minutes',
+    label: 'Deep Work',
+    sublabel: '> 15 minutes',
     color: '#b45309',
     bg: '#FFFBEB',
     border: '#FDE68A',
@@ -193,61 +225,167 @@ const TIME_QUADRANTS: [TimeQuadrantConfig, TimeQuadrantConfig, TimeQuadrantConfi
   },
 ]
 
-function classifyTime(task: CheckvistTask): TimeBucket {
-  const tags = task.tags_as_text ?? ''
-  // Explicit tag assignments take priority
-  if (tags.includes('#5min')) return '5min'
-  if (tags.includes('#10min')) return '10min'
-  if (tags.includes('#long')) return 'long'
+export function classifyTime(task: CheckvistTask): TimeBucket {
+  // Checkvist stores tags without '#', comma-separated (e.g. "5min,blocked")
+  const tagSet = new Set((task.tags_as_text ?? '').split(/[,\s]+/).filter(Boolean))
+  if (tagSet.has('5min')) return '5min'
+  if (tagSet.has('10min')) return '10min'
+  if (tagSet.has('long')) return 'long'
   // Fall back to duration field if available
   if (task.duration) {
     const m = task.duration.minutes
     if (m <= 5) return '5min'
-    if (m <= 10) return '10min'
+    if (m <= 15) return '10min'
     return 'long'
   }
-  // No time info → TBD (Block 1)
   return 'tbd'
 }
 
 function buildTimeTagsString(task: CheckvistTask, newBucket: TimeBucket): string {
+  // Split by comma or space, strip any '#' prefix, remove existing time tags
   const existingTags = (task.tags_as_text ?? '')
-    .split(/\s+/)
+    .split(/[,\s]+/)
+    .map((t) => t.replace(/^#/, ''))
     .filter((t) => t && !ALL_TIME_TAGS.includes(t))
-    .join(' ')
+    .join(',')
     .trim()
 
-  // TBD means no time tag at all
   if (newBucket === 'tbd') return existingTags
 
   const newTag = TIME_TAG_MAP[newBucket]
-  return existingTags ? `${existingTags} ${newTag}` : newTag
+  return existingTags ? `${existingTags},${newTag}` : newTag
 }
 
 // ─── Web drag hooks ───────────────────────────────────────────────────────────
 
-function useDraggableRef(onDragStart: () => void) {
+// Module-level touch-drag state (only one drag at a time)
+let _tdGhost: HTMLElement | null = null
+let _tdTimer: ReturnType<typeof setTimeout> | null = null
+let _tdActive = false
+
+function _tdCleanup() {
+  clearTimeout(_tdTimer ?? undefined)
+  _tdTimer = null
+  _tdGhost?.remove()
+  _tdGhost = null
+  _tdActive = false
+  document.querySelectorAll('[data-matrix-bucket]').forEach((el) => {
+    (el as HTMLElement).style.outline = ''
+  })
+}
+
+function _tdFindBucket(x: number, y: number): string | null {
+  for (const el of document.elementsFromPoint(x, y)) {
+    const b = (el as HTMLElement).dataset?.matrixBucket
+    if (b) return b
+  }
+  return null
+}
+
+// Combined hook: HTML5 drag (mouse/desktop) + touch drag (mobile web)
+function useCardDragRef(
+  task: CheckvistTask,
+  onDragStart: () => void,
+  onTouchDropAtPoint?: (x: number, y: number) => void,
+) {
   const ref = useRef<View>(null)
-  const cbRef = useRef(onDragStart)
-  cbRef.current = onDragStart
+  const cbsRef = useRef({ onDragStart, onTouchDropAtPoint, task })
+  cbsRef.current = { onDragStart, onTouchDropAtPoint, task }
+  const startRef = useRef({ x: 0, y: 0, moved: false })
 
   useEffect(() => {
     if (Platform.OS !== 'web') return
     const el = ref.current as unknown as HTMLElement | null
     if (!el) return
+
+    // ── HTML5 drag (mouse / desktop) ─────────────────────────────────────────
     el.setAttribute('draggable', 'true')
     el.style.cursor = 'grab'
-    const handler = (e: DragEvent) => {
+    const onDragStartEvt = (e: DragEvent) => {
       e.dataTransfer?.setData('text/plain', 'matrix-drag')
       el.style.opacity = '0.5'
-      cbRef.current()
+      cbsRef.current.onDragStart()
     }
-    const endHandler = () => { el.style.opacity = '1' }
-    el.addEventListener('dragstart', handler)
-    el.addEventListener('dragend', endHandler)
+    const onDragEnd = () => { el.style.opacity = '1' }
+    el.addEventListener('dragstart', onDragStartEvt)
+    el.addEventListener('dragend', onDragEnd)
+
+    // ── Touch drag (mobile web) ───────────────────────────────────────────────
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0]
+      startRef.current = { x: t.clientX, y: t.clientY, moved: false }
+
+      _tdTimer = setTimeout(() => {
+        if (startRef.current.moved) return
+        _tdActive = true
+        cbsRef.current.onDragStart()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(navigator as any).vibrate?.(40)
+        el.style.opacity = '0.4'
+
+        const ghost = document.createElement('div')
+        // eslint-disable-next-line react-native/no-inline-styles
+        ghost.style.cssText = [
+          'position:fixed', 'z-index:9999', 'pointer-events:none',
+          'background:white', 'border-radius:8px', 'padding:6px 10px',
+          'box-shadow:0 6px 24px rgba(0,0,0,0.22)', 'font-size:12px',
+          'max-width:150px', 'white-space:nowrap', 'overflow:hidden',
+          'text-overflow:ellipsis', 'opacity:0.93',
+          `left:${startRef.current.x - 75}px`, `top:${startRef.current.y - 24}px`,
+          'border-left:3px solid #4772FA', 'transform:rotate(-2deg)',
+        ].join(';')
+        ghost.textContent = cbsRef.current.task.content.replace(/[*_`#]/g, '').slice(0, 38)
+        document.body.appendChild(ghost)
+        _tdGhost = ghost
+      }, 420)
+    }
+
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0]
+      if (!_tdActive) {
+        const dx = Math.abs(t.clientX - startRef.current.x)
+        const dy = Math.abs(t.clientY - startRef.current.y)
+        if (dx > 8 || dy > 8) {
+          startRef.current.moved = true
+          clearTimeout(_tdTimer ?? undefined)
+          _tdTimer = null
+        }
+        return
+      }
+      e.preventDefault()
+      if (_tdGhost) {
+        _tdGhost.style.left = `${t.clientX - 75}px`
+        _tdGhost.style.top = `${t.clientY - 24}px`
+      }
+      const bucket = _tdFindBucket(t.clientX, t.clientY)
+      document.querySelectorAll('[data-matrix-bucket]').forEach((bel) => {
+        ;(bel as HTMLElement).style.outline =
+          (bel as HTMLElement).dataset.matrixBucket === bucket ? '2px solid #4772FA' : ''
+      })
+    }
+
+    const onTouchEnd = (e: TouchEvent) => {
+      el.style.opacity = '1'
+      if (_tdActive) {
+        const t = e.changedTouches[0]
+        cbsRef.current.onTouchDropAtPoint?.(t.clientX, t.clientY)
+      }
+      _tdCleanup()
+    }
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+    el.addEventListener('touchend', onTouchEnd)
+    el.addEventListener('touchcancel', onTouchEnd)
+
     return () => {
-      el.removeEventListener('dragstart', handler)
-      el.removeEventListener('dragend', endHandler)
+      el.removeEventListener('dragstart', onDragStartEvt)
+      el.removeEventListener('dragend', onDragEnd)
+      clearTimeout(_tdTimer ?? undefined)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
     }
   }, [])
 
@@ -268,17 +406,22 @@ function useDropZoneRef(
     const el = ref.current as unknown as HTMLElement | null
     if (!el) return
 
-    const overHandler = (e: DragEvent) => { e.preventDefault(); cbs.current.onDragOver() }
-    const leaveHandler = () => cbs.current.onDragLeave()
-    const dropHandler = (e: DragEvent) => { e.preventDefault(); cbs.current.onDrop() }
+    // Use capture phase so we always intercept dragover before child elements
+    // (empty quadrants have no cards to propagate the event up)
+    const overHandler = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); cbs.current.onDragOver() }
+    const leaveHandler = (e: DragEvent) => {
+      // Only fire when leaving the quadrant entirely
+      if (!el.contains(e.relatedTarget as Node)) cbs.current.onDragLeave()
+    }
+    const dropHandler = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); cbs.current.onDrop() }
 
-    el.addEventListener('dragover', overHandler)
+    el.addEventListener('dragover', overHandler, true)
     el.addEventListener('dragleave', leaveHandler)
-    el.addEventListener('drop', dropHandler)
+    el.addEventListener('drop', dropHandler, true)
     return () => {
-      el.removeEventListener('dragover', overHandler)
+      el.removeEventListener('dragover', overHandler, true)
       el.removeEventListener('dragleave', leaveHandler)
-      el.removeEventListener('drop', dropHandler)
+      el.removeEventListener('drop', dropHandler, true)
     }
   }, [])
 
@@ -292,15 +435,19 @@ interface MatrixTaskCardProps {
   quadrantColor: string
   onDragStart: () => void
   onLongPress: () => void
+  onDateChange: (date: string | null) => void
   showTimeBadge?: boolean
   isCurrent?: boolean
   isSelected?: boolean
   onMouseDown?: (e: React.MouseEvent) => void
+  onTouchDropAtPoint?: (x: number, y: number) => void
 }
 
-function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTimeBadge, isCurrent, isSelected, onMouseDown }: MatrixTaskCardProps) {
-  const dragRef = useDraggableRef(onDragStart)
+function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, onDateChange, showTimeBadge, isCurrent, isSelected, onMouseDown, onTouchDropAtPoint }: MatrixTaskCardProps) {
+  const dragRef = useCardDragRef(task, onDragStart, onTouchDropAtPoint)
   const timeBucket = showTimeBadge ? classifyTime(task) : null
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const dateColor = task.due ? (dueDateColorClass(task.due).includes('red') ? '#E53935' : '#4772FA') : '#9CA3AF'
 
   return (
     <View
@@ -326,7 +473,7 @@ function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTim
         <Text style={{ fontSize: 13, color: '#1F2937', lineHeight: 18 }} numberOfLines={2}>
           <InlineMarkdown content={task.content} />
         </Text>
-        <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
           {task.priority > 0 && !showTimeBadge && (
             <Text style={{ fontSize: 11, color: quadrantColor, fontWeight: '600' }}>
               {priorityDisplay(task.priority)}
@@ -342,8 +489,30 @@ function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTim
               {task.duration.formatted}
             </Text>
           )}
+          <Pressable
+            onPress={(e) => { e.stopPropagation?.(); setShowDatePicker(true) }}
+            hitSlop={6}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 'auto' }}
+          >
+            <Calendar size={11} color={dateColor} />
+            {task.due ? (
+              <Text style={{ fontSize: 11, color: dateColor, fontWeight: '500' }}>
+                {humanizeDueDate(task.due)}
+              </Text>
+            ) : (
+              <Text style={{ fontSize: 11, color: '#C4C4C4' }}>Set date</Text>
+            )}
+          </Pressable>
         </View>
       </Pressable>
+      {showDatePicker && (
+        <QuickDatePicker
+          taskId={task.id}
+          onSelect={(date) => { onDateChange(date); setShowDatePicker(false) }}
+          onClose={() => setShowDatePicker(false)}
+          isMobile
+        />
+      )}
     </View>
   )
 }
@@ -360,32 +529,26 @@ interface MatrixQuadrantProps<TBucket extends string> {
   onDrop: () => void
   onCardDragStart: (task: CheckvistTask) => void
   onMoveTo: (task: CheckvistTask) => void
+  onDateChange: (task: CheckvistTask, date: string | null) => void
   showTimeBadge?: boolean
+  onTouchDropAtPoint?: (x: number, y: number) => void
 }
 
 function MatrixQuadrant<TBucket extends string>({
   config, tasks, checklistId, isDropTarget,
   onDragOver, onDragLeave, onDrop,
-  onCardDragStart, onMoveTo, showTimeBadge,
+  onCardDragStart, onMoveTo, onDateChange, showTimeBadge,
+  onTouchDropAtPoint,
 }: MatrixQuadrantProps<TBucket>) {
-  const dropRef = useDropZoneRef(onDragOver, onDragLeave, onDrop)
   const { Icon } = config
 
-  // Same keyboard navigation/reorder/selection model as the Execute tab,
-  // scoped to this quadrant's task list (order persisted via task `position`).
   const { orderedTasks, currentIndex, selectedIndices, onItemMouseDown, onKeyDown, panelRef } =
     useOrderedTaskGroup(tasks, checklistId)
 
-  const setRefs = (el: View | null) => {
-    (dropRef as React.MutableRefObject<View | null>).current = el
-    if (Platform.OS === 'web') panelRef.current = el as unknown as HTMLDivElement | null
-  }
-
-  return (
+  const inner = (
     <View
-      ref={setRefs}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      {...(Platform.OS === 'web' ? { tabIndex: 0, onKeyDown } as any : {})}
+      {...(Platform.OS === 'web' ? { tabIndex: 0, onKeyDown, ref: (el: View | null) => { panelRef.current = el as unknown as HTMLDivElement | null } } as any : {})}
       style={{
         flex: 1,
         backgroundColor: isDropTarget ? config.bg : 'white',
@@ -393,7 +556,7 @@ function MatrixQuadrant<TBucket extends string>({
         borderWidth: isDropTarget ? 2 : 1,
         borderColor: isDropTarget ? config.color : config.border,
         overflow: 'hidden',
-        minHeight: 180,
+        minHeight: 120,
       }}
     >
       <View
@@ -430,9 +593,21 @@ function MatrixQuadrant<TBucket extends string>({
 
       <ScrollView style={{ flex: 1, padding: 8 }} showsVerticalScrollIndicator={false}>
         {orderedTasks.length === 0 ? (
-          <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-            <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Drop tasks here</Text>
-          </View>
+          Platform.OS === 'web' ? (
+            // eslint-disable-next-line react-native/no-inline-styles
+            <div
+              style={{ minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOver() }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) onDragLeave() }}
+              onDrop={(e) => { e.preventDefault(); onDrop() }}
+            >
+              <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Drop tasks here</Text>
+            </div>
+          ) : (
+            <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Drop tasks here</Text>
+            </View>
+          )
         ) : (
           orderedTasks.map((task, index) => (
             <MatrixTaskCard
@@ -441,15 +616,34 @@ function MatrixQuadrant<TBucket extends string>({
               quadrantColor={config.color}
               onDragStart={() => onCardDragStart(task)}
               onLongPress={() => onMoveTo(task)}
+              onDateChange={(date) => onDateChange(task, date)}
               showTimeBadge={showTimeBadge}
               isCurrent={index === currentIndex}
               isSelected={selectedIndices.has(index)}
               onMouseDown={Platform.OS === 'web' ? (e) => onItemMouseDown(e, index) : undefined}
+              onTouchDropAtPoint={onTouchDropAtPoint}
             />
           ))
         )}
       </ScrollView>
     </View>
+  )
+
+  if (Platform.OS !== 'web') return inner
+
+  // On web use a div wrapper so React's synthetic DnD events work reliably
+  // (imperative addEventListener on RNW View is blocked by overflow:hidden and ScrollView)
+  return (
+    // eslint-disable-next-line react-native/no-inline-styles
+    <div
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 120 }}
+      data-matrix-bucket={config.bucket}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOver() }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) onDragLeave() }}
+      onDrop={(e) => { e.preventDefault(); onDrop() }}
+    >
+      {inner}
+    </div>
   )
 }
 
@@ -486,6 +680,12 @@ function TimeMatrixContent({ tasks, checklistId, isMobile, dateFilter }: TimeMat
     updateTask({ taskId: task.id, payload: { tags_as_text } })
   }, [updateTask])
 
+  const handleTouchDropAtPoint = useCallback((x: number, y: number) => {
+    const bucket = _tdFindBucket(x, y) as TimeBucket | null
+    if (bucket) handleDrop(bucket)
+    else draggedTask.current = null
+  }, [handleDrop])
+
   const handleNativeLongPress = (task: CheckvistTask) => {
     Alert.alert(
       'Move to time block',
@@ -505,6 +705,10 @@ function TimeMatrixContent({ tasks, checklistId, isMobile, dateFilter }: TimeMat
     )
   }
 
+  const handleDateChange = useCallback((task: CheckvistTask, date: string | null) => {
+    updateTask({ taskId: task.id, payload: { due_date: date } })
+  }, [updateTask])
+
   const renderQuadrant = (config: TimeQuadrantConfig) => (
     <MatrixQuadrant
       key={config.bucket}
@@ -517,11 +721,13 @@ function TimeMatrixContent({ tasks, checklistId, isMobile, dateFilter }: TimeMat
       onDrop={() => handleDrop(config.bucket)}
       onCardDragStart={(task) => { draggedTask.current = task }}
       onMoveTo={handleNativeLongPress}
+      onDateChange={handleDateChange}
       showTimeBadge
+      onTouchDropAtPoint={handleTouchDropAtPoint}
     />
   )
 
-  const hint = isMobile ? 'Long-press a card to move it' : 'Drag cards between blocks to assign time'
+  const hint = isMobile ? 'Hold & drag a card to move it' : 'Drag cards between blocks to assign time'
 
   if (openTasks.length === 0) {
     return (
@@ -537,16 +743,21 @@ function TimeMatrixContent({ tasks, checklistId, isMobile, dateFilter }: TimeMat
 
   if (isMobile) {
     return (
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 12 }}>
-        <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 4 }}>
+      <View style={{ flex: 1, padding: 8 }}>
+        <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>
           Today · {openTasks.length} task{openTasks.length !== 1 ? 's' : ''} · {hint}
         </Text>
-        {TIME_QUADRANTS.map((config) => (
-          <View key={config.bucket} style={{ minHeight: 160 }}>
-            {renderQuadrant(config)}
+        <View style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
+          <View style={{ flex: 1, flexDirection: 'column', gap: 8 }}>
+            {renderQuadrant(TIME_QUADRANTS[0])}
+            {renderQuadrant(TIME_QUADRANTS[2])}
           </View>
-        ))}
-      </ScrollView>
+          <View style={{ flex: 1, flexDirection: 'column', gap: 8 }}>
+            {renderQuadrant(TIME_QUADRANTS[1])}
+            {renderQuadrant(TIME_QUADRANTS[3])}
+          </View>
+        </View>
+      </View>
     )
   }
 
@@ -605,6 +816,12 @@ function PriorityMatrixContent({ tasks, checklistId, isMobile, dateFilter }: Pri
     updateTask({ taskId: task.id, payload: { priority: config.targetPriority } })
   }, [updateTask])
 
+  const handleTouchDropAtPoint = useCallback((x: number, y: number) => {
+    const bucket = _tdFindBucket(x, y) as PriorityBucket | null
+    if (bucket) handleDrop(bucket)
+    else draggedTask.current = null
+  }, [handleDrop])
+
   const handleNativeLongPress = (task: CheckvistTask) => {
     Alert.alert(
       'Move to quadrant',
@@ -633,6 +850,10 @@ function PriorityMatrixContent({ tasks, checklistId, isMobile, dateFilter }: Pri
     )
   }
 
+  const handleDateChange = useCallback((task: CheckvistTask, date: string | null) => {
+    updateTask({ taskId: task.id, payload: { due_date: date } })
+  }, [updateTask])
+
   const renderQuadrant = (config: QuadrantConfig) => (
     <MatrixQuadrant
       key={config.bucket}
@@ -645,21 +866,28 @@ function PriorityMatrixContent({ tasks, checklistId, isMobile, dateFilter }: Pri
       onDrop={() => handleDrop(config.bucket)}
       onCardDragStart={(task) => { draggedTask.current = task }}
       onMoveTo={handleNativeLongPress}
+      onDateChange={handleDateChange}
+      onTouchDropAtPoint={handleTouchDropAtPoint}
     />
   )
 
   if (isMobile) {
     return (
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 12 }}>
-        <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 4 }}>
-          Today · {todayTasks.length} task{todayTasks.length !== 1 ? 's' : ''} · Long-press a card to move it
+      <View style={{ flex: 1, padding: 8 }}>
+        <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>
+          Today · {todayTasks.length} task{todayTasks.length !== 1 ? 's' : ''} · Hold & drag a card to move it
         </Text>
-        {QUADRANTS.map((config) => (
-          <View key={config.bucket} style={{ minHeight: 160 }}>
-            {renderQuadrant(config)}
+        <View style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
+          <View style={{ flex: 1, flexDirection: 'column', gap: 8 }}>
+            {renderQuadrant(QUADRANTS[0])}
+            {renderQuadrant(QUADRANTS[2])}
           </View>
-        ))}
-      </ScrollView>
+          <View style={{ flex: 1, flexDirection: 'column', gap: 8 }}>
+            {renderQuadrant(QUADRANTS[1])}
+            {renderQuadrant(QUADRANTS[3])}
+          </View>
+        </View>
+      </View>
     )
   }
 

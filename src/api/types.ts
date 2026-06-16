@@ -1,3 +1,13 @@
+export type SyncState = "local" | "dirty" | "syncing" | "synced" | "failed"
+
+export interface BaseEntity {
+  id: string
+  updatedAt: number
+  syncState: SyncState
+  serverId?: string
+  lastSyncedAt?: number
+}
+
 export interface CheckvistTask {
   id: number
   content: string

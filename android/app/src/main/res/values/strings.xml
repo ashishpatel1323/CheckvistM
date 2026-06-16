@@ -1,0 +1,10 @@
+<resources>
+  <string name="app_name">Checkvist</string>
+  <string name="expo_runtime_version">1.0.0</string>
+  <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
+  <string name="expo_splash_screen_status_bar_translucent" translatable="false">false</string>
+  <string name="widget_habits_label">Daily Habits</string>
+  <string name="widget_habits_description">Shows your pending routine steps for today</string>
+  <string name="widget_progress_label">Progress Trackers</string>
+  <string name="widget_progress_description">Shows your progress tracker values at a glance</string>
+</resources>
