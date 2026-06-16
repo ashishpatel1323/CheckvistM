@@ -26,6 +26,11 @@ interface OutlineRowProps {
 
 const BLUE = '#4772FA'
 
+function containsId(task: TaskNode, id: number): boolean {
+  if (task.id === id) return true
+  return task.children.some((c) => containsId(c, id))
+}
+
 export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, onZoomIn }: OutlineRowProps) {
   const toast = useToast()
   const expanded = useExpandedIds((s) => s.expanded.has(task.id))
@@ -58,6 +63,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
   const isFocused = focusedId === task.id
   const isDropTarget = dropTargetId === task.id
   const isDragging = draggingId === task.id
+  const hasActiveDescendant = activeId != null && hasChildren && task.children.some((c) => containsId(c, activeId))
 
   useEffect(() => {
     const measure = () => {
@@ -131,12 +137,11 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
   const handleBlur = useCallback(() => {
     if (!submittedRef.current) {
       handleSave()
-      if (activeId === task.id) {
-        setActiveId(null)
-      }
+      // Don't clear activeId here — toolbar tap causes blur before onPress fires,
+      // clearing it would make the toolbar lose its target task
     }
     submittedRef.current = false
-  }, [handleSave, activeId, task.id, setActiveId])
+  }, [handleSave])
 
   const handlePriorityChange = (priority: number) => {
     updateTask(
@@ -205,6 +210,11 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
           isEditing && { backgroundColor: '#EEF2FF' },
         ]}
       >
+        {/* L-connector: horizontal blue line from guide to bullet for active items at depth > 0 */}
+        {depth > 0 && isEditing && (
+          <View style={{ position: 'absolute', left: 0, top: 18, width: indent + 8, height: 2, backgroundColor: BLUE }} />
+        )}
+
         {/* Indented row with bullet */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: indent + 8 }}>
 
@@ -215,14 +225,15 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
             style={styles.bulletWrap}
           >
             {hasChildren ? (
-              // Triangle bullet — rotates when expanded
+              // Triangle bullet — rotates when expanded; blue when active or has active child
               <View style={[
                 styles.triangle,
                 expanded && styles.triangleExpanded,
+                !expanded && (isEditing || hasActiveDescendant) && { borderLeftColor: BLUE },
               ]} />
             ) : (
-              // Filled circle for leaf
-              <View style={styles.dot} />
+              // Filled circle — blue when this row is active
+              <View style={[styles.dot, isEditing && styles.dotActive]} />
             )}
           </Pressable>
 
@@ -297,7 +308,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
               // can't use absolute easily in RN without known height; use border on children wrapper
             }}
           />
-          <View style={{ borderLeftWidth: 1, borderLeftColor: '#DDDDE3', marginLeft: indent + 18 }}>
+          <View style={{ borderLeftWidth: 1, borderLeftColor: hasActiveDescendant ? BLUE : '#DDDDE3', marginLeft: indent + 18 }}>
             {task.children.map((child) => (
               <OutlineRow
                 key={child.id}
@@ -387,6 +398,12 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: '#C4C4C8',
+  },
+  dotActive: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: BLUE,
   },
   triangle: {
     width: 0,
