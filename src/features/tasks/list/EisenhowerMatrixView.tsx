@@ -1,12 +1,14 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { View, Text, ScrollView, Pressable, Platform, Alert, Modal } from 'react-native'
-import { CheckSquare, Flag, Zap, Clock, HelpCircle, Timer, ChevronDown } from 'lucide-react-native'
+import { CheckSquare, Flag, Zap, Clock, HelpCircle, Timer, ChevronDown, Calendar } from 'lucide-react-native'
 import type { CheckvistTask } from '@/api/types'
 import { classifyPriority, type PriorityBucket, priorityDisplay } from '@/features/tasks/shared/PriorityPicker'
 import { classifyTask } from '@/lib/dateSort'
 import { useUpdateTask } from './useTasksQuery'
 import { useOrderedTaskGroup } from '@/features/tasks/shared/useOrderedTaskGroup'
 import { InlineMarkdown } from '@/components/InlineMarkdown'
+import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
+import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
 
 // Date filter options for the matrix view
 export type MatrixDateFilter = 'today' | 'tomorrow' | 'thisWeek' | 'overdue' | 'later' | 'noDueDate' | 'all'
@@ -433,6 +435,7 @@ interface MatrixTaskCardProps {
   quadrantColor: string
   onDragStart: () => void
   onLongPress: () => void
+  onDateChange: (date: string | null) => void
   showTimeBadge?: boolean
   isCurrent?: boolean
   isSelected?: boolean
@@ -440,9 +443,11 @@ interface MatrixTaskCardProps {
   onTouchDropAtPoint?: (x: number, y: number) => void
 }
 
-function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTimeBadge, isCurrent, isSelected, onMouseDown, onTouchDropAtPoint }: MatrixTaskCardProps) {
+function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, onDateChange, showTimeBadge, isCurrent, isSelected, onMouseDown, onTouchDropAtPoint }: MatrixTaskCardProps) {
   const dragRef = useCardDragRef(task, onDragStart, onTouchDropAtPoint)
   const timeBucket = showTimeBadge ? classifyTime(task) : null
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const dateColor = task.due ? (dueDateColorClass(task.due).includes('red') ? '#E53935' : '#4772FA') : '#9CA3AF'
 
   return (
     <View
@@ -468,7 +473,7 @@ function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTim
         <Text style={{ fontSize: 13, color: '#1F2937', lineHeight: 18 }} numberOfLines={2}>
           <InlineMarkdown content={task.content} />
         </Text>
-        <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
           {task.priority > 0 && !showTimeBadge && (
             <Text style={{ fontSize: 11, color: quadrantColor, fontWeight: '600' }}>
               {priorityDisplay(task.priority)}
@@ -484,8 +489,30 @@ function MatrixTaskCard({ task, quadrantColor, onDragStart, onLongPress, showTim
               {task.duration.formatted}
             </Text>
           )}
+          <Pressable
+            onPress={(e) => { e.stopPropagation?.(); setShowDatePicker(true) }}
+            hitSlop={6}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 'auto' }}
+          >
+            <Calendar size={11} color={dateColor} />
+            {task.due ? (
+              <Text style={{ fontSize: 11, color: dateColor, fontWeight: '500' }}>
+                {humanizeDueDate(task.due)}
+              </Text>
+            ) : (
+              <Text style={{ fontSize: 11, color: '#C4C4C4' }}>Set date</Text>
+            )}
+          </Pressable>
         </View>
       </Pressable>
+      {showDatePicker && (
+        <QuickDatePicker
+          taskId={task.id}
+          onSelect={(date) => { onDateChange(date); setShowDatePicker(false) }}
+          onClose={() => setShowDatePicker(false)}
+          isMobile
+        />
+      )}
     </View>
   )
 }
@@ -502,6 +529,7 @@ interface MatrixQuadrantProps<TBucket extends string> {
   onDrop: () => void
   onCardDragStart: (task: CheckvistTask) => void
   onMoveTo: (task: CheckvistTask) => void
+  onDateChange: (task: CheckvistTask, date: string | null) => void
   showTimeBadge?: boolean
   onTouchDropAtPoint?: (x: number, y: number) => void
 }
@@ -509,7 +537,7 @@ interface MatrixQuadrantProps<TBucket extends string> {
 function MatrixQuadrant<TBucket extends string>({
   config, tasks, checklistId, isDropTarget,
   onDragOver, onDragLeave, onDrop,
-  onCardDragStart, onMoveTo, showTimeBadge,
+  onCardDragStart, onMoveTo, onDateChange, showTimeBadge,
   onTouchDropAtPoint,
 }: MatrixQuadrantProps<TBucket>) {
   const { Icon } = config
@@ -588,6 +616,7 @@ function MatrixQuadrant<TBucket extends string>({
               quadrantColor={config.color}
               onDragStart={() => onCardDragStart(task)}
               onLongPress={() => onMoveTo(task)}
+              onDateChange={(date) => onDateChange(task, date)}
               showTimeBadge={showTimeBadge}
               isCurrent={index === currentIndex}
               isSelected={selectedIndices.has(index)}
@@ -676,6 +705,10 @@ function TimeMatrixContent({ tasks, checklistId, isMobile, dateFilter }: TimeMat
     )
   }
 
+  const handleDateChange = useCallback((task: CheckvistTask, date: string | null) => {
+    updateTask({ taskId: task.id, payload: { due_date: date } })
+  }, [updateTask])
+
   const renderQuadrant = (config: TimeQuadrantConfig) => (
     <MatrixQuadrant
       key={config.bucket}
@@ -688,6 +721,7 @@ function TimeMatrixContent({ tasks, checklistId, isMobile, dateFilter }: TimeMat
       onDrop={() => handleDrop(config.bucket)}
       onCardDragStart={(task) => { draggedTask.current = task }}
       onMoveTo={handleNativeLongPress}
+      onDateChange={handleDateChange}
       showTimeBadge
       onTouchDropAtPoint={handleTouchDropAtPoint}
     />
@@ -816,6 +850,10 @@ function PriorityMatrixContent({ tasks, checklistId, isMobile, dateFilter }: Pri
     )
   }
 
+  const handleDateChange = useCallback((task: CheckvistTask, date: string | null) => {
+    updateTask({ taskId: task.id, payload: { due_date: date } })
+  }, [updateTask])
+
   const renderQuadrant = (config: QuadrantConfig) => (
     <MatrixQuadrant
       key={config.bucket}
@@ -828,6 +866,7 @@ function PriorityMatrixContent({ tasks, checklistId, isMobile, dateFilter }: Pri
       onDrop={() => handleDrop(config.bucket)}
       onCardDragStart={(task) => { draggedTask.current = task }}
       onMoveTo={handleNativeLongPress}
+      onDateChange={handleDateChange}
       onTouchDropAtPoint={handleTouchDropAtPoint}
     />
   )
