@@ -210,7 +210,22 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
           isEditing && { backgroundColor: '#EEF2FF' },
         ]}
       >
-        {/* Curved elbow: vertical from row top to center, then horizontal to bullet */}
+        {/* Parent-to-guide connector: fills the gap from bullet center to the bottom of this row */}
+        {hasChildren && expanded && (
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: indent + 18,
+              top: 18,
+              bottom: 0,
+              width: hasActiveDescendant ? 2 : 1,
+              backgroundColor: hasActiveDescendant ? BLUE : '#DDDDE3',
+            }}
+          />
+        )}
+
+        {/* Curved elbow for nested items: L-shape from guide (left=0) curving right to bullet */}
         {depth > 0 && (
           <View
             pointerEvents="none"
@@ -222,7 +237,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
               width: indent + 18,
               borderLeftWidth: (isEditing || hasActiveDescendant) ? 2 : 1,
               borderBottomWidth: (isEditing || hasActiveDescendant) ? 2 : 1,
-              borderBottomLeftRadius: 8,
+              borderBottomLeftRadius: 10,
               borderLeftColor: (isEditing || hasActiveDescendant) ? BLUE : '#DDDDE3',
               borderBottomColor: (isEditing || hasActiveDescendant) ? BLUE : '#DDDDE3',
             }}
@@ -311,7 +326,19 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
       )}
 
       {hasChildren && expanded && (
-        <View style={{ borderLeftWidth: 1, borderLeftColor: hasActiveDescendant ? BLUE : '#DDDDE3', marginLeft: indent + 18 }}>
+        <View style={{ marginLeft: indent + 18 }}>
+          {/* Guide line as plain View — avoids the 1px border-offset that misaligns elbows */}
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: hasActiveDescendant ? 2 : 1,
+              backgroundColor: hasActiveDescendant ? BLUE : '#DDDDE3',
+            }}
+          />
           {task.children.map((child) => (
             <OutlineRow
               key={child.id}
