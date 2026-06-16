@@ -210,11 +210,6 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
           isEditing && { backgroundColor: '#EEF2FF' },
         ]}
       >
-        {/* L-connector: horizontal blue line from guide to bullet for active items at depth > 0 */}
-        {depth > 0 && isEditing && (
-          <View style={{ position: 'absolute', left: 0, top: 18, width: indent + 8, height: 2, backgroundColor: BLUE }} />
-        )}
-
         {/* Indented row with bullet */}
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: indent + 8 }}>
 
@@ -297,32 +292,19 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
       )}
 
       {hasChildren && expanded && (
-        <>
-          {/* Vertical guide line */}
-          <View
-            style={{
-              position: 'absolute',
-              left: indent + 8 + 10, // align with bullet center
-              top: 32,
-              width: 1,
-              backgroundColor: '#DDDDE3',
-              // can't use absolute easily in RN without known height; use border on children wrapper
-            }}
-          />
-          <View style={{ borderLeftWidth: 1, borderLeftColor: hasActiveDescendant ? BLUE : '#DDDDE3', marginLeft: indent + 18 }}>
-            {task.children.map((child) => (
-              <OutlineRow
-                key={child.id}
-                task={child}
-                checklistId={checklistId}
-                isMobile={isMobile}
-                depth={depth + 1}
-                focusedId={focusedId}
-                onZoomIn={onZoomIn}
-              />
-            ))}
-          </View>
-        </>
+        <View style={{ borderLeftWidth: hasActiveDescendant ? 2 : 1, borderLeftColor: hasActiveDescendant ? BLUE : '#DDDDE3', marginLeft: indent + 18 }}>
+          {task.children.map((child) => (
+            <OutlineRow
+              key={child.id}
+              task={child}
+              checklistId={checklistId}
+              isMobile={isMobile}
+              depth={depth + 1}
+              focusedId={focusedId}
+              onZoomIn={onZoomIn}
+            />
+          ))}
+        </View>
       )}
 
       <BottomSheet open={showPriorityPicker} onClose={() => setShowPriorityPicker(false)} title="Set Priority">
