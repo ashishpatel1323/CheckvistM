@@ -31,6 +31,17 @@ function containsId(task: TaskNode, id: number): boolean {
   return task.children.some((c) => containsId(c, id))
 }
 
+function findLastActiveChild(children: TaskNode[], activeId: number | null, focusedId: number | null): TaskNode | null {
+  if (activeId === null && focusedId === null) return null
+  for (let i = children.length - 1; i >= 0; i--) {
+    const child = children[i]
+    if ((activeId !== null && containsId(child, activeId)) || (focusedId !== null && containsId(child, focusedId))) {
+      return child
+    }
+  }
+  return null
+}
+
 export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, onZoomIn }: OutlineRowProps) {
   const toast = useToast()
   const expanded = useExpandedIds((s) => s.expanded.has(task.id))
@@ -45,6 +56,8 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
   const ops = useOutlineOps()
 
   const isEditing = activeId === task.id
+  const isFocused = focusedId === task.id
+  const isHighlighted = isEditing || isFocused
 
   const [localText, setLocalText] = useState(task.content)
 
@@ -60,10 +73,11 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
 
   const hasChildren = task.children.length > 0
   const indent = depth * 22
-  const isFocused = focusedId === task.id
   const isDropTarget = dropTargetId === task.id
   const isDragging = draggingId === task.id
-  const hasActiveDescendant = activeId != null && hasChildren && task.children.some((c) => containsId(c, activeId))
+  const hasActiveDescendant = hasChildren && task.children.some((c) =>
+    (activeId != null && containsId(c, activeId)) || (focusedId != null && containsId(c, focusedId))
+  )
 
   useEffect(() => {
     const measure = () => {
@@ -207,24 +221,9 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
           styles.rowContainer,
           isDragging && styles.rowDragging,
           isDropTarget && dropZone === 'onto' && { backgroundColor: '#EEF2FF' },
-          isEditing && { backgroundColor: '#EEF2FF' },
+          isHighlighted && { backgroundColor: '#EEF2FF' },
         ]}
       >
-        {/* Parent-to-guide connector: fills the gap from bullet center to the bottom of this row */}
-        {hasChildren && expanded && (
-          <View
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              left: indent + 18,
-              top: 18,
-              bottom: 0,
-              width: hasActiveDescendant ? 2 : 1,
-              backgroundColor: hasActiveDescendant ? BLUE : '#DDDDE3',
-            }}
-          />
-        )}
-
         {/* Curved elbow for nested items: L-shape from guide (left=0) curving right to bullet */}
         {depth > 0 && (
           <View
@@ -235,11 +234,11 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
               top: 0,
               height: 18,
               width: indent + 18,
-              borderLeftWidth: (isEditing || hasActiveDescendant) ? 2 : 1,
-              borderBottomWidth: (isEditing || hasActiveDescendant) ? 2 : 1,
+              borderLeftWidth: (isHighlighted || hasActiveDescendant) ? 2 : 1,
+              borderBottomWidth: (isHighlighted || hasActiveDescendant) ? 2 : 1,
               borderBottomLeftRadius: 10,
-              borderLeftColor: (isEditing || hasActiveDescendant) ? BLUE : '#DDDDE3',
-              borderBottomColor: (isEditing || hasActiveDescendant) ? BLUE : '#DDDDE3',
+              borderLeftColor: (isHighlighted || hasActiveDescendant) ? BLUE : '#DDDDE3',
+              borderBottomColor: (isHighlighted || hasActiveDescendant) ? BLUE : '#DDDDE3',
             }}
           />
         )}
@@ -253,7 +252,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
             hitSlop={8}
             style={styles.bulletWrap}
           >
-            <View style={[styles.dot, (isEditing || hasActiveDescendant) && styles.dotActive]} />
+            <View style={[styles.dot, (isHighlighted || hasActiveDescendant) && styles.dotActive]} />
           </Pressable>
 
           {/* Row content */}
@@ -327,13 +326,13 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
 
       {hasChildren && expanded && (
         <View style={{ marginLeft: indent + 18 }}>
-          {/* Guide line as plain View — avoids the 1px border-offset that misaligns elbows */}
+          {/* Guide line — gray if no active path, blue if there is */}
           <View
             pointerEvents="none"
             style={{
               position: 'absolute',
               left: 0,
-              top: 0,
+              top: -18,
               bottom: 0,
               width: hasActiveDescendant ? 2 : 1,
               backgroundColor: hasActiveDescendant ? BLUE : '#DDDDE3',
