@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { format } from 'date-fns'
 import { useRoutineSystem } from './useRoutineSystem'
 import type { RoutineDef, CheckinLog } from './routineTypes'
+import { getPendingRoutineStepIds } from './routineSchedule'
 import { syncWidget } from '@/lib/widgetBridge'
 
 export interface ActiveTimer {
@@ -128,7 +129,7 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
     return logs
       .filter((l) => l.completedStepIds.includes(stepId) && l.stepCompletionTimes?.[stepId])
       .sort((a, b) => b.date.localeCompare(a.date))
-      .slice(0, 7)
+      .slice(0, 10)
       .map((l) => l.stepCompletionTimes![stepId])
   },
 
@@ -202,12 +203,11 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
 
   startTimer: (routine) => {
     const now = Date.now()
-    // Only include steps that haven't been completed today (all steps = failed by default)
     const todayCheckin = get().getTodayCheckin(routine.taskId)
     const completedToday = todayCheckin?.completedStepIds ?? []
-    const pendingStepIds = routine.steps
-      .filter((s) => !completedToday.includes(s.id))
-      .map((s) => s.id)
+    const pendingStepIds = getPendingRoutineStepIds(routine, completedToday, new Date().getDay())
+    if (pendingStepIds.length === 0) return
+
     set({
       activeTimer: {
         routineTaskId: routine.taskId,
@@ -227,8 +227,14 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
   },
 
   startQueue: (routinesToRun) => {
-    if (routinesToRun.length === 0) return
-    const [first, ...rest] = routinesToRun
+    const dayOfWeek = new Date().getDay()
+    const eligibleRoutines = routinesToRun.filter((routine) => {
+      const completedToday = get().getTodayCheckin(routine.taskId)?.completedStepIds ?? []
+      return getPendingRoutineStepIds(routine, completedToday, dayOfWeek).length > 0
+    })
+    if (eligibleRoutines.length === 0) return
+
+    const [first, ...rest] = eligibleRoutines
     set({ routineQueue: rest.map((r) => r.taskId) })
     get().startTimer(first)
   },
@@ -342,13 +348,14 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
 
   stopTimer: () => {
     const { routines, getTodayCheckin } = get()
+    const dayOfWeek = new Date().getDay()
     const queue = [...get().routineQueue]
     while (queue.length > 0) {
       const nextId = queue.shift()!
       const nextRoutine = routines.find((r) => r.taskId === nextId)
       if (!nextRoutine) continue
       const completed = getTodayCheckin(nextRoutine.taskId)?.completedStepIds ?? []
-      const hasPending = nextRoutine.steps.some((s) => !completed.includes(s.id))
+      const hasPending = getPendingRoutineStepIds(nextRoutine, completed, dayOfWeek).length > 0
       if (hasPending) {
         set({ routineQueue: queue })
         get().startTimer(nextRoutine)

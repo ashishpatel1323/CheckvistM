@@ -11,6 +11,7 @@ import { RoutineDetailView } from './RoutineDetailView'
 import { RoutineEditSheet } from './RoutineEditSheet'
 import { ROUTINE_COLORS } from './routineTypes'
 import type { RoutineDef, RoutineStep } from './routineTypes'
+import { getPendingRoutineStepIds } from './routineSchedule'
 
 const BLUE = '#4772FA'
 const FAILURE_RED = '#DC2626'
@@ -149,6 +150,30 @@ function computeStepStats(
   return { totalDone, currentStreak }
 }
 
+function getLast21ScheduledSuccesses(
+  stepId: string,
+  scheduledDays: number[],
+  allLogs: { date: string; completedStepIds: string[] }[],
+): number {
+  const doneDates = new Set(
+    allLogs.filter((l) => l.completedStepIds.includes(stepId)).map((l) => l.date),
+  )
+  let count = 0
+  let successes = 0
+  let cursor = new Date()
+  for (let i = 0; count < 21 && i < 730; i++) {
+    const dow = cursor.getDay()
+    const ds = format(cursor, 'yyyy-MM-dd')
+    const isScheduled = scheduledDays.length === 0 || scheduledDays.includes(dow)
+    if (isScheduled) {
+      count++
+      if (doneDates.has(ds)) successes++
+    }
+    cursor = addDays(cursor, -1)
+  }
+  return successes
+}
+
 // ─── DayColumn header ─────────────────────────────────────────────────────────
 
 interface DayColHeaderProps {
@@ -271,22 +296,14 @@ interface HabitRowProps {
 
 function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleSize, onToggle, checkinsByDate, completionTimeByDate, onSelect, isSelected, onStartStep }: HabitRowProps) {
   const accentColor = ROUTINE_COLORS[routine.color]
-  const getLast7CompletionTimes = useRoutineStore((s) => s.getLast7CompletionTimes)
   const updateCheckinTime = useRoutineStore((s) => s.updateCheckinTime)
   const [editingDate, setEditingDate] = useState<string | null>(null)
   const allLogs = Object.entries(checkinsByDate).map(([date, completedStepIds]) => ({ date, completedStepIds }))
-  const { totalDone, currentStreak } = useMemo(
-    () => computeStepStats(step.id, step.scheduledDays, allLogs),
+  const last21Successes = useMemo(
+    () => getLast21ScheduledSuccesses(step.id, step.scheduledDays, allLogs),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [step.id, step.scheduledDays, JSON.stringify(checkinsByDate)],
   )
-  const completionTimes = getLast7CompletionTimes(routine.taskId, step.id)
-  const sortedTimes = [...completionTimes].sort()
-  const usuallyText = sortedTimes.length === 0
-    ? null
-    : sortedTimes.length === 1
-      ? `Usually at ${fmtTime12(sortedTimes[0])}`
-      : `Usually ${fmtTime12(sortedTimes[0])}–${fmtTime12(sortedTimes[sortedTimes.length - 1])}`
 
   return (
     <Pressable
@@ -300,30 +317,42 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
         borderLeftColor: isSelected ? ROUTINE_COLORS[routine.color] : 'transparent',
       }}
     >
-      {/* Emoji icon */}
-      <View style={{
-        width: 36, height: 36, borderRadius: 18,
-        backgroundColor: accentColor + '20',
-        alignItems: 'center', justifyContent: 'center',
-        marginRight: 8,
-      }}>
-        <Text style={{ fontSize: 18 }}>{step.emoji}</Text>
+      {/* Emoji icon + X/21 badge */}
+      <View style={{ alignItems: 'center', marginRight: 10, gap: 3 }}>
+        <View style={{
+          width: 36, height: 36, borderRadius: 18,
+          backgroundColor: accentColor + '20',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Text style={{ fontSize: 18 }}>{step.emoji}</Text>
+        </View>
+        <View style={{
+          borderRadius: 10, borderWidth: 1, borderColor: accentColor + '40',
+          backgroundColor: accentColor + '12',
+          paddingHorizontal: 5, paddingVertical: 1,
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Text style={{ fontSize: 9, fontWeight: '700', color: accentColor }}>
+            {last21Successes}/21
+          </Text>
+        </View>
       </View>
 
-      {/* Name + stats */}
+      {/* Name + duration pill */}
       <View style={{ flex: 1, marginRight: 6 }}>
-        <Text style={{ fontSize: 14, fontWeight: '600', color: '#111' }} numberOfLines={1}>
-          {step.name}
-        </Text>
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
-            ⚡{totalDone}d
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: '#111' }} numberOfLines={1}>
+            {step.name}
           </Text>
-          <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
-            🔥{currentStreak}d
-          </Text>
-          {usuallyText && (
-            <Text style={{ fontSize: 11, color: '#9CA3AF' }}>{usuallyText}</Text>
+          {step.durationMin > 0 && (
+            <View style={{
+              backgroundColor: '#F3F4F6', borderRadius: 6,
+              paddingHorizontal: 6, paddingVertical: 2,
+            }}>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: '#6B7280' }}>
+                {step.durationMin}m
+              </Text>
+            </View>
           )}
         </View>
       </View>
@@ -587,6 +616,11 @@ function HabitDetailPanel({ step, routine, checkins, selectedDate }: HabitDetail
     return computeStepStats(step.id, step.scheduledDays, allLogs)
   }, [checkins, step.id, step.scheduledDays])
 
+  const last21Successes = useMemo(() => {
+    const allLogs = checkins.map((c) => ({ date: c.date, completedStepIds: c.completedStepIds }))
+    return getLast21ScheduledSuccesses(step.id, step.scheduledDays, allLogs)
+  }, [checkins, step.id, step.scheduledDays])
+
   // Monthly check-in rate
   const monthlyRate = useMemo(() => {
     const y = panelMonth.getFullYear()
@@ -646,7 +680,7 @@ function HabitDetailPanel({ step, routine, checkins, selectedDate }: HabitDetail
       {/* Stats row */}
       <View style={{ flexDirection: 'row', gap: 10 }}>
         {[
-          { icon: <Zap size={14} color={accentColor} />, label: 'Total Done', value: `${totalDone}d` },
+          { icon: <Zap size={14} color={accentColor} />, label: 'Last 21', value: `${last21Successes}/21` },
           { icon: <Flame size={14} color="#F97316" />, label: 'Streak', value: `${currentStreak}d` },
           { icon: <CalendarDays size={14} color={BLUE} />, label: 'This Month', value: `${monthlyDone}d` },
           { icon: <Text style={{ fontSize: 12, fontWeight: '700', color: '#10B981' }}>{monthlyRate}%</Text>, label: 'Check-in Rate', value: '' },
@@ -787,10 +821,11 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   // Compute pending step counts for today per routine
   const todayPending = useMemo(() => {
     const result: Record<number, number> = {}
+    const todayDow = new Date().getDay()
     for (const r of routines) {
       const checkin = getTodayCheckin(r.taskId)
       const completed = checkin?.completedStepIds ?? []
-      result[r.taskId] = r.steps.filter((s) => !completed.includes(s.id)).length
+      result[r.taskId] = getPendingRoutineStepIds(r, completed, todayDow).length
     }
     return result
   }, [routines, checkins, getTodayCheckin])

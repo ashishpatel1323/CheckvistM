@@ -167,6 +167,18 @@ export const useSystemLog = create<SystemLogStore>()(
       syncSession: async (key, taskName, entry) => {
         if (!entry.startedAt || entry.actualSeconds < 5) return
 
+        // Optimistic local update so Execute tab sees it immediately without waiting for fetchTodaySessions
+        const optimisticSession: SyncedSession = {
+          key,
+          taskId: entry.taskId,
+          checklistId: Number(key.split(':')[0]),
+          taskName,
+          startedAt: entry.startedAt,
+          actualSeconds: entry.actualSeconds,
+          completedAt: entry.completedAt,
+        }
+        set((s) => ({ remoteSessions: { ...s.remoteSessions, [key]: optimisticSession } }))
+
         try {
           const systemListId = await get().ensureSystemList()
           const dateStr = key.split(':')[1]
@@ -175,18 +187,15 @@ export const useSystemLog = create<SystemLogStore>()(
 
           const existingSystemTaskId = get().sessionTaskIds[key]
           if (existingSystemTaskId) {
-            // Update existing system task
             await updateTask(systemListId, existingSystemTaskId, { content })
           } else {
-            // Create new child task under the day task
-            const created = await createTask(systemListId, {
-              content,
-              parent_id: dayTaskId,
-            })
-            set((s) => ({ sessionTaskIds: { ...s.sessionTaskIds, [key]: created.id } }))
+            const created = await createTask(systemListId, { content, parent_id: dayTaskId })
+            set((s) => ({
+              sessionTaskIds: { ...s.sessionTaskIds, [key]: created.id },
+              remoteSessions: { ...s.remoteSessions, [key]: { ...optimisticSession, systemTaskId: created.id } },
+            }))
           }
         } catch (e) {
-          // Non-fatal — local data is still in useExecuteLog
           console.warn('[SystemLog] sync failed:', e)
         }
       },

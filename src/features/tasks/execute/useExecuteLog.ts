@@ -17,10 +17,21 @@ export interface ExecuteLogEntry {
   completedAt: string | null
 }
 
+/** One play→pause block. Key = taskEntryKey + ':' + startMs (unique per block). */
+export interface SessionLogEntry {
+  taskEntryKey: string   // checklistId:date:taskId
+  startedAt: string
+  actualSeconds: number
+  completedAt: string | null
+}
+
 interface ExecuteLogStore {
   entries: Record<string, ExecuteLogEntry>
+  /** One entry per play→pause block, keyed by checklistId:date:taskId:startMs */
+  sessionLog: Record<string, SessionLogEntry>
+  /** Key of the play→pause block currently running */
+  currentSessionKey: string | null
   // Wall-clock timestamp (ms) when the current timer started ticking.
-  // Non-null means the timer is running, survives tab switches/unmounts.
   timerStartedAt: number | null
   timerRunningKey: string | null
   // Task display names, set by ExecuteStateProvider for use during API sync
@@ -54,6 +65,48 @@ export function liveSeconds(entry: ExecuteLogEntry, timerRunningKey: string | nu
   return entry.actualSeconds + extra
 }
 
+/**
+ * Single source-of-truth session summary used by Execute tab, Log tab, and the popup overlay.
+ *
+ * Algorithm (same as Log tab):
+ *  1. Local `entries` (3-part keys) are the live source for in-progress tasks.
+ *  2. `remoteSessions` fills in everything else (any key length), deduped against entries.
+ *  3. The currently-running session key (4-part) is also deduped so it isn't double-counted.
+ */
+export function summarizeDaySessions(
+  dateStr: string,
+  entries: Record<string, ExecuteLogEntry>,
+  remoteSessions: Record<string, { startedAt: string; actualSeconds: number }>,
+  timerRunningKey: string | null,
+  timerStartedAt: number | null,
+): { sessionCount: number; sessionTotalSeconds: number } {
+  const seen = new Set<string>()
+  let sessionCount = 0
+  let sessionTotalSeconds = 0
+
+  for (const [key, entry] of Object.entries(entries)) {
+    const parts = key.split(':')
+    if (parts.length < 3 || parts[1] !== dateStr || !entry.startedAt) continue
+    seen.add(key)
+    sessionCount++
+    sessionTotalSeconds += liveSeconds(entry, timerRunningKey, timerStartedAt, key)
+  }
+
+  for (const [key, session] of Object.entries(remoteSessions)) {
+    if (seen.has(key) || !session.startedAt) continue
+    const parts = key.split(':')
+    if (parts.length < 3 || parts[1] !== dateStr) continue
+    // For new-format 4-part keys, also dedup against the 3-part task entry key
+    const taskEntryKey = parts.slice(0, 3).join(':')
+    if (seen.has(taskEntryKey)) continue
+    seen.add(key)
+    sessionCount++
+    sessionTotalSeconds += session.actualSeconds
+  }
+
+  return { sessionCount, sessionTotalSeconds }
+}
+
 const storage = Platform.OS === 'web'
   ? createJSONStorage(() => localStorage)
   : createJSONStorage(() => AsyncStorage)
@@ -62,6 +115,8 @@ export const useExecuteLog = create<ExecuteLogStore>()(
   persist(
     (set, get) => ({
       entries: {},
+      sessionLog: {},
+      currentSessionKey: null,
       timerStartedAt: null,
       timerRunningKey: null,
       taskNames: {},
@@ -124,67 +179,114 @@ export const useExecuteLog = create<ExecuteLogStore>()(
         }),
       play: (key) => {
         const s = get()
-        // Flush any previously running timer first.
+        const now = Date.now()
+        const nowIso = new Date(now).toISOString()
+
+        // Flush any previously running timer first (accumulate into task entry + session entry).
         if (s.timerRunningKey && s.timerStartedAt !== null) {
+          const extra = Math.floor((now - s.timerStartedAt) / 1000)
           const prev = s.entries[s.timerRunningKey]
-          if (prev) {
-            const extra = Math.floor((Date.now() - s.timerStartedAt) / 1000)
-            set((st) => ({
-              entries: { ...st.entries, [s.timerRunningKey!]: { ...prev, actualSeconds: prev.actualSeconds + extra } },
-            }))
+          const prevSession = s.currentSessionKey ? s.sessionLog[s.currentSessionKey] : null
+          set((st) => {
+            const updates: Partial<ExecuteLogStore> = {}
+            if (prev) updates.entries = { ...st.entries, [s.timerRunningKey!]: { ...prev, actualSeconds: prev.actualSeconds + extra } }
+            if (prevSession && s.currentSessionKey) {
+              updates.sessionLog = { ...st.sessionLog, [s.currentSessionKey]: { ...prevSession, actualSeconds: prevSession.actualSeconds + extra, completedAt: nowIso } }
+            }
+            return updates
+          })
+          // Sync the flushed session
+          if (s.currentSessionKey) {
+            const flushedSession = get().sessionLog[s.currentSessionKey]
+            const taskEntry = get().entries[s.timerRunningKey]
+            if (flushedSession && taskEntry) {
+              const name = s.taskNames?.[s.timerRunningKey] ?? `Task ${taskEntry.taskId}`
+              useSystemLog.getState().syncSession(s.currentSessionKey, name, { ...taskEntry, startedAt: flushedSession.startedAt, actualSeconds: flushedSession.actualSeconds, completedAt: flushedSession.completedAt }).catch(() => {})
+            }
           }
         }
-        // Mark startedAt if first time.
+
+        // Mark task entry startedAt if first time working on this task today.
         const entry = get().entries[key]
         if (entry && !entry.startedAt) {
-          set((st) => ({
-            entries: { ...st.entries, [key]: { ...st.entries[key], startedAt: new Date().toISOString() } },
-          }))
+          set((st) => ({ entries: { ...st.entries, [key]: { ...st.entries[key], startedAt: nowIso } } }))
         }
-        set({ timerRunningKey: key, timerStartedAt: Date.now() })
+
+        // Create a new session log entry for this play→pause block.
+        const sessionKey = `${key}:${now}`
+        set((st) => ({
+          sessionLog: { ...st.sessionLog, [sessionKey]: { taskEntryKey: key, startedAt: nowIso, actualSeconds: 0, completedAt: null } },
+          currentSessionKey: sessionKey,
+          timerRunningKey: key,
+          timerStartedAt: now,
+        }))
       },
       pause: () => {
         const s = get()
         if (!s.timerRunningKey || s.timerStartedAt === null) return
         const key = s.timerRunningKey
         const entry = s.entries[key]
+        const now = Date.now()
+        const nowIso = new Date(now).toISOString()
+        const extra = Math.floor((now - s.timerStartedAt) / 1000)
+
         if (entry) {
-          const extra = Math.floor((Date.now() - s.timerStartedAt) / 1000)
-          const updated = { ...entry, actualSeconds: entry.actualSeconds + extra }
+          const updatedEntry = { ...entry, actualSeconds: entry.actualSeconds + extra }
+          const sessionKey = s.currentSessionKey
+          const prevSession = sessionKey ? s.sessionLog[sessionKey] : null
+          const updatedSession = prevSession && sessionKey
+            ? { ...prevSession, actualSeconds: prevSession.actualSeconds + extra, completedAt: nowIso }
+            : null
+
           set((st) => ({
-            entries: { ...st.entries, [key]: updated },
+            entries: { ...st.entries, [key]: updatedEntry },
+            ...(updatedSession && sessionKey ? { sessionLog: { ...st.sessionLog, [sessionKey]: updatedSession } } : {}),
             timerRunningKey: null,
             timerStartedAt: null,
+            currentSessionKey: null,
           }))
-          // Fire-and-forget sync to Checkvist API
-          const name = s.taskNames?.[key] ?? `Task ${entry.taskId}`
-          useSystemLog.getState().syncSession(key, name, updated).catch(() => {})
+
+          // Sync this play→pause block to remote using its unique sessionKey
+          if (sessionKey && updatedSession) {
+            const name = s.taskNames?.[key] ?? `Task ${entry.taskId}`
+            useSystemLog.getState().syncSession(sessionKey, name, { ...updatedEntry, startedAt: updatedSession.startedAt, actualSeconds: updatedSession.actualSeconds, completedAt: updatedSession.completedAt }).catch(() => {})
+          }
         } else {
-          set({ timerRunningKey: null, timerStartedAt: null })
+          set({ timerRunningKey: null, timerStartedAt: null, currentSessionKey: null })
         }
       },
       markCompleted: (key) => {
-        // Flush running time if this task is currently running.
         const s = get()
+        const now = Date.now()
+        const nowIso = new Date(now).toISOString()
         if (s.timerRunningKey === key && s.timerStartedAt !== null) {
           const entry = s.entries[key]
           if (entry) {
-            const extra = Math.floor((Date.now() - s.timerStartedAt) / 1000)
-            const updated = { ...entry, actualSeconds: entry.actualSeconds + extra, completedAt: new Date().toISOString() }
+            const extra = Math.floor((now - s.timerStartedAt) / 1000)
+            const updatedEntry = { ...entry, actualSeconds: entry.actualSeconds + extra, completedAt: nowIso }
+            const sessionKey = s.currentSessionKey
+            const prevSession = sessionKey ? s.sessionLog[sessionKey] : null
+            const updatedSession = prevSession && sessionKey
+              ? { ...prevSession, actualSeconds: prevSession.actualSeconds + extra, completedAt: nowIso }
+              : null
             set((st) => ({
-              entries: { ...st.entries, [key]: updated },
+              entries: { ...st.entries, [key]: updatedEntry },
+              ...(updatedSession && sessionKey ? { sessionLog: { ...st.sessionLog, [sessionKey]: updatedSession } } : {}),
               timerRunningKey: null,
               timerStartedAt: null,
+              currentSessionKey: null,
             }))
             const name = s.taskNames?.[key] ?? `Task ${entry.taskId}`
-            useSystemLog.getState().syncSession(key, name, updated).catch(() => {})
+            if (sessionKey && updatedSession) {
+              useSystemLog.getState().syncSession(sessionKey, name, { ...updatedEntry, startedAt: updatedSession.startedAt, actualSeconds: updatedSession.actualSeconds, completedAt: updatedSession.completedAt }).catch(() => {})
+            }
             return
           }
         }
         set((st) => {
           const e = st.entries[key]
           if (!e) return st
-          const updated = { ...e, completedAt: new Date().toISOString() }
+          const updated = { ...e, completedAt: nowIso }
           const name = st.taskNames?.[key] ?? `Task ${e.taskId}`
           useSystemLog.getState().syncSession(key, name, updated).catch(() => {})
           return { entries: { ...st.entries, [key]: updated } }
@@ -196,6 +298,7 @@ export const useExecuteLog = create<ExecuteLogStore>()(
         if (s.timerRunningKey === key) {
           updates.timerRunningKey = null
           updates.timerStartedAt = null
+          updates.currentSessionKey = null
         }
         set((st) => {
           const e = st.entries[key]

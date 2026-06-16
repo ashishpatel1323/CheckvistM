@@ -11,9 +11,11 @@ import {
   useExecuteLog,
   entryKey,
   liveSeconds,
+  summarizeDaySessions,
   DEFAULT_ESTIMATE,
   ESTIMATE_STEP,
   type ExecuteLogEntry,
+  type SessionLogEntry,
 } from './useExecuteLog'
 import { priorityTextColor, priorityDisplay, priorityRowBg, PriorityPicker } from '@/features/tasks/shared/PriorityPicker'
 import { useSystemLog, type SyncedSession } from './useSystemLog'
@@ -213,42 +215,15 @@ function fmtMins(seconds: number): string {
 }
 
 function fmtDuration(seconds: number): string {
-  const totalMin = Math.round(seconds / 60)
-  if (totalMin < 60) return `${totalMin}m`
-  const h = Math.floor(totalMin / 60)
-  const m = totalMin % 60
-  return m > 0 ? `${h}h ${m}m` : `${h}h`
+  const s = Math.floor(seconds)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) return `${h}h ${m}m ${sec}s`
+  if (m > 0) return `${m}m ${sec}s`
+  return `${sec}s`
 }
 
-function summarizeTodaySessionsFromLogSource(
-  entries: Record<string, ExecuteLogEntry>,
-  remoteSessions: Record<string, SyncedSession>,
-  timerRunningKey: string | null,
-  timerStartedAt: number | null,
-): { sessionCount: number; sessionTotalSeconds: number } {
-  const todayStr = format(new Date(), 'yyyy-MM-dd')
-  const seen = new Set<string>()
-  let sessionCount = 0
-  let sessionTotalSeconds = 0
-
-  for (const [key, entry] of Object.entries(entries)) {
-    const parts = key.split(':')
-    if (parts.length < 3 || parts[1] !== todayStr || !entry.startedAt) continue
-    seen.add(key)
-    sessionCount += 1
-    sessionTotalSeconds += liveSeconds(entry, timerRunningKey, timerStartedAt, key)
-  }
-
-  for (const [key, session] of Object.entries(remoteSessions)) {
-    if (seen.has(key) || !session.startedAt) continue
-    const parts = key.split(':')
-    if (parts.length < 3 || parts[1] !== todayStr) continue
-    sessionCount += 1
-    sessionTotalSeconds += session.actualSeconds
-  }
-
-  return { sessionCount, sessionTotalSeconds }
-}
 
 // ─── Full-screen counter modal ────────────────────────────────────────────────
 
@@ -466,7 +441,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
     [orderedIds, todayTasks]
   )
 
-  const { entries, timerRunningKey, timerStartedAt, seed, setEstimate, play, pause, markCompleted, reset, setTaskName, hydrateFromRemote } = useExecuteLog()
+  const { entries, sessionLog, currentSessionKey, timerRunningKey, timerStartedAt, seed, setEstimate, play, pause, markCompleted, reset, setTaskName, hydrateFromRemote } = useExecuteLog()
   const [currentIndex, setCurrentIndex] = useState(0)
   const [tick, setTick] = useState(0)
   const [now, setNow] = useState(new Date())
@@ -879,11 +854,14 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
 // ─── Today's sessions summary card ───────────────────────────────────────────
 
 export function TodaySessionsCard() {
-  const { entries, timerRunningKey, timerStartedAt } = useExecCtx()
+  const entries = useExecuteLog((s) => s.entries)
+  const timerRunningKey = useExecuteLog((s) => s.timerRunningKey)
+  const timerStartedAt = useExecuteLog((s) => s.timerStartedAt)
   const remoteSessions = useSystemLog((s) => s.remoteSessions)
+  const todayStr = format(new Date(), 'yyyy-MM-dd')
   const { sessionCount, sessionTotalSeconds } = useMemo(() => {
-    return summarizeTodaySessionsFromLogSource(entries, remoteSessions, timerRunningKey, timerStartedAt)
-  }, [entries, remoteSessions, timerRunningKey, timerStartedAt])
+    return summarizeDaySessions(todayStr, entries, remoteSessions, timerRunningKey, timerStartedAt)
+  }, [entries, remoteSessions, timerRunningKey, timerStartedAt, todayStr])
 
   return (
     <View style={{ marginHorizontal: 16, marginTop: 8, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', gap: 8, borderWidth: 1, borderColor: '#F1F5F9' }}>
@@ -1506,9 +1484,10 @@ export function ExecuteViewContent({ onClose, onSwitchToLog }: { onClose: () => 
   const { width } = useWindowDimensions()
   const isMobile = width < 768
 
+  const todayStr = format(new Date(), 'yyyy-MM-dd')
   const { sessionCount, sessionTotalSeconds } = useMemo(() => {
-    return summarizeTodaySessionsFromLogSource(entries, remoteSessions, timerRunningKey, timerStartedAt)
-  }, [entries, remoteSessions, timerRunningKey, timerStartedAt])
+    return summarizeDaySessions(todayStr, entries, remoteSessions, timerRunningKey, timerStartedAt)
+  }, [entries, remoteSessions, timerRunningKey, timerStartedAt, todayStr])
 
   const [editingEstimate, setEditingEstimate] = useState(false)
   const [estimateDraft, setEstimateDraft] = useState('')

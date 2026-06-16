@@ -13,6 +13,7 @@ import { FlatTaskList } from './FlatTaskList'
 import { MindMapView } from './MindMapView'
 import { SearchView } from '@/features/tasks/search/SearchView'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import Svg, { Circle, Line, Text as SvgText, G, Defs, RadialGradient, Stop, Path } from 'react-native-svg'
 import { useTaskView, type TaskView } from './useTaskView'
 import { useTabBarConfig, PINNED_TAB_COUNT } from './useTabBarConfig'
 import { BottomSheet } from '@/components/BottomSheet'
@@ -20,6 +21,9 @@ import { ChecklistSwitcher } from '@/features/checklists/ChecklistSwitcher'
 import { useCreateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
 import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList, TodaySessionsCard, ExecuteViewContent, useExecCtx } from '@/features/tasks/execute/ExecuteModeView'
+import { useSystemLog } from '@/features/tasks/execute/useSystemLog'
+import { useExecuteLog, summarizeDaySessions } from '@/features/tasks/execute/useExecuteLog'
+import { format } from 'date-fns'
 import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
 import { EisenhowerMatrixView } from './EisenhowerMatrixView'
@@ -157,7 +161,176 @@ interface Sparkle {
   startY: number
 }
 
-function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () => void }) {
+function fmtDur(seconds: number): string {
+  const s = Math.floor(seconds)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) return `${h}h ${m}m ${sec}s`
+  if (m > 0) return `${m}m ${sec}s`
+  return `${sec}s`
+}
+
+function StatBadge({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <View style={{ alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 10, minWidth: 90, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' }}>
+      <Text style={{ fontSize: 22, fontWeight: '700', color: '#fff' }}>{value}</Text>
+      {sub ? <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 1 }}>{sub}</Text> : null}
+      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2, letterSpacing: 0.5 }}>{label}</Text>
+    </View>
+  )
+}
+
+function SessionsStatBadge() {
+  const entries = useExecuteLog((s) => s.entries)
+  const timerRunningKey = useExecuteLog((s) => s.timerRunningKey)
+  const timerStartedAt = useExecuteLog((s) => s.timerStartedAt)
+  const remoteSessions = useSystemLog((s) => s.remoteSessions)
+  const todayStr = format(new Date(), 'yyyy-MM-dd')
+
+  const { sessionCount, sessionTotalSeconds } = useMemo(() => {
+    return summarizeDaySessions(todayStr, entries, remoteSessions, timerRunningKey, timerStartedAt)
+  }, [entries, remoteSessions, timerRunningKey, timerStartedAt, todayStr])
+
+  return <StatBadge label="SESSIONS" value={String(sessionCount)} sub={fmtDur(sessionTotalSeconds)} />
+}
+
+function RoutinesStatBadge() {
+  const routines = useRoutineStore((s) => s.routines)
+  const checkins = useRoutineStore((s) => s.checkins)
+  const getTodayCheckin = useRoutineStore((s) => s.getTodayCheckin)
+  const loadRoutines = useRoutineStore((s) => s.loadRoutines)
+
+  useEffect(() => { loadRoutines() }, [loadRoutines])
+
+  const { done, total } = useMemo(() => {
+    let doneCount = 0
+    for (const r of routines) {
+      const checkin = getTodayCheckin(r.taskId)
+      const completedIds = checkin?.completedStepIds ?? []
+      const allDone = r.steps.length > 0 && r.steps.every(s => completedIds.includes(s.id))
+      if (allDone) doneCount++
+    }
+    return { done: doneCount, total: routines.length }
+  }, [routines, checkins, getTodayCheckin])
+
+  return <StatBadge label="ROUTINES" value={`${done}/${total}`} sub={total > 0 ? `${Math.round((done / total) * 100)}%` : undefined} />
+}
+
+function AnalogClock({ size = 260, date }: { size?: number; date: Date }) {
+  const cx = size / 2
+  const cy = size / 2
+  const r = size / 2 - size * 0.03
+
+  const h = date.getHours() % 12
+  const m = date.getMinutes()
+  const s = date.getSeconds()
+
+  const secDeg  = s * 6
+  const minDeg  = m * 6 + s * 0.1
+  const hourDeg = h * 30 + m * 0.5
+
+  // Tapered hand using a thin Path (wide at pivot, pointed at tip)
+  const taperedHand = (deg: number, length: number, baseWidth: number, color: string) => {
+    const rad    = ((deg - 90) * Math.PI) / 180
+    const tipX   = cx + Math.cos(rad) * length
+    const tipY   = cy + Math.sin(rad) * length
+    const tailL  = length * 0.2
+    const tailRad = ((deg + 90) * Math.PI) / 180
+    const tailX  = cx + Math.cos(tailRad) * tailL
+    const tailY  = cy + Math.sin(tailRad) * tailL
+    const perpRad = ((deg) * Math.PI) / 180
+    const bx = Math.cos(perpRad) * baseWidth
+    const by = Math.sin(perpRad) * baseWidth
+    const d = `M ${cx - bx} ${cy - by} L ${tipX} ${tipY} L ${cx + bx} ${cy + by} L ${tailX} ${tailY} Z`
+    return <Path key={color + deg} d={d} fill={color} />
+  }
+
+  const ticks = Array.from({ length: 60 }, (_, i) => {
+    const isHour    = i % 5 === 0
+    const isQuarter = i % 15 === 0
+    const deg = i * 6
+    const rad = ((deg - 90) * Math.PI) / 180
+    const tickLen = isQuarter ? r * 0.13 : isHour ? r * 0.10 : r * 0.055
+    const outer = r - size * 0.015
+    const inner = outer - tickLen
+    return (
+      <Line
+        key={i}
+        x1={cx + Math.cos(rad) * inner} y1={cy + Math.sin(rad) * inner}
+        x2={cx + Math.cos(rad) * outer} y2={cy + Math.sin(rad) * outer}
+        stroke="#1a1a1a"
+        strokeWidth={isQuarter ? size * 0.022 : isHour ? size * 0.016 : size * 0.008}
+        strokeLinecap="round"
+      />
+    )
+  })
+
+  const numerals = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((n, i) => {
+    const deg = i * 30
+    const rad = ((deg - 90) * Math.PI) / 180
+    const nr  = r * 0.75
+    return (
+      <SvgText
+        key={n}
+        x={cx + Math.cos(rad) * nr}
+        y={cy + Math.sin(rad) * nr}
+        textAnchor="middle"
+        alignmentBaseline="central"
+        fill="#111111"
+        fontSize={size * 0.075}
+        fontWeight="400"
+      >
+        {n}
+      </SvgText>
+    )
+  })
+
+  return (
+    <Svg width={size} height={size}>
+      <Defs>
+        <RadialGradient id="clkFace" cx="48%" cy="42%" r="58%">
+          <Stop offset="0%"   stopColor="#ffffff" />
+          <Stop offset="100%" stopColor="#d8d8d8" />
+        </RadialGradient>
+        <RadialGradient id="clkBezel" cx="50%" cy="50%" r="50%">
+          <Stop offset="0%"   stopColor="#e0e0e0" />
+          <Stop offset="100%" stopColor="#9a9a9a" />
+        </RadialGradient>
+      </Defs>
+
+      {/* Bezel */}
+      <Circle cx={cx} cy={cy} r={r + size * 0.03} fill="url(#clkBezel)" />
+      {/* Shadow ring */}
+      <Circle cx={cx} cy={cy} r={r + size * 0.015} fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth={size * 0.012} />
+      {/* White face */}
+      <Circle cx={cx} cy={cy} r={r} fill="url(#clkFace)" />
+
+      {/* Ticks + numerals */}
+      {ticks}
+      {numerals}
+
+      {/* Hour hand — short, wide, dark charcoal */}
+      {taperedHand(hourDeg, r * 0.50, size * 0.022, '#1a1a1a')}
+      {/* Minute hand — longer, slightly narrower */}
+      {taperedHand(minDeg,  r * 0.70, size * 0.016, '#1a1a1a')}
+      {/* Second hand — thin orange line with tail */}
+      <Line
+        x1={cx + Math.cos(((secDeg + 90) * Math.PI) / 180) * r * 0.22}
+        y1={cy + Math.sin(((secDeg + 90) * Math.PI) / 180) * r * 0.22}
+        x2={cx + Math.cos(((secDeg - 90) * Math.PI) / 180) * r * 0.85}
+        y2={cy + Math.sin(((secDeg - 90) * Math.PI) / 180) * r * 0.85}
+        stroke="#F59E0B" strokeWidth={size * 0.008} strokeLinecap="round"
+      />
+
+      {/* Center cap */}
+      <Circle cx={cx} cy={cy} r={size * 0.038} fill="#F59E0B" />
+      <Circle cx={cx} cy={cy} r={size * 0.015} fill="#fff" />
+    </Svg>
+  )
+}
+
+function TimeZoomOverlay({ timeStr, pct, onClose }: { timeStr: string; pct: number; onClose: () => void }) {
   const pctIdx = timeStr.indexOf(' (')
   const timeLabel = pctIdx === -1 ? timeStr : timeStr.slice(0, pctIdx)
   const pctLabel = pctIdx === -1 ? '' : timeStr.slice(pctIdx + 1)
@@ -166,6 +339,14 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
   const opacityAnim = useRef(new Animated.Value(0)).current
   const [sparkles, setSparkles] = useState<Sparkle[]>([])
   const sparkleIdRef = useRef(0)
+  const autoCloseProgress = useRef(new Animated.Value(0)).current
+  const [clockDate, setClockDate] = useState(() => new Date())
+
+  // Tick clock every second
+  useEffect(() => {
+    const id = setInterval(() => setClockDate(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
 
   // Entry animation
   useEffect(() => {
@@ -174,6 +355,8 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
       Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
     ]).start()
   }, [])
+
+  const dismissRef = useRef<() => void>(() => {})
 
   // Continuously spawn sparkles
   useEffect(() => {
@@ -223,25 +406,28 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
       Animated.timing(opacityAnim, { toValue: 0, duration: 220, useNativeDriver: true }),
     ]).start(onClose)
   }
+  dismissRef.current = dismiss
+
+  // Auto-close after 3 seconds
+  useEffect(() => {
+    Animated.timing(autoCloseProgress, { toValue: 1, duration: 3000, useNativeDriver: false }).start()
+    const t = setTimeout(() => dismissRef.current(), 3000)
+    return () => clearTimeout(t)
+  }, [])
+
+  const clockSize = Math.min(width, height) * 0.82
 
   return (
     <Modal visible transparent animationType="none" onRequestClose={dismiss}>
       <TouchableWithoutFeedback onPress={dismiss}>
-        <Animated.View style={{
-          flex: 1,
-          backgroundColor: 'rgba(10,10,20,0.88)',
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: opacityAnim,
-        }}>
+        <Animated.View style={{ flex: 1, backgroundColor: 'rgba(10,10,20,0.92)', opacity: opacityAnim }}>
+
           {/* Sparkles */}
           {sparkles.map(sp => (
             <Animated.Text
               key={sp.id}
               style={{
-                position: 'absolute',
-                left: 0,
-                top: 0,
+                position: 'absolute', left: 0, top: 0,
                 color: sp.color,
                 fontSize: 18 + Math.random() * 16,
                 transform: [{ translateX: sp.x }, { translateY: sp.y }, { scale: sp.scale }],
@@ -252,24 +438,71 @@ function TimeZoomOverlay({ timeStr, onClose }: { timeStr: string; onClose: () =>
             </Animated.Text>
           ))}
 
-          {/* Time */}
-          <Animated.View style={{ transform: [{ scale: scaleAnim }], alignItems: 'center' }}>
-            <Text style={{
-              fontSize: 88,
-              fontWeight: '800',
-              color: '#FFFFFF',
-              letterSpacing: -2,
-              textShadowColor: 'rgba(167,139,250,0.8)',
-              textShadowOffset: { width: 0, height: 0 },
-              textShadowRadius: 40,
-            }}>
-              {timeLabel}{' '}
-              <Text style={{ fontSize: 32, fontWeight: '700', letterSpacing: -1 }}>{pctLabel}</Text>
-            </Text>
-            <Text style={{ fontSize: 15, color: 'rgba(255,255,255,0.45)', marginTop: 4, letterSpacing: 3 }}>
-              TAP TO CLOSE
-            </Text>
+          {/* Clock — centered in the full screen */}
+          <View style={{
+            position: 'absolute',
+            top: 0, left: 0, right: 0, bottom: 0,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <AnalogClock size={clockSize} date={clockDate} />
+          </View>
+
+          {/* Bottom info panel */}
+          <Animated.View style={{
+            position: 'absolute',
+            bottom: 0, left: 0, right: 0,
+            transform: [{ scale: scaleAnim }],
+            backgroundColor: 'rgba(10,10,20,0.75)',
+            paddingTop: 18,
+            paddingBottom: 32,
+            paddingHorizontal: 24,
+            alignItems: 'center',
+            gap: 12,
+          }}>
+            {/* Digital time + percentage */}
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{
+                fontSize: 52,
+                fontWeight: '800',
+                color: '#FFFFFF',
+                letterSpacing: -1,
+                textShadowColor: 'rgba(245,158,11,0.7)',
+                textShadowOffset: { width: 0, height: 0 },
+                textShadowRadius: 20,
+              }}>
+                {timeLabel}
+              </Text>
+              <Text style={{ fontSize: 20, fontWeight: '600', color: 'rgba(255,255,255,0.65)', marginTop: -2 }}>
+                {pctLabel}
+              </Text>
+            </View>
+
+            {/* Day progress bar */}
+            <View style={{ width: '100%', height: 5, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 3, overflow: 'hidden' }}>
+              <View style={{
+                width: `${pct}%`, height: '100%', borderRadius: 3,
+                backgroundColor: pct > 80 ? '#EF4444' : pct > 60 ? '#F59E0B' : '#F59E0B',
+              }} />
+            </View>
+
+            {/* Stats row */}
+            <View style={{ flexDirection: 'row', gap: 16 }}>
+              <SessionsStatBadge />
+              <RoutinesStatBadge />
+            </View>
+
+            {/* Auto-close countdown */}
+            <View style={{ width: '100%', height: 2, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 1, overflow: 'hidden' }}>
+              <Animated.View style={{
+                width: autoCloseProgress.interpolate({ inputRange: [0, 1], outputRange: ['100%', '0%'] }),
+                height: '100%', backgroundColor: 'rgba(245,158,11,0.6)', borderRadius: 1,
+              }} />
+            </View>
+
+            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', letterSpacing: 3 }}>TAP TO CLOSE</Text>
           </Animated.View>
+
         </Animated.View>
       </TouchableWithoutFeedback>
     </Modal>
@@ -346,7 +579,7 @@ function DailyProgressBar() {
         borderBottomColor: '#EFEFEF',
       }}
     >
-      {showZoom && <TimeZoomOverlay timeStr={timeStr} onClose={() => setShowZoom(false)} />}
+      {showZoom && <TimeZoomOverlay timeStr={timeStr} pct={pct} onClose={() => setShowZoom(false)} />}
 
       {/* Time label + track in a single compact row */}
       <View style={{ position: 'relative' }}>

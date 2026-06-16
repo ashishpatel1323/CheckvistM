@@ -30,111 +30,236 @@ function fmtTime12(hhmm: string) {
   return `${h12}:${String(m).padStart(2, '0')} ${period}`
 }
 
+// Day window: 4:00 AM → 10:00 PM
+const DAY_START_MIN = 4 * 60   // 240
+const DAY_END_MIN   = 22 * 60  // 1320
+const DAY_RANGE     = DAY_END_MIN - DAY_START_MIN // 1080
+
+// Time-axis markers — includes 4 AM at the start
+const AXIS_MARKERS: { label: string; min: number }[] = [
+  { label: '4 AM',  min: 4  * 60 },
+  { label: '6 AM',  min: 6  * 60 },
+  { label: '8 AM',  min: 8  * 60 },
+  { label: '10 AM', min: 10 * 60 },
+  { label: '12 PM', min: 12 * 60 },
+  { label: '2 PM',  min: 14 * 60 },
+  { label: '4 PM',  min: 16 * 60 },
+  { label: '6 PM',  min: 18 * 60 },
+  { label: '8 PM',  min: 20 * 60 },
+  { label: '10 PM', min: 22 * 60 },
+]
+
+function dayPct(min: number) {
+  return Math.max(0, Math.min(1, (min - DAY_START_MIN) / DAY_RANGE))
+}
+
+/** Decide which dots should show their time label.
+ *  Always show first and last; hide intermediate labels that are too close. */
+function computeVisibleLabels(sortedMins: number[], barWidth: number): boolean[] {
+  const MIN_PX_GAP = 52
+  const n = sortedMins.length
+  if (n === 0) return []
+  if (n === 1) return [true]
+
+  const visible = new Array(n).fill(false)
+  visible[0] = true
+  visible[n - 1] = true
+
+  let lastShownIdx = 0
+  for (let i = 1; i < n - 1; i++) {
+    const pxDist = (dayPct(sortedMins[i]) - dayPct(sortedMins[lastShownIdx])) * barWidth
+    if (pxDist >= MIN_PX_GAP) {
+      const pxToLast = (dayPct(sortedMins[n - 1]) - dayPct(sortedMins[i])) * barWidth
+      if (pxToLast >= MIN_PX_GAP) {
+        visible[i] = true
+        lastShownIdx = i
+      }
+    }
+  }
+  return visible
+}
+
 function CompletionTimeBar({ times, accentColor }: { times: string[]; accentColor: string }) {
   const [barWidth, setBarWidth] = useState(0)
 
   const now = new Date()
   const currentMin = now.getHours() * 60 + now.getMinutes()
   const currentHHMM = format(now, 'HH:mm')
-
-  if (times.length === 0) return null
-
-  // with only one historical time, show it as a simple label
-  if (times.length === 1) {
-    return (
-      <View style={{ alignItems: 'center', marginVertical: 8 }}>
-        <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
-          Usually at {fmtTime12(times[0])} · Now: {fmtTime12(currentHHMM)}
-        </Text>
-      </View>
-    )
-  }
+  const currentInWindow = currentMin >= DAY_START_MIN && currentMin <= DAY_END_MIN
 
   const sorted = [...times].sort()
-  const minMin = toMinutes(sorted[0])
-  const maxMin = toMinutes(sorted[sorted.length - 1])
-
-  // Expand display range by 30 min each side for breathing room
-  const displayMin = Math.max(0, minMin - 30)
-  const displayMax = Math.min(23 * 60 + 59, maxMin + 30)
-  const displayRange = displayMax - displayMin
-
-  const pct = (min: number) =>
-    displayRange > 0 ? Math.max(0, Math.min(1, (min - displayMin) / displayRange)) : 0.5
-
-  const minPct = pct(minMin)
-  const maxPct = pct(maxMin)
-  const currentPct = pct(currentMin)
+  const sortedMins = sorted.map(toMinutes)
+  const visibleLabels = barWidth > 0 ? computeVisibleLabels(sortedMins, barWidth) : []
 
   const onLayout = (e: LayoutChangeEvent) => setBarWidth(e.nativeEvent.layout.width)
 
-  return (
-    <View style={{ marginVertical: 10 }}>
-      <Text style={{ fontSize: 11, color: '#9CA3AF', textAlign: 'center', marginBottom: 2 }}>
-        Usually between {fmtTime12(sorted[0])} and {fmtTime12(sorted[sorted.length - 1])} · Now: {fmtTime12(currentHHMM)}
-      </Text>
-      <Text style={{ fontSize: 10, color: '#9CA3AF', textAlign: 'center', marginBottom: 6 }}>
-        last {times.length} completions
-      </Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontSize: 10, color: '#6B7280', width: 56, textAlign: 'right' }}>
-          {fmtTime12(sorted[0])}
-        </Text>
+  // Connection line: from first to last historical dot
+  const connLeft  = sortedMins.length >= 2 ? barWidth * dayPct(sortedMins[0]) : 0
+  const connRight = sortedMins.length >= 2 ? barWidth * dayPct(sortedMins[sortedMins.length - 1]) : 0
 
-        {/* Bar */}
-        <View
-          style={{ flex: 1, height: 4, backgroundColor: '#E5E7EB', borderRadius: 2 }}
-          onLayout={onLayout}
-        >
-          {barWidth > 0 && (
-            <>
-              {/* Historical range fill */}
+  return (
+    <View style={{ marginVertical: 8 }}>
+      {/* Summary header — no "last N completions" line */}
+      {times.length > 0 && (
+        <Text style={{ fontSize: 11, color: '#9CA3AF', textAlign: 'center', marginBottom: 10 }}>
+          {times.length === 1
+            ? `Usually at ${fmtTime12(sorted[0])}`
+            : `Usually between ${fmtTime12(sorted[0])} and ${fmtTime12(sorted[sorted.length - 1])}`}
+        </Text>
+      )}
+
+      {/* Number labels above dots */}
+      {barWidth > 0 && sorted.length > 0 && (
+        <View style={{ position: 'relative', height: 14, marginHorizontal: 4 }}>
+          {sortedMins.map((min, i) => {
+            const x = barWidth * dayPct(min)
+            return (
+              <Text
+                key={`num-${i}`}
+                style={{
+                  position: 'absolute',
+                  left: x - 8,
+                  top: 0,
+                  width: 16,
+                  fontSize: 8,
+                  color: `${accentColor}99`,
+                  textAlign: 'center',
+                  fontWeight: '600',
+                }}
+              >
+                {i + 1}
+              </Text>
+            )
+          })}
+        </View>
+      )}
+      {!barWidth && <View style={{ height: 14 }} />}
+
+      {/* Track */}
+      <View
+        style={{ height: 4, backgroundColor: '#E5E7EB', borderRadius: 2, marginHorizontal: 4 }}
+        onLayout={onLayout}
+      >
+        {barWidth > 0 && (
+          <>
+            {/* Connection line between first and last historical dot */}
+            {sortedMins.length >= 2 && (
               <View
                 style={{
                   position: 'absolute',
-                  left: barWidth * minPct,
-                  width: barWidth * (maxPct - minPct),
+                  left: connLeft,
+                  width: connRight - connLeft,
                   height: 4,
-                  backgroundColor: `${accentColor}55`,
+                  backgroundColor: `${accentColor}44`,
                   borderRadius: 2,
                 }}
               />
-              {/* Current time dot */}
+            )}
+
+            {/* Historical completion dots */}
+            {sortedMins.map((min, i) => (
+              <View
+                key={`dot-${i}`}
+                style={{
+                  position: 'absolute',
+                  left: barWidth * dayPct(min) - 4,
+                  top: -2,
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: `${accentColor}cc`,
+                }}
+              />
+            ))}
+
+            {/* Current time dot — larger, full opacity, white border */}
+            {currentInWindow && (
               <View
                 style={{
                   position: 'absolute',
-                  left: barWidth * currentPct - 6,
-                  top: -4,
-                  width: 12,
-                  height: 12,
-                  borderRadius: 6,
+                  left: barWidth * dayPct(currentMin) - 7,
+                  top: -5,
+                  width: 14,
+                  height: 14,
+                  borderRadius: 7,
                   backgroundColor: accentColor,
+                  borderWidth: 2,
+                  borderColor: '#fff',
                 }}
               />
-            </>
-          )}
-        </View>
-
-        <Text style={{ fontSize: 10, color: '#6B7280', width: 56 }}>
-          {fmtTime12(sorted[sorted.length - 1])}
-        </Text>
+            )}
+          </>
+        )}
       </View>
 
-      {/* Current time label, centred under the dot */}
+      {/* Labels below dots: historical (small) + current time (larger, bold) */}
       {barWidth > 0 && (
-        <View style={{ paddingLeft: 64, paddingRight: 64 }}>
-          <Text
-            style={{
-              fontSize: 11,
-              color: accentColor,
-              marginLeft: barWidth * currentPct - 24,
-              marginTop: 4,
-            }}
-          >
-            {fmtTime12(currentHHMM)}
-          </Text>
+        <View style={{ position: 'relative', height: 24, marginHorizontal: 4 }}>
+          {/* Historical time labels — only where spacing allows */}
+          {sortedMins.map((min, i) => {
+            if (!visibleLabels[i]) return null
+            const x = barWidth * dayPct(min)
+            return (
+              <Text
+                key={`lbl-${i}`}
+                style={{
+                  position: 'absolute',
+                  left: x - 22,
+                  top: 4,
+                  fontSize: 9,
+                  color: accentColor,
+                  width: 44,
+                  textAlign: 'center',
+                }}
+              >
+                {fmtTime12(sorted[i])}
+              </Text>
+            )
+          })}
+
+          {/* Current time label — larger and prominent */}
+          {currentInWindow && (
+            <Text
+              style={{
+                position: 'absolute',
+                left: barWidth * dayPct(currentMin) - 28,
+                top: 2,
+                fontSize: 11,
+                color: accentColor,
+                width: 56,
+                textAlign: 'center',
+                fontWeight: '700',
+              }}
+            >
+              {fmtTime12(currentHHMM)}
+            </Text>
+          )}
         </View>
       )}
+
+      {/* Axis markers */}
+      {barWidth > 0 && (
+        <View style={{ position: 'relative', height: 20, marginHorizontal: 4, marginTop: 2 }}>
+          {AXIS_MARKERS.map((m) => {
+            const x = barWidth * dayPct(m.min)
+            // For the first marker (4 AM) anchor left so it doesn't go off-screen
+            const labelLeft = m.min === DAY_START_MIN ? x : x - 13
+            return (
+              <View key={m.label} style={{ position: 'absolute', left: x }}>
+                <View style={{ width: 1, height: 4, backgroundColor: '#D1D5DB' }} />
+                <Text style={{
+                  fontSize: 8, color: '#D1D5DB', marginTop: 1,
+                  position: 'absolute', top: 5, left: labelLeft - x,
+                  width: 26, textAlign: 'center',
+                }}>
+                  {m.label}
+                </Text>
+              </View>
+            )
+          })}
+        </View>
+      )}
+      {!barWidth && <View style={{ height: 40 }} />}
     </View>
   )
 }

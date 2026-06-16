@@ -91,7 +91,7 @@ android {
         applicationId 'com.ashishpatel.checkvist'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
+        versionCode 7
         versionName "1.0.0"
 
         splits {

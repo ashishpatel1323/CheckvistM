@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { View, Text, ScrollView, Pressable, TextInput, Modal, useWindowDimensions } from 'react-native'
-import { useExecuteLog, type ExecuteLogEntry } from './useExecuteLog'
+import { useExecuteLog, summarizeDaySessions, type ExecuteLogEntry } from './useExecuteLog'
 import { useSystemLog } from './useSystemLog'
 import { format, parseISO, addDays, subDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth, isToday } from 'date-fns'
 import { Cloud, ChevronLeft, ChevronRight, Calendar, CalendarDays, List } from 'lucide-react-native'
@@ -53,9 +53,13 @@ function fmtMinTime(m: number): string {
 }
 
 function fmtDur(min: number): string {
-  if (min < 60) return `${Math.round(min)}m`
-  const h = Math.floor(min / 60), m = Math.round(min % 60)
-  return m > 0 ? `${h}h ${m}m` : `${h}h`
+  const totalSec = Math.floor(min * 60)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
 }
 
 const bStart = (b: LogBlock) => b.startMin
@@ -451,24 +455,8 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
     return Array.from({ length: 7 }, (_, i) => {
       const day = addDays(selectedDate, i - 3)
       const ds = format(day, 'yyyy-MM-dd')
-      const dayBlocks: LogBlock[] = []
-      const seen2 = new Set<string>()
-      for (const [key, entry] of Object.entries(entries)) {
-        const parts = key.split(':')
-        if (parts.length < 3 || parts[1] !== ds || !entry.startedAt) continue
-        seen2.add(key)
-        const isRunning = timerRunningKey === key && timerStartedAt !== null
-        const actualSec = isRunning ? entry.actualSeconds + Math.floor((Date.now() - timerStartedAt) / 1000) : entry.actualSeconds
-        dayBlocks.push({ key, taskId: entry.taskId, startMin: minutesFromMidnight(entry.startedAt), durationMin: Math.max(1, actualSec / 60), entry })
-      }
-      for (const [key, session] of Object.entries(remoteSessions)) {
-        if (seen2.has(key) || !session.startedAt) continue
-        const parts = key.split(':')
-        if (parts.length < 3 || parts[1] !== ds) continue
-        dayBlocks.push({ key, taskId: session.taskId, startMin: minutesFromMidnight(session.startedAt), durationMin: Math.max(1, session.actualSeconds / 60), entry: { taskId: session.taskId, estimateMin: 0, startedAt: session.startedAt, actualSeconds: session.actualSeconds, completedAt: session.completedAt } })
-      }
-      const totalMin = dayBlocks.reduce((s, b) => s + bDur(b), 0)
-      return { day, ds, count: dayBlocks.length, totalMin, isSelected: i === 3 }
+      const { sessionCount, sessionTotalSeconds } = summarizeDaySessions(ds, entries, remoteSessions, timerRunningKey, timerStartedAt)
+      return { day, ds, count: sessionCount, totalMin: sessionTotalSeconds / 60, isSelected: i === 3 }
     })
   }, [selectedDate, entries, remoteSessions, timerRunningKey, timerStartedAt])
 

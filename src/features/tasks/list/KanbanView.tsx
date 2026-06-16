@@ -63,6 +63,7 @@ function computePosition(tgtTasks: TaskNode[], insertIdx: number): number {
 }
 
 type GroupBy = 'priority' | 'time' | 'item'
+type LevelFilter = 'all' | 'shallow' | 'deep'
 
 // ─── Web-only CSS ─────────────────────────────────────────────────────────────
 
@@ -187,23 +188,53 @@ function DropLine() {
 
 const GROUP_BY_LABELS: Record<GroupBy, string> = { priority: 'By Priority', time: 'By Time', item: 'By Item' }
 
-function GroupByToggle({ value, onChange }: { value: GroupBy; onChange: (v: GroupBy) => void }) {
+const LEVEL_FILTER_LABELS: Record<LevelFilter, string> = { all: 'All', shallow: 'L1-2', deep: 'L3+' }
+
+function GroupByToggle({
+  value, onChange, levelFilter, onLevelFilter,
+}: {
+  value: GroupBy; onChange: (v: GroupBy) => void
+  levelFilter: LevelFilter; onLevelFilter: (v: LevelFilter) => void
+}) {
   return (
-    <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#E2E8F0', backgroundColor: 'white', paddingHorizontal: 16 }}>
-      {(['priority', 'time', 'item'] as GroupBy[]).map((v) => {
-        const active = value === v
-        return (
-          <Pressable
-            key={v}
-            onPress={() => onChange(v)}
-            style={{ paddingVertical: 10, paddingHorizontal: 4, marginRight: 20, borderBottomWidth: 2, borderBottomColor: active ? '#E8632A' : 'transparent' }}
-          >
-            <Text style={{ fontSize: 13, fontWeight: active ? '600' : '400', color: active ? '#E8632A' : '#6B7280' }}>
-              {GROUP_BY_LABELS[v]}
-            </Text>
-          </Pressable>
-        )
-      })}
+    <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#E2E8F0', backgroundColor: 'white', paddingHorizontal: 16 }}>
+      <View style={{ flexDirection: 'row', flex: 1 }}>
+        {(['priority', 'time', 'item'] as GroupBy[]).map((v) => {
+          const active = value === v
+          return (
+            <Pressable
+              key={v}
+              onPress={() => onChange(v)}
+              style={{ paddingVertical: 10, paddingHorizontal: 4, marginRight: 20, borderBottomWidth: 2, borderBottomColor: active ? '#E8632A' : 'transparent' }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: active ? '600' : '400', color: active ? '#E8632A' : '#6B7280' }}>
+                {GROUP_BY_LABELS[v]}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+      {/* Level depth filter */}
+      <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>
+        {(['all', 'shallow', 'deep'] as LevelFilter[]).map((lf) => {
+          const active = levelFilter === lf
+          return (
+            <Pressable
+              key={lf}
+              onPress={() => onLevelFilter(lf)}
+              style={{
+                paddingVertical: 3, paddingHorizontal: 8, borderRadius: 12,
+                backgroundColor: active ? '#6366F1' : '#F1F5F9',
+                borderWidth: 1, borderColor: active ? '#6366F1' : '#E2E8F0',
+              }}
+            >
+              <Text style={{ fontSize: 11, fontWeight: active ? '700' : '400', color: active ? 'white' : '#64748B' }}>
+                {LEVEL_FILTER_LABELS[lf]}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
     </View>
   )
 }
@@ -400,14 +431,21 @@ function classifyDescendant(task: TaskNode): DateGroup | null {
 
 // ─── By-Item swimlane view ────────────────────────────────────────────────────
 
+function matchesLevelFilter(task: TaskNode, lf: LevelFilter): boolean {
+  if (lf === 'all') return true
+  if (lf === 'shallow') return task.level <= 2
+  return task.level >= 3
+}
+
 function ItemSwimlaneView({
-  roots, checklistId, activeDateGroups, collapsedCols, onToggleCol,
+  roots, checklistId, activeDateGroups, collapsedCols, onToggleCol, levelFilter,
 }: {
   roots: TaskNode[]
   checklistId: number
   activeDateGroups: DateGroup[]
   collapsedCols: Set<DateGroup>
   onToggleCol: (dg: DateGroup) => void
+  levelFilter: LevelFilter
 }) {
   const { mutate: updateTask } = useUpdateTask(checklistId)
   const router = useRouter()
@@ -430,13 +468,14 @@ function ItemSwimlaneView({
       const byDg = new Map<DateGroup, TaskNode[]>()
       for (const dg of activeDateGroups) byDg.set(dg, [])
       for (const desc of collectDescendants(root)) {
+        if (!matchesLevelFilter(desc, levelFilter)) continue
         const dg = classifyDescendant(desc)
         if (dg && byDg.has(dg)) byDg.get(dg)!.push(desc)
       }
       map.set(root.id, byDg)
     }
     return map
-  }, [roots, activeDateGroups])
+  }, [roots, activeDateGroups, levelFilter])
 
   const visibleRoots = useMemo(
     () => roots.filter((r) => activeDateGroups.some((dg) => (itemCells.get(r.id)?.get(dg)?.length ?? 0) > 0)),
@@ -615,6 +654,7 @@ export function KanbanView({ groups, roots = [], checklistId }: { groups: Groupe
   const { mutate: updateTask } = useUpdateTask(checklistId)
 
   const [groupBy, setGroupBy]           = useState<GroupBy>('priority')
+  const [levelFilter, setLevelFilter]   = useState<LevelFilter>('all')
   const [collapsedRows, setCollapsedRows] = useState<Set<SwimlaneKey>>(new Set())
   const [collapsedCols, setCollapsedCols] = useState<Set<DateGroup>>(new Set())
   const [dragState,  setDragState]      = useState<DragState | null>(null)
@@ -649,7 +689,10 @@ export function KanbanView({ groups, roots = [], checklistId }: { groups: Groupe
       if (!g) continue
       const byPri = new Map<PriorityBucket, TaskNode[]>()
       for (const b of PRIORITY_BUCKETS) byPri.set(b, [])
-      for (const t of g.tasks) byPri.get(classifyPriority(t.priority))!.push(t)
+      for (const t of g.tasks) {
+        if (!matchesLevelFilter(t, levelFilter)) continue
+        byPri.get(classifyPriority(t.priority))!.push(t)
+      }
       cells.set(dg, byPri)
       active.push(dg)
     }
@@ -657,7 +700,7 @@ export function KanbanView({ groups, roots = [], checklistId }: { groups: Groupe
       active.some((dg) => (cells.get(dg)?.get(b)?.length ?? 0) > 0)
     )
     return { cells, activeDateGroups: active, activeSwims }
-  }, [groups])
+  }, [groups, levelFilter])
 
   const timeCells = useMemo(() => {
     const cells = new Map<DateGroup, Map<TimeBucket, TaskNode[]>>()
@@ -667,7 +710,10 @@ export function KanbanView({ groups, roots = [], checklistId }: { groups: Groupe
       if (!g) continue
       const byTime = new Map<TimeBucket, TaskNode[]>()
       for (const q of TIME_QUADRANTS) byTime.set(q.bucket, [])
-      for (const t of g.tasks) byTime.get(classifyTime(t))!.push(t)
+      for (const t of g.tasks) {
+        if (!matchesLevelFilter(t, levelFilter)) continue
+        byTime.get(classifyTime(t))!.push(t)
+      }
       cells.set(dg, byTime)
       active.push(dg)
     }
@@ -675,7 +721,7 @@ export function KanbanView({ groups, roots = [], checklistId }: { groups: Groupe
       active.some((dg) => (cells.get(dg)?.get(tb)?.length ?? 0) > 0)
     )
     return { cells, activeDateGroups: active, activeSwims }
-  }, [groups])
+  }, [groups, levelFilter])
 
   const { cells, activeDateGroups, activeSwims } = groupBy === 'priority'
     ? priCells
@@ -747,13 +793,14 @@ export function KanbanView({ groups, roots = [], checklistId }: { groups: Groupe
   if (groupBy === 'item') {
     return (
       <ScrollView style={{ flex: 1, backgroundColor: '#F8FAFC' }} showsVerticalScrollIndicator>
-        <GroupByToggle value={groupBy} onChange={(v) => { setGroupBy(v); setCollapsedRows(new Set()); setCollapsedCols(new Set()) }} />
+        <GroupByToggle value={groupBy} onChange={(v) => { setGroupBy(v); setCollapsedRows(new Set()); setCollapsedCols(new Set()) }} levelFilter={levelFilter} onLevelFilter={setLevelFilter} />
         <ItemSwimlaneView
           roots={roots}
           checklistId={checklistId}
           activeDateGroups={priCells.activeDateGroups}
           collapsedCols={collapsedCols}
           onToggleCol={toggleCol}
+          levelFilter={levelFilter}
         />
       </ScrollView>
     )
@@ -761,7 +808,7 @@ export function KanbanView({ groups, roots = [], checklistId }: { groups: Groupe
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: '#F8FAFC' }} showsVerticalScrollIndicator>
-      <GroupByToggle value={groupBy} onChange={(v) => { setGroupBy(v); setCollapsedRows(new Set()); setCollapsedCols(new Set()) }} />
+      <GroupByToggle value={groupBy} onChange={(v) => { setGroupBy(v); setCollapsedRows(new Set()); setCollapsedCols(new Set()) }} levelFilter={levelFilter} onLevelFilter={setLevelFilter} />
       <ScrollView horizontal showsHorizontalScrollIndicator scrollEnabled={dragState === null}>
         <View>
 
