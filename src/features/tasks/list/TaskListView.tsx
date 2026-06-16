@@ -22,7 +22,7 @@ import { useCreateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
 import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList, TodaySessionsCard, ExecuteViewContent, useExecCtx } from '@/features/tasks/execute/ExecuteModeView'
 import { useSystemLog } from '@/features/tasks/execute/useSystemLog'
-import { useExecuteLog, summarizeDaySessions } from '@/features/tasks/execute/useExecuteLog'
+import { useExecuteLog, summarizeDaySessions, entryKey, DEFAULT_ESTIMATE } from '@/features/tasks/execute/useExecuteLog'
 import { format } from 'date-fns'
 import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
@@ -96,17 +96,46 @@ function RightPanelTimerBar({ onClose }: { onClose: () => void }) {
 }
 
 function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitViewProps) {
-  const [rightPanel, setRightPanel] = useState<RightPanel>(null)
+  const setLastRawTaskId = useExecuteLog((s) => s.setLastRawTaskId)
+  const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
+    // Restore raw panel from persisted state for refresh recovery
+    const savedId = useExecuteLog.getState().lastRawTaskId
+    return savedId != null ? { type: 'raw', taskId: savedId } : null
+  })
   const [focusedId, setFocusedId] = useState<number | null>(null)
 
   function openRaw(taskId: number) {
     setRightPanel({ type: 'raw', taskId })
+    setLastRawTaskId(taskId)
+    // Auto-start timer for this task
+    const log = useExecuteLog.getState()
+    const key = entryKey(checklistId, taskId)
+    if (!log.entries[key]) log.seed(key, taskId, DEFAULT_ESTIMATE)
+    if (log.timerRunningKey !== key) log.play(key)
+  }
+
+  function closeRaw() {
+    setRightPanel(null)
+    setLastRawTaskId(null)
+    // Auto-pause timer when raw view closes
+    useExecuteLog.getState().pause()
   }
 
   function openMindmap(taskId: number) {
     setFocusedId(taskId)
     setRightPanel({ type: 'mindmap', taskId })
   }
+
+  // Auto-resume timer when returning to Execute tab with raw panel still open
+  useEffect(() => {
+    if (rightPanel?.type === 'raw') {
+      const log = useExecuteLog.getState()
+      const key = entryKey(checklistId, rightPanel.taskId)
+      if (!log.entries[key]) log.seed(key, rightPanel.taskId, DEFAULT_ESTIMATE)
+      if (log.timerRunningKey !== key) log.play(key)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const hasPanel = rightPanel !== null
 
@@ -125,8 +154,8 @@ function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitVie
               <RawView
                 checklistId={checklistId}
                 taskId={rightPanel.taskId}
-                onClose={() => setRightPanel(null)}
-                timerBar={<RightPanelTimerBar onClose={() => setRightPanel(null)} />}
+                onClose={closeRaw}
+                timerBar={<RightPanelTimerBar onClose={closeRaw} />}
               />
             )}
             {rightPanel.type === 'mindmap' && (
@@ -866,6 +895,16 @@ const { view, setView, focusedTaskId } = useTaskView()
 
   const [showMoreSheet, setShowMoreSheet] = useState(false)
   const [customizing, setCustomizing] = useState(false)
+  const [pendingTabSwitch, setPendingTabSwitch] = useState<Parameters<typeof setView>[0] | null>(null)
+
+  function guardedSetView(key: Parameters<typeof setView>[0]) {
+    const log = useExecuteLog.getState()
+    if (view === 'execute' && log.timerRunningKey && key !== 'execute') {
+      setPendingTabSwitch(key)
+      return
+    }
+    setView(key)
+  }
 
   const orderedTabs = useMemo(
     () => tabOrder.map((key) => TABS.find((t) => t.key === key)).filter((t): t is TabEntry => t != null),
@@ -930,7 +969,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
       const tabKey = shortcutMap[e.key.toLowerCase()]
-      if (tabKey) { e.preventDefault(); setView(tabKey as Parameters<typeof setView>[0]); setShowShortcuts(false) }
+      if (tabKey) { e.preventDefault(); guardedSetView(tabKey as Parameters<typeof setView>[0]); setShowShortcuts(false) }
     }
     const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Control') setShowShortcuts(false) }
     const onBlur = () => setShowShortcuts(false)
@@ -973,7 +1012,7 @@ const { view, setView, focusedTaskId } = useTaskView()
           return (
             <Pressable
               key={key}
-              onPress={() => setView(key)}
+              onPress={() => guardedSetView(key)}
               hitSlop={6}
               style={{
                 flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -1271,7 +1310,7 @@ const { view, setView, focusedTaskId } = useTaskView()
             return (
               <Pressable
                 key={key}
-                onPress={() => { setView(key); if (showFabInput) setShowFabInput(false) }}
+                onPress={() => { guardedSetView(key); if (showFabInput) setShowFabInput(false) }}
                 className="flex-1 items-center justify-center gap-0.5"
                 style={{ paddingBottom: 6 }}
               >
@@ -1323,10 +1362,40 @@ const { view, setView, focusedTaskId } = useTaskView()
           orderedTabs={orderedTabs}
           activeView={view}
           pinnedCount={PINNED_TAB_COUNT}
-          onSelect={(key) => { setView(key); if (showFabInput) setShowFabInput(false); setShowMoreSheet(false) }}
+          onSelect={(key) => { guardedSetView(key); if (showFabInput) setShowFabInput(false); setShowMoreSheet(false) }}
           reorderTab={reorderTab}
         />
       )}
+
+      {/* ── Execute focus exit warning ───────────────────────────── */}
+      <Modal visible={pendingTabSwitch !== null} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 16, padding: 24, width: '100%', maxWidth: 360, gap: 16 }}>
+            <Text style={{ fontSize: 17, fontWeight: '800', color: '#111827' }}>Stay on track 🧠</Text>
+            <Text style={{ fontSize: 14, color: '#4B5563', lineHeight: 20 }}>
+              You are currently focusing on this task.{'\n'}Moving away will pause this session and log it.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Pressable
+                onPress={() => setPendingTabSwitch(null)}
+                style={{ flex: 1, borderRadius: 10, paddingVertical: 12, backgroundColor: BLUE, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '700', color: 'white' }}>Stay</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  useExecuteLog.getState().pause()
+                  setView(pendingTabSwitch!)
+                  setPendingTabSwitch(null)
+                }}
+                style={{ flex: 1, borderRadius: 10, paddingVertical: 12, backgroundColor: '#F3F4F6', alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#6B7280' }}>Leave & Pause</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }

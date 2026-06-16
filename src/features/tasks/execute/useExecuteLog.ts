@@ -36,6 +36,9 @@ interface ExecuteLogStore {
   timerRunningKey: string | null
   // Task display names, set by ExecuteStateProvider for use during API sync
   taskNames: Record<string, string>
+  /** Last task opened in Raw View — persisted for refresh recovery */
+  lastRawTaskId: number | null
+  setLastRawTaskId: (taskId: number | null) => void
   seed: (key: string, taskId: number, estimateMin: number) => void
   setEstimate: (key: string, min: number) => void
   markStarted: (key: string) => void
@@ -118,6 +121,8 @@ export const useExecuteLog = create<ExecuteLogStore>()(
       sessionLog: {},
       currentSessionKey: null,
       timerStartedAt: null,
+      lastRawTaskId: null,
+      setLastRawTaskId: (taskId) => set({ lastRawTaskId: taskId }),
       timerRunningKey: null,
       taskNames: {},
       setTaskName: (key, name) => set((s) => ({ taskNames: { ...s.taskNames, [key]: name } })),

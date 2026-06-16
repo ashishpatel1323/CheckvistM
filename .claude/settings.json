@@ -1,6 +1,5 @@
 {
   "permissions": {
-    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(git push *)",
       "Bash(pnpm tsc *)",
@@ -19,7 +18,12 @@
       "Read(//tmp/**)",
       "Read(//private/tmp/**)",
       "Bash(node scripts/seedRoutines.mjs)",
-      "Bash(node scripts/seedRoutines.mjs ashishpatel1323@gmail.com wZaBc858YdCQLV)"
+      "Bash(node scripts/seedRoutines.mjs ashishpatel1323@gmail.com wZaBc858YdCQLV)",
+      "Bash(cat > *)"
+    ],
+    "defaultMode": "bypassPermissions",
+    "additionalDirectories": [
+      "/tmp"
     ]
   }
 }

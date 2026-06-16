@@ -13,6 +13,7 @@
 
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
+import { useSyncState } from '@/lib/sync/syncState'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Platform } from 'react-native'
 import { format, parseISO } from 'date-fns'
@@ -195,8 +196,27 @@ export const useSystemLog = create<SystemLogStore>()(
               remoteSessions: { ...s.remoteSessions, [key]: { ...optimisticSession, systemTaskId: created.id } },
             }))
           }
+          const mins = Math.round(entry.actualSeconds / 60)
+          useSyncState.getState().addHistoryItem({
+            id: `session-${key}-${Date.now()}`,
+            entityType: 'session',
+            operation: existingSystemTaskId ? 'update' : 'create',
+            localId: key,
+            label: `Session synced · ${taskName} (${mins}m)`,
+            syncedAt: Date.now(),
+            status: 'synced',
+          })
         } catch (e) {
           console.warn('[SystemLog] sync failed:', e)
+          useSyncState.getState().addHistoryItem({
+            id: `session-${key}-${Date.now()}`,
+            entityType: 'session',
+            operation: 'create',
+            localId: key,
+            label: `Session sync failed · ${taskName}`,
+            syncedAt: Date.now(),
+            status: 'failed',
+          })
         }
       },
 
