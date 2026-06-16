@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Platform } from 'react-native'
 import { fetchChecklists, createChecklist, fetchTasks, createTask, updateTask, deleteTask } from '@/api/endpoints'
 import type { RoutineDef, CheckinLog, RoutineColor, RoutineStep } from './routineTypes'
+import { useSyncState } from '@/lib/sync/syncState'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -179,14 +180,36 @@ export const useRoutineSystem = create<RoutineSystemStore>()(
       saveRoutineDef: async (def, existingTaskId) => {
         const systemListId = await get().ensureSystemList()
         const content = encodeRoutineDef(def)
-
-        if (existingTaskId) {
-          await updateTask(systemListId, existingTaskId, { content })
-          return existingTaskId
+        const isUpdate = !!existingTaskId
+        try {
+          if (isUpdate) {
+            await updateTask(systemListId, existingTaskId!, { content })
+          } else {
+            const created = await createTask(systemListId, { content })
+            existingTaskId = created.id
+          }
+          useSyncState.getState().addHistoryItem({
+            id: `routine-${existingTaskId}-${Date.now()}`,
+            entityType: 'routine',
+            operation: isUpdate ? 'update' : 'create',
+            localId: String(existingTaskId),
+            label: `Routine ${isUpdate ? 'updated' : 'created'} · ${def.name}`,
+            syncedAt: Date.now(),
+            status: 'synced',
+          })
+          return existingTaskId!
+        } catch (e) {
+          useSyncState.getState().addHistoryItem({
+            id: `routine-err-${Date.now()}`,
+            entityType: 'routine',
+            operation: isUpdate ? 'update' : 'create',
+            localId: String(existingTaskId ?? 0),
+            label: `Routine save failed · ${def.name}`,
+            syncedAt: Date.now(),
+            status: 'failed',
+          })
+          throw e
         }
-
-        const created = await createTask(systemListId, { content })
-        return created.id
       },
 
       deleteRoutineDef: async (taskId) => {
@@ -194,8 +217,26 @@ export const useRoutineSystem = create<RoutineSystemStore>()(
         if (!systemListId) return
         try {
           await deleteTask(systemListId, taskId)
+          useSyncState.getState().addHistoryItem({
+            id: `routine-del-${taskId}-${Date.now()}`,
+            entityType: 'routine',
+            operation: 'delete',
+            localId: String(taskId),
+            label: 'Routine deleted',
+            syncedAt: Date.now(),
+            status: 'synced',
+          })
         } catch (e) {
           console.warn('[RoutineSystem] delete failed:', e)
+          useSyncState.getState().addHistoryItem({
+            id: `routine-del-err-${taskId}-${Date.now()}`,
+            entityType: 'routine',
+            operation: 'delete',
+            localId: String(taskId),
+            label: 'Routine delete failed',
+            syncedAt: Date.now(),
+            status: 'failed',
+          })
         }
       },
 
@@ -216,8 +257,27 @@ export const useRoutineSystem = create<RoutineSystemStore>()(
             })
             set((s) => ({ checkinTaskIds: { ...s.checkinTaskIds, [key]: created.id } }))
           }
+          const doneCount = log.completedStepIds.length
+          useSyncState.getState().addHistoryItem({
+            id: `checkin-${key}-${Date.now()}`,
+            entityType: 'checkin',
+            operation: existingId ? 'update' : 'create',
+            localId: key,
+            label: `Check-in synced · ${routineName} (${doneCount} steps done)`,
+            syncedAt: Date.now(),
+            status: 'synced',
+          })
         } catch (e) {
           console.warn('[RoutineSystem] log checkin failed:', e)
+          useSyncState.getState().addHistoryItem({
+            id: `checkin-err-${Date.now()}`,
+            entityType: 'checkin',
+            operation: 'create',
+            localId: `${log.routineTaskId}:${log.date}`,
+            label: `Check-in sync failed · ${routineName}`,
+            syncedAt: Date.now(),
+            status: 'failed',
+          })
         }
       },
     }),
