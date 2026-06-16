@@ -7,7 +7,12 @@ import { OutlineRow } from './OutlineRow'
 import { useExpandedIds } from './useExpandedIds'
 import { DragProvider, useDragContext } from './DragContext'
 import { DragGhost } from './DragGhost'
-import { ChevronRight } from 'lucide-react-native'
+import { ChevronRight, ChevronLeft, ChevronUp, ChevronDown, Calendar, CheckSquare } from 'lucide-react-native'
+import { useCreateTask, useUpdateTask, useDeleteTask, useCloseTask } from './useTasksQuery'
+import { useOutlineEdit } from './useOutlineEdit'
+import { OutlineOpsContext } from './outlineContext'
+import type { OutlineOps } from './outlineContext'
+import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 
 interface FlatTaskListProps {
   tasks: CheckvistTask[]
@@ -54,6 +59,86 @@ interface InnerProps extends FlatTaskListProps {
 
 const BLUE = '#4772FA'
 
+interface OutlineToolbarProps {
+  onIndentOut: () => void
+  onIndentIn: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onDate: () => void
+  onComplete: () => void
+  onDelete: () => void
+  onClose: () => void
+}
+
+function OutlineToolbar({ onIndentOut, onIndentIn, onMoveUp, onMoveDown, onDate, onComplete, onDelete, onClose }: OutlineToolbarProps) {
+  return (
+    <View style={{
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#fff',
+      borderTopWidth: 1,
+      borderTopColor: '#E5E7EB',
+      paddingHorizontal: 4,
+      paddingVertical: 6,
+    }}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ flexDirection: 'row', gap: 4, paddingHorizontal: 4 }}
+      >
+        <ToolbarButton onPress={onIndentOut} label="⇤">
+          <ChevronLeft size={18} color="#374151" />
+        </ToolbarButton>
+        <ToolbarButton onPress={onIndentIn} label="⇥">
+          <ChevronRight size={18} color="#374151" />
+        </ToolbarButton>
+        <ToolbarButton onPress={onMoveUp} label="↑">
+          <ChevronUp size={18} color="#374151" />
+        </ToolbarButton>
+        <ToolbarButton onPress={onMoveDown} label="↓">
+          <ChevronDown size={18} color="#374151" />
+        </ToolbarButton>
+        <ToolbarButton onPress={onDate} label="Date">
+          <Calendar size={18} color="#374151" />
+        </ToolbarButton>
+        <ToolbarButton onPress={onComplete} label="✓">
+          <CheckSquare size={18} color="#374151" />
+        </ToolbarButton>
+        <ToolbarButton onPress={onDelete} label="Del">
+          <Text style={{ fontSize: 16 }}>🗑</Text>
+        </ToolbarButton>
+      </ScrollView>
+      <Pressable onPress={onClose} style={{ paddingHorizontal: 14, paddingVertical: 8 }}>
+        <Text style={{ fontSize: 13, fontWeight: '600', color: BLUE }}>Done</Text>
+      </Pressable>
+    </View>
+  )
+}
+
+interface ToolbarButtonProps {
+  onPress: () => void
+  label: string
+  children: React.ReactNode
+}
+
+function ToolbarButton({ onPress, children }: ToolbarButtonProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: 8,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {children}
+    </Pressable>
+  )
+}
+
 function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, setFocusedId }: InnerProps) {
   const { draggingId, containerScreenY } = useDragContext()
   const seed = useExpandedIds((s) => s.seed)
@@ -68,10 +153,25 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
     ? breadcrumbs[breadcrumbs.length - 1].children
     : roots
 
+  const activeId = useOutlineEdit((s) => s.activeId)
+  const setActiveId = useOutlineEdit((s) => s.setActiveId)
+
+  const [datePickerTaskId, setDatePickerTaskId] = useState<number | null>(null)
+
+  const { mutate: createMutate } = useCreateTask(checklistId)
+  const { mutate: updateMutate } = useUpdateTask(checklistId)
+  const { mutate: deleteMutate } = useDeleteTask(checklistId)
+  const { mutate: closeMutate } = useCloseTask(checklistId)
+
   useEffect(() => {
     seed(allNodes.map((n) => n.id))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Clear active edit when breadcrumbs change
+  useEffect(() => {
+    setActiveId(null)
+  }, [breadcrumbs.length, setActiveId])
 
   const measureContainer = useCallback(() => {
     containerRef.current?.measureInWindow((x, y) => {
@@ -80,6 +180,11 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
   }, [containerScreenY])
 
   const nodeMap = useMemo(() => buildNodeMap(roots), [roots])
+
+  const activeNode = useMemo(
+    () => activeId != null ? nodeMap.get(activeId) ?? null : null,
+    [activeId, nodeMap]
+  )
 
   const handleZoomIn = useCallback((task: TaskNode) => {
     if (!task.children.length) return
@@ -137,77 +242,204 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
     return () => window.removeEventListener('keydown', handleKey, { capture: true })
   }, [handleKey])
 
+  const ops = useMemo<OutlineOps>(() => ({
+    createSiblingAfter: (task: TaskNode) => {
+      // Get siblings: if task has a parent, use parent's children; otherwise use currentRoots
+      const parentNode = task.parent_id != null ? nodeMap.get(task.parent_id) : null
+      const siblings = parentNode ? parentNode.children : currentRoots
+
+      const taskIndex = siblings.findIndex((s) => s.id === task.id)
+      const newPosition = task.position + 1
+
+      createMutate(
+        {
+          content: '',
+          parent_id: task.parent_id ?? undefined,
+          position: newPosition,
+        },
+        {
+          onSuccess: (newTask) => {
+            setActiveId(newTask.id)
+          },
+        }
+      )
+    },
+
+    indentIn: (task: TaskNode) => {
+      // Make task a child of its previous sibling
+      const parentNode = task.parent_id != null ? nodeMap.get(task.parent_id) : null
+      const siblings = parentNode ? parentNode.children : currentRoots
+
+      const taskIndex = siblings.findIndex((s) => s.id === task.id)
+      if (taskIndex <= 0) return // No previous sibling to indent into
+
+      const prevSibling = siblings[taskIndex - 1]
+      const newPosition = prevSibling.children.length + 1
+
+      updateMutate({
+        taskId: task.id,
+        payload: {
+          parent_id: prevSibling.id,
+          position: newPosition,
+        },
+      })
+    },
+
+    indentOut: (task: TaskNode) => {
+      // Make task a sibling of its parent (placed after parent)
+      if (task.parent_id == null) return // Already at root
+
+      const parentNode = nodeMap.get(task.parent_id)
+      if (!parentNode) return
+
+      const grandparentNode = parentNode.parent_id != null ? nodeMap.get(parentNode.parent_id) : null
+      const parentSiblings = grandparentNode ? grandparentNode.children : currentRoots
+      const parentIndex = parentSiblings.findIndex((s) => s.id === parentNode.id)
+      const newPosition = parentNode.position + 1
+
+      updateMutate({
+        taskId: task.id,
+        payload: {
+          parent_id: parentNode.parent_id ?? undefined,
+          position: newPosition,
+        },
+      })
+    },
+
+    moveUp: (task: TaskNode) => {
+      const parentNode = task.parent_id != null ? nodeMap.get(task.parent_id) : null
+      const siblings = parentNode ? parentNode.children : currentRoots
+
+      const taskIndex = siblings.findIndex((s) => s.id === task.id)
+      if (taskIndex <= 0) return
+
+      const prevSibling = siblings[taskIndex - 1]
+
+      // Swap positions
+      updateMutate({ taskId: task.id, payload: { position: prevSibling.position } })
+      updateMutate({ taskId: prevSibling.id, payload: { position: task.position } })
+    },
+
+    moveDown: (task: TaskNode) => {
+      const parentNode = task.parent_id != null ? nodeMap.get(task.parent_id) : null
+      const siblings = parentNode ? parentNode.children : currentRoots
+
+      const taskIndex = siblings.findIndex((s) => s.id === task.id)
+      if (taskIndex < 0 || taskIndex >= siblings.length - 1) return
+
+      const nextSibling = siblings[taskIndex + 1]
+
+      // Swap positions
+      updateMutate({ taskId: task.id, payload: { position: nextSibling.position } })
+      updateMutate({ taskId: nextSibling.id, payload: { position: task.position } })
+    },
+
+    openDatePicker: (taskId: number) => {
+      setDatePickerTaskId(taskId)
+    },
+  }), [nodeMap, currentRoots, createMutate, updateMutate, setActiveId])
+
   return (
-    <View ref={containerRef} style={{ flex: 1, backgroundColor: '#FFFFFF' }} onLayout={measureContainer}>
+    <OutlineOpsContext.Provider value={ops}>
+      <View ref={containerRef} style={{ flex: 1, backgroundColor: '#FFFFFF' }} onLayout={measureContainer}>
 
-      {/* Breadcrumb bar — shown when zoomed in */}
-      {breadcrumbs.length > 0 && (
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          paddingHorizontal: 16,
-          paddingVertical: 8,
-          borderBottomWidth: 1,
-          borderBottomColor: '#EFEFEF',
-          gap: 2,
-        }}>
-          <Pressable onPress={() => handleBreadcrumbNav(-1)} hitSlop={8}>
-            <Text style={{ fontSize: 13, color: '#6B7280' }}>
-              Root
-            </Text>
-          </Pressable>
-          {breadcrumbs.map((crumb, i) => (
-            <View key={crumb.id ?? i} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-              <ChevronRight size={13} color="#C4C4C8" />
-              <Pressable
-                onPress={() => handleBreadcrumbNav(i)}
-                hitSlop={8}
-              >
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: i === breadcrumbs.length - 1 ? '#1C1C1E' : '#6B7280',
-                    fontWeight: i === breadcrumbs.length - 1 ? '600' : '400',
-                  }}
-                  numberOfLines={1}
+        {/* Breadcrumb bar — shown when zoomed in */}
+        {breadcrumbs.length > 0 && (
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            paddingHorizontal: 16,
+            paddingVertical: 8,
+            borderBottomWidth: 1,
+            borderBottomColor: '#EFEFEF',
+            gap: 2,
+          }}>
+            <Pressable onPress={() => handleBreadcrumbNav(-1)} hitSlop={8}>
+              <Text style={{ fontSize: 13, color: '#6B7280' }}>
+                Root
+              </Text>
+            </Pressable>
+            {breadcrumbs.map((crumb, i) => (
+              <View key={crumb.id ?? i} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                <ChevronRight size={13} color="#C4C4C8" />
+                <Pressable
+                  onPress={() => handleBreadcrumbNav(i)}
+                  hitSlop={8}
                 >
-                  {crumb.label}
-                </Text>
-              </Pressable>
-            </View>
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: i === breadcrumbs.length - 1 ? '#1C1C1E' : '#6B7280',
+                      fontWeight: i === breadcrumbs.length - 1 ? '600' : '400',
+                    }}
+                    numberOfLines={1}
+                  >
+                    {crumb.label}
+                  </Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Zoomed-in header — large title of current zoom root */}
+        {breadcrumbs.length > 0 && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 8 }}>
+            <Text style={{ fontSize: 22, fontWeight: '700', color: '#1C1C1E', lineHeight: 28 }} numberOfLines={2}>
+              {breadcrumbs[breadcrumbs.length - 1].label}
+            </Text>
+          </View>
+        )}
+
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingTop: 8, paddingBottom: 40 }}
+          scrollEnabled={draggingId === null}
+        >
+          {currentRoots.map((task) => (
+            <OutlineRow
+              key={task.id}
+              task={task}
+              checklistId={checklistId}
+              isMobile={isMobile}
+              depth={0}
+              focusedId={focusedId}
+              onZoomIn={handleZoomIn}
+            />
           ))}
-        </View>
-      )}
+        </ScrollView>
 
-      {/* Zoomed-in header — large title of current zoom root */}
-      {breadcrumbs.length > 0 && (
-        <View style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 8 }}>
-          <Text style={{ fontSize: 22, fontWeight: '700', color: '#1C1C1E', lineHeight: 28 }} numberOfLines={2}>
-            {breadcrumbs[breadcrumbs.length - 1].label}
-          </Text>
-        </View>
-      )}
+        <DragGhost />
 
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: 40 }}
-        scrollEnabled={draggingId === null}
-      >
-        {currentRoots.map((task) => (
-          <OutlineRow
-            key={task.id}
-            task={task}
-            checklistId={checklistId}
-            isMobile={isMobile}
-            depth={0}
-            focusedId={focusedId}
-            onZoomIn={handleZoomIn}
+        {/* Editing toolbar */}
+        {activeId !== null && activeNode !== null && (
+          <OutlineToolbar
+            onIndentOut={() => ops.indentOut(activeNode)}
+            onIndentIn={() => ops.indentIn(activeNode)}
+            onMoveUp={() => ops.moveUp(activeNode)}
+            onMoveDown={() => ops.moveDown(activeNode)}
+            onDate={() => setDatePickerTaskId(activeId)}
+            onComplete={() => { closeMutate(activeId); setActiveId(null) }}
+            onDelete={() => { deleteMutate(activeId); setActiveId(null) }}
+            onClose={() => setActiveId(null)}
           />
-        ))}
-      </ScrollView>
-      <DragGhost />
-    </View>
+        )}
+
+        {/* Date picker */}
+        {datePickerTaskId !== null && (
+          <QuickDatePicker
+            taskId={datePickerTaskId}
+            onSelect={(date) => {
+              updateMutate({ taskId: datePickerTaskId, payload: { due_date: date } })
+              setDatePickerTaskId(null)
+            }}
+            onClose={() => setDatePickerTaskId(null)}
+            isMobile
+          />
+        )}
+      </View>
+    </OutlineOpsContext.Provider>
   )
 }
 
