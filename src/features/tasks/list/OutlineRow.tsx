@@ -5,15 +5,16 @@ import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, dueDateColorClass } from '@/lib/dateUtils'
 import { useExpandedIds } from './useExpandedIds'
 import { PriorityPicker, priorityDisplay, priorityTextColor } from '@/features/tasks/shared/PriorityPicker'
-import { useUpdateTask } from './useTasksQuery'
+import { useUpdateTask, useCloseTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
 import { InlineMarkdown } from '@/components/InlineMarkdown'
 import { BottomSheet } from '@/components/BottomSheet'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useDragContext } from './DragContext'
-import { hapticMedium } from '@/platform/haptics'
+import { hapticMedium, hapticSuccess } from '@/lib/haptics'
 import { useOutlineEdit } from './useOutlineEdit'
 import { useOutlineOps } from './outlineContext'
+import { addDays } from 'date-fns'
 
 interface OutlineRowProps {
   task: TaskNode
@@ -56,6 +57,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
   }, [task.content, isEditing])
 
   const { mutate: updateTask } = useUpdateTask(checklistId)
+  const { mutate: closeTask } = useCloseTask(checklistId)
   const { rowLayouts, measureFns, startDrag, updateDrag, endDrag, dropTargetId, dropZone, draggingId } = useDragContext()
 
   const hasChildren = task.children.length > 0
@@ -174,6 +176,52 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
 
   const handleCancel = useCallback(() => { endDrag() }, [endDrag])
 
+  // Swipe handlers
+  const handleSwipeLeft = useCallback(() => {
+    // Swipe left: mark as done
+    hapticSuccess()
+    closeTask(task.id)
+  }, [task.id, closeTask])
+
+  const handleSwipeRight = useCallback(() => {
+    // Swipe right: defer to tomorrow
+    hapticSuccess()
+    const tomorrow = addDays(new Date(), 1)
+    const dateStr = `${tomorrow.getFullYear()}/${(tomorrow.getMonth() + 1).toString().padStart(2, '0')}/${tomorrow.getDate().toString().padStart(2, '0')}`
+    updateTask({
+      taskId: task.id,
+      payload: { due_date: dateStr }
+    }, {
+      onSuccess: () => toast.success('Deferred to tomorrow'),
+      onError: () => toast.error('Failed to defer task')
+    })
+  }, [task.id, updateTask, toast])
+
+  const swipeStartX = useRef(0)
+  const SWIPE_THRESHOLD = 50
+  const SWIPE_VELOCITY_THRESHOLD = 200
+
+  const swipeGesture = Platform.OS !== 'web' && !isEditing && !draggingId
+    ? Gesture.Pan()
+      .runOnJS(true)
+      .onStart((e) => {
+        swipeStartX.current = e.x
+      })
+      .onEnd((e) => {
+        const distance = e.x - swipeStartX.current
+        const velocity = e.velocityX
+
+        // Swipe left (velocity or distance)
+        if ((distance < -SWIPE_THRESHOLD || velocity < -SWIPE_VELOCITY_THRESHOLD) && task.status === 0) {
+          handleSwipeLeft()
+        }
+        // Swipe right (velocity or distance)
+        if ((distance > SWIPE_THRESHOLD || velocity > SWIPE_VELOCITY_THRESHOLD) && task.status === 0) {
+          handleSwipeRight()
+        }
+      })
+    : null
+
   // Disable drag when editing
   const dragGesture = Platform.OS !== 'web' && !isEditing
     ? Gesture.Pan()
@@ -273,8 +321,8 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
                 ...(Platform.OS === 'web' ? [{ outlineWidth: 0 } as any] : []),
               ]}
             />
-          ) : dragGesture ? (
-            <GestureDetector gesture={dragGesture}>
+          ) : swipeGesture || dragGesture ? (
+            <GestureDetector gesture={swipeGesture && dragGesture ? Gesture.Simultaneous(swipeGesture, dragGesture) : swipeGesture || dragGesture}>
               <Pressable
                 onPress={() => setActiveId(task.id)}
                 style={[

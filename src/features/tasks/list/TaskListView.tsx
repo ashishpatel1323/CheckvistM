@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
-import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback, PanResponder } from 'react-native'
+import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback, PanResponder, RefreshControl } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical, TrendingUp, Play, Pause, type LucideIcon } from 'lucide-react-native'
 import { ProgressTab } from '@/features/progress/ProgressTab'
@@ -34,6 +34,9 @@ import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
 import { MuteButton } from '@/features/tasks/shared/MuteButton'
+import { TabBadge } from '@/components/TabBadge'
+import { hapticSelection, hapticSuccess } from '@/lib/haptics'
+import { calculateTabBadges } from '@/lib/tabBadges'
 
 interface TaskListViewProps {
   checklistId: number
@@ -931,6 +934,25 @@ const { view, setView, focusedTaskId } = useTaskView()
     return { groups: groupTasksByDate(allNodes), roots }
   }, [tasks])
 
+  // Badge calculations for tabs
+  const routines = useRoutineStore((s) => s.routines)
+  const checkins = useRoutineStore((s) => s.checkins)
+  const getTodayCheckin = useRoutineStore((s) => s.getTodayCheckin)
+  const entries = useExecuteLog((s) => s.entries)
+  const timerRunningKey = useExecuteLog((s) => s.timerRunningKey)
+  const timerStartedAt = useExecuteLog((s) => s.timerStartedAt)
+  const remoteSessions = useSystemLog((s) => s.remoteSessions)
+  const todayStr = format(new Date(), 'yyyy-MM-dd')
+
+  const { sessionCount } = useMemo(() => {
+    return summarizeDaySessions(todayStr, entries, remoteSessions, timerRunningKey, timerStartedAt)
+  }, [entries, remoteSessions, timerRunningKey, timerStartedAt, todayStr])
+
+  const tabBadges = useMemo(() => {
+    if (!tasks) return { date: 0, execute: 0, routines: 0, log: 0 }
+    return calculateTabBadges(tasks, routines, checkins, getTodayCheckin, sessionCount)
+  }, [tasks, routines, checkins, getTodayCheckin, sessionCount])
+
   const isEmpty = !isLoading && !isError && groups.length === 0
   const isSearch = view === 'search'
 
@@ -1188,7 +1210,20 @@ const { view, setView, focusedTaskId } = useTaskView()
           )}
 
           {!isLoading && !isError && !isEmpty && tasks && (
-            <View className="flex-1" style={{ paddingBottom: isMobile ? tabBarH : 0 }}>
+            <ScrollView
+              className="flex-1"
+              style={{ paddingBottom: isMobile ? tabBarH : 0 }}
+              scrollEnabled={false}
+              refreshControl={isMobile ? (
+                <RefreshControl
+                  refreshing={isFetching}
+                  onRefresh={refetch}
+                  tintColor={BLUE}
+                  colors={[BLUE]}
+                  progressBackgroundColor="white"
+                />
+              ) : undefined}
+            >
               {view === 'date' && (
                 <PriorityDateView groups={groups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} />
               )}
@@ -1203,7 +1238,7 @@ const { view, setView, focusedTaskId } = useTaskView()
                   <MindMapView tasks={tasks} checklistId={checklistId} focusedId={focusedId} setFocusedId={setFocusedId} initialFocusId={focusedTaskId} />
                 </ErrorBoundary>
               )}
-            </View>
+            </ScrollView>
           )}
 
         </>
@@ -1311,14 +1346,22 @@ const { view, setView, focusedTaskId } = useTaskView()
         >
           {pinnedTabs.map(({ key, icon: Icon, label }) => {
             const active = view === key
+            const badgeCount = tabBadges[key as keyof typeof tabBadges] ?? 0
             return (
               <Pressable
                 key={key}
-                onPress={() => { guardedSetView(key); if (showFabInput) setShowFabInput(false) }}
+                onPress={async () => {
+                  await hapticSelection()
+                  guardedSetView(key)
+                  if (showFabInput) setShowFabInput(false)
+                }}
                 className="flex-1 items-center justify-center gap-0.5"
-                style={{ paddingBottom: 6 }}
+                style={{ paddingBottom: 6, position: 'relative' }}
               >
-                <Icon size={22} color={active ? BLUE : INACTIVE} />
+                <View style={{ position: 'relative' }}>
+                  <Icon size={22} color={active ? BLUE : INACTIVE} />
+                  <TabBadge count={badgeCount} color={key === 'date' ? '#EF4444' : key === 'routines' ? '#F59E0B' : '#6366F1'} />
+                </View>
                 <Text
                   className="text-xs font-medium"
                   style={{ color: active ? BLUE : INACTIVE, fontSize: 10 }}
