@@ -18,7 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Platform } from 'react-native'
 import { format, parseISO } from 'date-fns'
 import { apiClient } from '@/api/client'
-import { fetchChecklists, createChecklist, fetchTasks, createTask, updateTask } from '@/api/endpoints'
+import { fetchChecklists, createChecklist, fetchTasks, createTask, updateTask, deleteTask } from '@/api/endpoints'
 import type { ExecuteLogEntry } from './useExecuteLog'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -111,6 +111,7 @@ interface SystemLogStore {
   ensureSystemList: () => Promise<number>
   ensureDayTask: (systemListId: number, dateStr: string) => Promise<number>
   syncSession: (key: string, taskName: string, entry: ExecuteLogEntry) => Promise<void>
+  deleteSession: (key: string) => Promise<void>
   fetchTodaySessions: () => Promise<void>
   /** Manually add a time block (not tied to a task), persists to Checkvist */
   addManualSession: (checklistId: number, dateStr: string, taskName: string, startMinutes: number, durationMin: number) => Promise<void>
@@ -217,6 +218,35 @@ export const useSystemLog = create<SystemLogStore>()(
             syncedAt: Date.now(),
             status: 'failed',
           })
+        }
+      },
+
+      deleteSession: async (key) => {
+        try {
+          const systemTaskId = get().sessionTaskIds[key]
+          if (!systemTaskId) {
+            // If no systemTaskId, just remove from local state
+            set((s) => {
+              const { [key]: _, ...rest } = s.remoteSessions
+              const { [key]: __, ...taskIds } = s.sessionTaskIds
+              return { remoteSessions: rest, sessionTaskIds: taskIds }
+            })
+            return
+          }
+
+          // Get system list ID and delete the task
+          const systemListId = await get().ensureSystemList()
+          await deleteTask(systemListId, systemTaskId)
+
+          // Remove from local state
+          set((s) => {
+            const { [key]: _, ...rest } = s.remoteSessions
+            const { [key]: __, ...taskIds } = s.sessionTaskIds
+            return { remoteSessions: rest, sessionTaskIds: taskIds }
+          })
+        } catch (e) {
+          console.warn('[SystemLog] deleteSession failed:', e)
+          throw e
         }
       },
 

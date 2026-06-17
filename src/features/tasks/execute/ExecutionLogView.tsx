@@ -242,9 +242,11 @@ function EditModal({ block, taskName, onSave, onClose }: {
   onSave: (s: number, d: number) => void; onClose: () => void
 }) {
   const { entries } = useExecuteLog()
+  const { deleteSession } = useSystemLog()
   const [sh, setSh] = useState(String(Math.floor(bStart(block) / 60) % 24))
   const [sm, setSm] = useState(String(Math.round(bStart(block) % 60)).padStart(2, '0'))
   const [dur, setDur] = useState(String(Math.round(bDur(block))))
+  const [isDeleting, setIsDeleting] = useState(false)
   const parsedStart = Number(sh) * 60 + Number(sm)
   const parsedDur   = Number(dur)
   const valid = !isNaN(parsedStart) && !isNaN(parsedDur) && parsedDur > 0
@@ -256,6 +258,17 @@ function EditModal({ block, taskName, onSave, onClose }: {
   const taskId = Number(parts[2])
   const overlapDetected = valid && hasTimeOverlap(entries, checklistId, taskId, dateStr, parsedStart, parsedDur, block.key)
   const canSave = valid && !overlapDetected
+
+  const handleDelete = async () => {
+    setIsDeleting(true)
+    try {
+      await deleteSession(block.key)
+      onClose()
+    } catch (e) {
+      console.error('Failed to delete session:', e)
+      setIsDeleting(false)
+    }
+  }
 
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
@@ -283,11 +296,14 @@ function EditModal({ block, taskName, onSave, onClose }: {
             </View>
           )}
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Pressable onPress={onClose} style={{ flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: '#D1D5DB', alignItems: 'center', justifyContent: 'center' }}>
+            <Pressable onPress={onClose} disabled={isDeleting} style={{ flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: '#D1D5DB', alignItems: 'center', justifyContent: 'center', opacity: isDeleting ? 0.5 : 1 }}>
               <Text style={{ fontSize: 14, color: '#6B7280', fontWeight: '600' }}>Cancel</Text>
             </Pressable>
-            <Pressable onPress={() => { if (canSave) { onSave(parsedStart, parsedDur); onClose() } }} style={{ flex: 1, height: 40, borderRadius: 10, backgroundColor: canSave ? '#4772FA' : '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 14, color: canSave ? 'white' : '#9CA3AF', fontWeight: '700' }}>Save</Text>
+            <Pressable onPress={handleDelete} disabled={isDeleting} style={{ flex: 1, height: 40, borderRadius: 10, backgroundColor: isDeleting ? '#FECACA' : '#EF4444', alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 14, color: 'white', fontWeight: '700' }}>{isDeleting ? 'Deleting...' : 'Delete'}</Text>
+            </Pressable>
+            <Pressable onPress={() => { if (canSave) { onSave(parsedStart, parsedDur); onClose() } }} disabled={isDeleting} style={{ flex: 1, height: 40, borderRadius: 10, backgroundColor: canSave && !isDeleting ? '#4772FA' : '#E5E7EB', alignItems: 'center', justifyContent: 'center', opacity: isDeleting ? 0.5 : 1 }}>
+              <Text style={{ fontSize: 14, color: canSave && !isDeleting ? 'white' : '#9CA3AF', fontWeight: '700' }}>Save</Text>
             </Pressable>
           </View>
         </Pressable>
