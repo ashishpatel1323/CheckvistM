@@ -7,6 +7,7 @@ import { OutlineRow } from './OutlineRow'
 import { useExpandedIds } from './useExpandedIds'
 import { DragProvider, useDragContext } from './DragContext'
 import { DragGhost } from './DragGhost'
+import { SwipeProvider } from './SwipeContext'
 import { ChevronRight, ChevronLeft, ChevronUp, ChevronDown, Calendar, CheckSquare } from 'lucide-react-native'
 import { useCreateTask, useUpdateTask, useDeleteTask, useCloseTask } from './useTasksQuery'
 import { useOutlineEdit } from './useOutlineEdit'
@@ -441,16 +442,18 @@ export function FlatTaskList({ tasks, checklistId, isMobile, focusedId, setFocus
   const { roots, allNodes } = useMemo(() => buildTaskTree(tasks), [tasks])
 
   return (
-    <DragProvider>
-      <FlatTaskListInner
-        tasks={tasks}
-        roots={roots}
-        allNodes={allNodes}
-        checklistId={checklistId}
-        isMobile={isMobile}
-        focusedId={focusedId}
-        setFocusedId={setFocusedId}
-      />
-    </DragProvider>
+    <SwipeProvider>
+      <DragProvider>
+        <FlatTaskListInner
+          tasks={tasks}
+          roots={roots}
+          allNodes={allNodes}
+          checklistId={checklistId}
+          isMobile={isMobile}
+          focusedId={focusedId}
+          setFocusedId={setFocusedId}
+        />
+      </DragProvider>
+    </SwipeProvider>
   )
 }

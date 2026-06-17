@@ -11,9 +11,11 @@ import { InlineMarkdown } from '@/components/InlineMarkdown'
 import { BottomSheet } from '@/components/BottomSheet'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useDragContext } from './DragContext'
-import { hapticMedium, hapticSuccess } from '@/lib/haptics'
+import { hapticMedium, hapticSuccess } from '@/platform/haptics'
 import { useOutlineEdit } from './useOutlineEdit'
 import { useOutlineOps } from './outlineContext'
+import { SwipeableRow } from './SwipeableRow'
+import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { addDays } from 'date-fns'
 
 interface OutlineRowProps {
@@ -48,6 +50,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
   const expanded = useExpandedIds((s) => s.expanded.has(task.id))
   const toggleExpanded = useExpandedIds((s) => s.toggle)
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
+  const [showSchedulePicker, setShowSchedulePicker] = useState(false)
   const rowRef = useRef<View>(null)
   const inputRef = useRef<TextInput>(null)
   const submittedRef = useRef(false)
@@ -169,6 +172,35 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
     )
   }
 
+  const handleScheduleDate = (date: string | null) => {
+    if (date === null) {
+      updateTask(
+        { taskId: task.id, payload: { due_date: null } },
+        {
+          onSuccess: () => toast.success('Due date cleared'),
+          onError: () => toast.error('Failed to clear due date'),
+        }
+      )
+    } else {
+      updateTask(
+        { taskId: task.id, payload: { due_date: date } },
+        {
+          onSuccess: () => toast.success('Due date updated'),
+          onError: () => toast.error('Failed to update due date'),
+        }
+      )
+    }
+  }
+
+  const handleSnooze = () => {
+    hapticSuccess()
+    const tomorrow = addDays(new Date(), 1)
+    const dateStr = `${tomorrow.getFullYear()}/${(tomorrow.getMonth() + 1)
+      .toString()
+      .padStart(2, '0')}/${tomorrow.getDate().toString().padStart(2, '0')}`
+    handleScheduleDate(dateStr)
+  }
+
   const handleDrop = useCallback(() => {
     const { targetId, zone } = endDrag()
     if (targetId === null || targetId === task.id) return
@@ -189,52 +221,6 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
   }, [task.id, endDrag, updateTask, toast, rowLayouts])
 
   const handleCancel = useCallback(() => { endDrag() }, [endDrag])
-
-  // Swipe handlers
-  const handleSwipeLeft = useCallback(() => {
-    // Swipe left: mark as done
-    hapticSuccess()
-    closeTask(task.id)
-  }, [task.id, closeTask])
-
-  const handleSwipeRight = useCallback(() => {
-    // Swipe right: defer to tomorrow
-    hapticSuccess()
-    const tomorrow = addDays(new Date(), 1)
-    const dateStr = `${tomorrow.getFullYear()}/${(tomorrow.getMonth() + 1).toString().padStart(2, '0')}/${tomorrow.getDate().toString().padStart(2, '0')}`
-    updateTask({
-      taskId: task.id,
-      payload: { due_date: dateStr }
-    }, {
-      onSuccess: () => toast.success('Deferred to tomorrow'),
-      onError: () => toast.error('Failed to defer task')
-    })
-  }, [task.id, updateTask, toast])
-
-  const swipeStartX = useRef(0)
-  const SWIPE_THRESHOLD = 50
-  const SWIPE_VELOCITY_THRESHOLD = 200
-
-  const swipeGesture = Platform.OS !== 'web' && !isEditing && !draggingId
-    ? Gesture.Pan()
-      .runOnJS(true)
-      .onStart((e) => {
-        swipeStartX.current = e.x
-      })
-      .onEnd((e) => {
-        const distance = e.x - swipeStartX.current
-        const velocity = e.velocityX
-
-        // Swipe left (velocity or distance)
-        if ((distance < -SWIPE_THRESHOLD || velocity < -SWIPE_VELOCITY_THRESHOLD) && task.status === 0) {
-          handleSwipeLeft()
-        }
-        // Swipe right (velocity or distance)
-        if ((distance > SWIPE_THRESHOLD || velocity > SWIPE_VELOCITY_THRESHOLD) && task.status === 0) {
-          handleSwipeRight()
-        }
-      })
-    : null
 
   // Disable drag when editing
   const dragGesture = Platform.OS !== 'web' && !isEditing
@@ -320,14 +306,18 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
                 ...(Platform.OS === 'web' ? [{ outlineWidth: 0 } as any] : []),
               ]}
             />
-          ) : swipeGesture || dragGesture ? (
-            <GestureDetector gesture={swipeGesture && dragGesture ? Gesture.Simultaneous(swipeGesture, dragGesture) : swipeGesture || dragGesture}>
+          ) : (
+            <SwipeableRow
+              taskId={task.id}
+              disabled={isEditing}
+              onSchedule={() => setShowSchedulePicker(true)}
+              onSnooze={handleSnooze}
+              onMove={() => ops.indentIn(task)}
+              additionalGesture={dragGesture || undefined}
+            >
               <Pressable
                 onPress={() => setActiveId(task.id)}
-                style={[
-                  styles.contentRow,
-                  isFocused && styles.contentRowFocused,
-                ]}
+                style={[styles.contentRow, isFocused && styles.contentRowFocused]}
                 {...webProps}
               >
                 <RowContent
@@ -338,21 +328,7 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
                   onDatePress={() => ops.openDatePicker(task.id)}
                 />
               </Pressable>
-            </GestureDetector>
-          ) : (
-            <Pressable
-              onPress={() => setActiveId(task.id)}
-              style={[styles.contentRow, isFocused && styles.contentRowFocused]}
-              {...webProps}
-            >
-              <RowContent
-                task={task}
-                isFocused={isFocused}
-                dueDateColor={dueDateColor}
-                setShowPriorityPicker={setShowPriorityPicker}
-                onDatePress={() => ops.openDatePicker(task.id)}
-              />
-            </Pressable>
+            </SwipeableRow>
           )}
 
           {/* Expand / collapse toggle on the right */}
@@ -403,6 +379,15 @@ export function OutlineRow({ task, checklistId, isMobile, depth = 0, focusedId, 
       <BottomSheet open={showPriorityPicker} onClose={() => setShowPriorityPicker(false)} title="Set Priority">
         <PriorityPicker value={task.priority} onChange={(p) => { handlePriorityChange(p); setShowPriorityPicker(false) }} />
       </BottomSheet>
+
+      {showSchedulePicker && (
+        <QuickDatePicker
+          taskId={task.id}
+          onSelect={(date) => { handleScheduleDate(date); setShowSchedulePicker(false) }}
+          onClose={() => setShowSchedulePicker(false)}
+          isMobile
+        />
+      )}
     </>
   )
 }
