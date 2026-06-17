@@ -46,6 +46,8 @@ interface RoutineStoreState {
   updateCheckinTime: (routineTaskId: number, date: string, stepId: string, newTime: string) => Promise<void>
   /** Toggle a single step done/undone for a given date (defaults to today) */
   toggleStep: (routine: RoutineDef, stepId: string, date?: string) => Promise<void>
+  /** Toggle a step's failed status for a given date (defaults to today). Marking failed clears any done state. */
+  markStepFailed: (routine: RoutineDef, stepId: string, date?: string) => Promise<void>
   startTimer: (routine: RoutineDef) => void
   /** Start the first routine and queue the rest to auto-start in sequence */
   startQueue: (routines: RoutineDef[]) => void
@@ -182,10 +184,18 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
       const { [stepId]: _removed, ...rest } = prevTimes
       stepCompletionTimes = rest
     }
+
+    // Marking a step done clears any failed mark for that date — failed and done are mutually exclusive
+    const prevFailed = existing?.failedStepIds ?? []
+    const failedStepIds = completedStepIds.includes(stepId)
+      ? prevFailed.filter((id) => id !== stepId)
+      : prevFailed
+
     const log: CheckinLog = {
       routineTaskId: routine.taskId,
       date: targetDate,
       completedStepIds,
+      failedStepIds: failedStepIds.length > 0 ? failedStepIds : undefined,
       durationSec: existing?.durationSec ?? 0,
       stepCompletionTimes: Object.keys(stepCompletionTimes).length > 0 ? stepCompletionTimes : undefined,
       systemTaskId: existing?.systemTaskId,
@@ -201,11 +211,45 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
     await get().upsertCheckin(log, routine.name)
   },
 
+  markStepFailed: async (routine, stepId, date?) => {
+    const targetDate = date ?? todayStr()
+    const existing = get().getCheckinForDate(routine.taskId, targetDate)
+
+    const prevFailed = existing?.failedStepIds ?? []
+    const isFailed = prevFailed.includes(stepId)
+    const failedStepIds = isFailed
+      ? prevFailed.filter((id) => id !== stepId)
+      : [...prevFailed, stepId]
+    // A step being marked failed can't also be done
+    const completedStepIds = isFailed
+      ? existing?.completedStepIds ?? []
+      : (existing?.completedStepIds ?? []).filter((id) => id !== stepId)
+
+    const log: CheckinLog = {
+      routineTaskId: routine.taskId,
+      date: targetDate,
+      completedStepIds,
+      failedStepIds: failedStepIds.length > 0 ? failedStepIds : undefined,
+      durationSec: existing?.durationSec ?? 0,
+      stepCompletionTimes: existing?.stepCompletionTimes,
+      systemTaskId: existing?.systemTaskId,
+    }
+
+    set((s) => {
+      const arr = s.checkins[routine.taskId] ?? []
+      const others = arr.filter((c) => c.date !== targetDate)
+      return { checkins: { ...s.checkins, [routine.taskId]: [...others, log] } }
+    })
+
+    await get().upsertCheckin(log, routine.name)
+  },
+
   startTimer: (routine) => {
     const now = Date.now()
     const todayCheckin = get().getTodayCheckin(routine.taskId)
     const completedToday = todayCheckin?.completedStepIds ?? []
-    const pendingStepIds = getPendingRoutineStepIds(routine, completedToday, new Date().getDay())
+    const failedToday = todayCheckin?.failedStepIds ?? []
+    const pendingStepIds = getPendingRoutineStepIds(routine, completedToday, new Date().getDay(), failedToday)
     if (pendingStepIds.length === 0) return
 
     set({
@@ -229,8 +273,10 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
   startQueue: (routinesToRun) => {
     const dayOfWeek = new Date().getDay()
     const eligibleRoutines = routinesToRun.filter((routine) => {
-      const completedToday = get().getTodayCheckin(routine.taskId)?.completedStepIds ?? []
-      return getPendingRoutineStepIds(routine, completedToday, dayOfWeek).length > 0
+      const checkin = get().getTodayCheckin(routine.taskId)
+      const completedToday = checkin?.completedStepIds ?? []
+      const failedToday = checkin?.failedStepIds ?? []
+      return getPendingRoutineStepIds(routine, completedToday, dayOfWeek, failedToday).length > 0
     })
     if (eligibleRoutines.length === 0) return
 
@@ -354,8 +400,10 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
       const nextId = queue.shift()!
       const nextRoutine = routines.find((r) => r.taskId === nextId)
       if (!nextRoutine) continue
-      const completed = getTodayCheckin(nextRoutine.taskId)?.completedStepIds ?? []
-      const hasPending = getPendingRoutineStepIds(nextRoutine, completed, dayOfWeek).length > 0
+      const nextCheckin = getTodayCheckin(nextRoutine.taskId)
+      const completed = nextCheckin?.completedStepIds ?? []
+      const failed = nextCheckin?.failedStepIds ?? []
+      const hasPending = getPendingRoutineStepIds(nextRoutine, completed, dayOfWeek, failed).length > 0
       if (hasPending) {
         set({ routineQueue: queue })
         get().startTimer(nextRoutine)
