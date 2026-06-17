@@ -29,7 +29,7 @@
         "backgroundColor": "#1C1C28"
       },
       "package": "com.ashishpatel.checkvist",
-      "versionCode": 7,
+      "versionCode": 8,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECEIVE_BOOT_COMPLETED",
@@ -64,14 +64,6 @@
           "color": "#E8632A",
           "defaultChannel": "default",
           "sounds": []
-        }
-      ],
-      [
-        "@sentry/react-native/expo",
-        {
-          "url": "https://sentry.io/",
-          "project": "checkvist-app",
-          "organization": "ashishpatel"
         }
       ]
     ],
