@@ -30,10 +30,9 @@ export function calculateTabBadges(
     return isToday(dueDate)
   }).length
 
-  // Execute: tasks with logged time today (count as "in progress")
+  // Execute: tasks with active checkin today (in-progress work)
   const executeCount = tasks.filter((t) => {
-    const checkin = getTodayCheckin(t.id)
-    return checkin && (checkin.completedStepIds.length > 0 || checkin.skippedStepIds.length > 0)
+    return getTodayCheckin(t.id) !== undefined
   }).length
 
   // Routines: total pending steps across all routines
@@ -45,8 +44,8 @@ export function calculateTabBadges(
     } else {
       const pending = routine.steps.filter(
         (s) =>
-          !checkin.completedStepIds.includes(s.id) &&
-          !checkin.skippedStepIds.includes(s.id)
+          !checkin.completedStepIds?.includes(s.id) &&
+          !checkin.skippedStepIds?.includes(s.id)
       ).length
       pendingStepsCount += pending
     }

@@ -35,6 +35,7 @@ import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
 import { MuteButton } from '@/features/tasks/shared/MuteButton'
 import { TabBadge } from '@/components/TabBadge'
+import { SyncButton } from '@/components/SyncButton'
 import { hapticSelection, hapticSuccess } from '@/lib/haptics'
 import { calculateTabBadges } from '@/lib/tabBadges'
 
@@ -1076,6 +1077,9 @@ const { view, setView, focusedTaskId } = useTaskView()
             </Pressable>
           )
         })}
+
+        {/* Sync button */}
+        <SyncButton onRefetch={() => void refetch()} />
 
         {/* Desktop: new task button */}
         {!isMobile && (

@@ -11,6 +11,8 @@ import { ToastProvider } from '@/components/Toast'
 import { isRunningInExpoGo } from 'expo'
 import * as Sentry from '@sentry/react-native'
 import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
+import { initAutoSync, stopAutoSync } from '@/lib/sync/autoSync'
+import { registerTaskHandlers } from '@/lib/sync/taskSyncHandlers'
 
 Sentry.init({
   dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
@@ -39,9 +41,20 @@ Sentry.init({
   debug: __DEV__,
 })
 
-function AuthInitializer() {
+function AppInitializer() {
   const initFromStorage = useAuth((s) => s.initFromStorage)
-  useEffect(() => { initFromStorage() }, [initFromStorage])
+
+  useEffect(() => {
+    initFromStorage()
+  }, [initFromStorage])
+
+  // Initialize offline-first sync system
+  useEffect(() => {
+    registerTaskHandlers()
+    initAutoSync().catch(console.warn)
+    return () => stopAutoSync()
+  }, [])
+
   return null
 }
 
@@ -77,7 +90,7 @@ function RootLayout() {
     <GestureHandlerRootView className="flex-1">
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
-          <AuthInitializer />
+          <AppInitializer />
           <WidgetDeepLinkHandler />
           <StatusBar style="light" />
           <Stack screenOptions={{ headerShown: false }} />

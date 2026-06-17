@@ -1,8 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import axios from 'axios'
 import { fetchTasks, createTask, updateTask, closeTask, deleteTask } from '@/api/endpoints'
 import type { CheckvistTask, CreateTaskPayload, UpdateTaskPayload } from '@/api/types'
 import { useAuth } from '@/auth/useAuth'
 import { useSyncState } from '@/lib/sync/syncState'
+import { enqueue } from '@/lib/sync/syncQueue'
+
+function isNetworkError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return false
+  return !err.response || err.code === 'ERR_NETWORK'
+}
 
 function recordTaskHistory(
   operation: 'create' | 'update' | 'delete',
@@ -69,9 +76,16 @@ export function useCreateTask(checklistId: number) {
     onSuccess: (data, payload) => {
       recordTaskHistory('create', 'Task created', String(data.id), 'synced', payload.content)
     },
-    onError: (_err, payload, context) => {
+    onError: (err, payload, context) => {
       if (context?.previous !== undefined) queryClient.setQueryData(key, context.previous)
-      recordTaskHistory('create', 'Task create failed', String(Date.now()), 'failed', payload.content)
+      if (isNetworkError(err)) {
+        const localId = `-${Date.now()}:${checklistId}`
+        enqueue('task', 'create', localId, payload)
+        useSyncState.getState().refreshFromQueue()
+        recordTaskHistory('create', 'Task queued for sync', localId, 'synced', payload.content)
+      } else {
+        recordTaskHistory('create', 'Task create failed', String(Date.now()), 'failed', payload.content)
+      }
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: key })
@@ -105,9 +119,16 @@ export function useUpdateTask(checklistId: number) {
         : 'Task updated'
       recordTaskHistory('update', action, String(taskId), 'synced', context?.taskContent ?? data.content)
     },
-    onError: (_err, { taskId }, context) => {
+    onError: (err, { taskId, payload }, context) => {
       if (context?.previous !== undefined) queryClient.setQueryData(key, context.previous)
-      recordTaskHistory('update', 'Task update failed', String(taskId), 'failed', context?.taskContent)
+      if (isNetworkError(err)) {
+        const localId = `${taskId}:${checklistId}`
+        enqueue('task', 'update', localId, payload)
+        useSyncState.getState().refreshFromQueue()
+        recordTaskHistory('update', 'Task update queued for sync', String(taskId), 'synced', context?.taskContent)
+      } else {
+        recordTaskHistory('update', 'Task update failed', String(taskId), 'failed', context?.taskContent)
+      }
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: key })
@@ -135,9 +156,16 @@ export function useCloseTask(checklistId: number) {
     onSuccess: (_data, taskId, context) => {
       recordTaskHistory('update', 'Task completed', String(taskId), 'synced', context?.taskContent)
     },
-    onError: (_err, taskId, context) => {
+    onError: (err, taskId, context) => {
       if (context?.previous !== undefined) queryClient.setQueryData(key, context.previous)
-      recordTaskHistory('update', 'Task complete failed', String(taskId), 'failed', context?.taskContent)
+      if (isNetworkError(err)) {
+        const localId = `${taskId}:${checklistId}`
+        enqueue('task', 'update', localId, { status: 1 })
+        useSyncState.getState().refreshFromQueue()
+        recordTaskHistory('update', 'Task close queued for sync', String(taskId), 'synced', context?.taskContent)
+      } else {
+        recordTaskHistory('update', 'Task complete failed', String(taskId), 'failed', context?.taskContent)
+      }
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: key })
@@ -165,9 +193,16 @@ export function useDeleteTask(checklistId: number) {
     onSuccess: (_data, taskId, context) => {
       recordTaskHistory('delete', 'Task deleted', String(taskId), 'synced', context?.taskContent)
     },
-    onError: (_err, taskId, context) => {
+    onError: (err, taskId, context) => {
       if (context?.previous !== undefined) queryClient.setQueryData(key, context.previous)
-      recordTaskHistory('delete', 'Task delete failed', String(taskId), 'failed', context?.taskContent)
+      if (isNetworkError(err)) {
+        const localId = `${taskId}:${checklistId}`
+        enqueue('task', 'delete', localId, {})
+        useSyncState.getState().refreshFromQueue()
+        recordTaskHistory('delete', 'Task delete queued for sync', String(taskId), 'synced', context?.taskContent)
+      } else {
+        recordTaskHistory('delete', 'Task delete failed', String(taskId), 'failed', context?.taskContent)
+      }
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: key })
