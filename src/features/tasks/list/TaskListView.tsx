@@ -234,13 +234,14 @@ function RoutinesStatBadge() {
 
   const { done, total } = useMemo(() => {
     let doneCount = 0
+    let totalSteps = 0
     for (const r of routines) {
       const checkin = getTodayCheckin(r.taskId)
       const completedIds = checkin?.completedStepIds ?? []
-      const allDone = r.steps.length > 0 && r.steps.every(s => completedIds.includes(s.id))
-      if (allDone) doneCount++
+      totalSteps += r.steps.length
+      doneCount += completedIds.length
     }
-    return { done: doneCount, total: routines.length }
+    return { done: doneCount, total: totalSteps }
   }, [routines, checkins, getTodayCheckin])
 
   return <StatBadge label="ROUTINES" value={`${done}/${total}`} sub={total > 0 ? `${Math.round((done / total) * 100)}%` : undefined} />
