@@ -13,6 +13,7 @@ import { useOutlineEdit } from './useOutlineEdit'
 import { OutlineOpsContext } from './outlineContext'
 import type { OutlineOps } from './outlineContext'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
+import { hapticSuccess, hapticSelection } from '@/lib/haptics'
 
 interface FlatTaskListProps {
   tasks: CheckvistTask[]
@@ -409,13 +410,13 @@ function FlatTaskListInner({ roots, allNodes, checklistId, isMobile, focusedId, 
         {/* Editing toolbar — always visible, disabled when nothing selected */}
         <OutlineToolbar
           disabled={activeNode === null}
-          onIndentOut={() => activeNode && ops.indentOut(activeNode)}
-          onIndentIn={() => activeNode && ops.indentIn(activeNode)}
-          onMoveUp={() => activeNode && ops.moveUp(activeNode)}
-          onMoveDown={() => activeNode && ops.moveDown(activeNode)}
-          onDate={() => { if (activeId) setDatePickerTaskId(activeId) }}
-          onComplete={() => { if (activeId) { closeMutate(activeId); setActiveId(null) } }}
-          onDelete={() => { if (activeId) { deleteMutate(activeId); setActiveId(null) } }}
+          onIndentOut={() => activeNode && (hapticSelection(), ops.indentOut(activeNode))}
+          onIndentIn={() => activeNode && (hapticSelection(), ops.indentIn(activeNode))}
+          onMoveUp={() => activeNode && (hapticSelection(), ops.moveUp(activeNode))}
+          onMoveDown={() => activeNode && (hapticSelection(), ops.moveDown(activeNode))}
+          onDate={() => { if (activeId) { hapticSelection(); setDatePickerTaskId(activeId) } }}
+          onComplete={() => { if (activeId) { hapticSuccess(); closeMutate(activeId); setActiveId(null) } }}
+          onDelete={() => { if (activeId) { hapticSelection(); deleteMutate(activeId); setActiveId(null) } }}
           onClose={() => setActiveId(null)}
         />
 
