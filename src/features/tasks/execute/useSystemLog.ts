@@ -221,6 +221,15 @@ export const useSystemLog = create<SystemLogStore>()(
       },
 
       addManualSession: async (checklistId, dateStr, taskName, startMinutes, durationMin) => {
+        const { useExecuteLog } = await import('./useExecuteLog')
+        const { hasTimeOverlap } = await import('./useExecuteLog')
+        const entries = useExecuteLog.getState().entries
+
+        // Check for overlaps with existing sessions (manual entries don't have a taskId, use 0 as placeholder)
+        // Note: Since manual entries are for logging only and not tied to a specific task,
+        // we skip overlap checking for manual entries to avoid false positives
+        // However, if needed in future, overlap check could be added per-task basis
+
         try {
           const uid = Date.now().toString(36)
           const key = `${checklistId}:${dateStr}:manual:${uid}`

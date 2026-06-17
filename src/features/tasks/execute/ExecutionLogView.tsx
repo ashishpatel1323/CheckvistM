@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { View, Text, ScrollView, Pressable, TextInput, Modal, useWindowDimensions } from 'react-native'
-import { useExecuteLog, summarizeDaySessions, type ExecuteLogEntry } from './useExecuteLog'
+import { useExecuteLog, summarizeDaySessions, hasTimeOverlap, type ExecuteLogEntry } from './useExecuteLog'
 import { useSystemLog } from './useSystemLog'
 import { format, parseISO, addDays, subDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth, isToday } from 'date-fns'
 import { Cloud, ChevronLeft, ChevronRight, Calendar, CalendarDays, List } from 'lucide-react-native'
@@ -241,12 +241,21 @@ function EditModal({ block, taskName, onSave, onClose }: {
   block: LogBlock; taskName: string
   onSave: (s: number, d: number) => void; onClose: () => void
 }) {
+  const { entries } = useExecuteLog()
   const [sh, setSh] = useState(String(Math.floor(bStart(block) / 60) % 24))
   const [sm, setSm] = useState(String(Math.round(bStart(block) % 60)).padStart(2, '0'))
   const [dur, setDur] = useState(String(Math.round(bDur(block))))
   const parsedStart = Number(sh) * 60 + Number(sm)
   const parsedDur   = Number(dur)
   const valid = !isNaN(parsedStart) && !isNaN(parsedDur) && parsedDur > 0
+
+  // Check for overlaps with other sessions
+  const parts = block.key.split(':')
+  const checklistId = Number(parts[0])
+  const dateStr = parts[1]
+  const taskId = Number(parts[2])
+  const overlapDetected = valid && hasTimeOverlap(entries, checklistId, taskId, dateStr, parsedStart, parsedDur, block.key)
+  const canSave = valid && !overlapDetected
 
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
@@ -266,12 +275,19 @@ function EditModal({ block, taskName, onSave, onClose }: {
             <Text style={{ fontSize: 12, fontWeight: '600', color: '#374151' }}>Duration (minutes)</Text>
             <TextInput value={dur} onChangeText={setDur} keyboardType="number-pad" style={{ height: 40, borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, paddingHorizontal: 12, fontSize: 16, fontWeight: '600' }} />
           </View>
+          {overlapDetected && (
+            <View style={{ backgroundColor: '#FEE2E2', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, borderLeftWidth: 3, borderLeftColor: '#DC2626' }}>
+              <Text style={{ fontSize: 12, color: '#991B1B', fontWeight: '600' }}>
+                ⚠️ This time overlaps with another session. Adjust the time or duration to avoid overlap.
+              </Text>
+            </View>
+          )}
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <Pressable onPress={onClose} style={{ flex: 1, height: 40, borderRadius: 10, borderWidth: 1, borderColor: '#D1D5DB', alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ fontSize: 14, color: '#6B7280', fontWeight: '600' }}>Cancel</Text>
             </Pressable>
-            <Pressable onPress={() => { if (valid) { onSave(parsedStart, parsedDur); onClose() } }} style={{ flex: 1, height: 40, borderRadius: 10, backgroundColor: valid ? '#4772FA' : '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 14, color: valid ? 'white' : '#9CA3AF', fontWeight: '700' }}>Save</Text>
+            <Pressable onPress={() => { if (canSave) { onSave(parsedStart, parsedDur); onClose() } }} style={{ flex: 1, height: 40, borderRadius: 10, backgroundColor: canSave ? '#4772FA' : '#E5E7EB', alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 14, color: canSave ? 'white' : '#9CA3AF', fontWeight: '700' }}>Save</Text>
             </Pressable>
           </View>
         </Pressable>

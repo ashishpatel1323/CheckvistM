@@ -68,6 +68,49 @@ export function liveSeconds(entry: ExecuteLogEntry, timerRunningKey: string | nu
   return entry.actualSeconds + extra
 }
 
+/** Extract minutes-from-midnight from ISO timestamp. */
+function minutesFromMidnight(iso: string): number {
+  try {
+    const d = new Date(iso)
+    return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60
+  } catch {
+    return 0
+  }
+}
+
+/** Check if a time range overlaps with any existing session for the same task on the same date. */
+export function hasTimeOverlap(
+  entries: Record<string, ExecuteLogEntry>,
+  checklistId: number,
+  taskId: number,
+  dateStr: string,
+  startMin: number,
+  durationMin: number,
+  excludeKey?: string,
+): boolean {
+  const newStart = startMin
+  const newEnd = startMin + durationMin
+
+  for (const [key, entry] of Object.entries(entries)) {
+    if (key === excludeKey) continue
+    const parts = key.split(':')
+    if (parts.length < 3) continue
+    const [cid, date, tid] = parts
+    if (cid !== String(checklistId) || date !== dateStr || tid !== String(taskId)) continue
+    if (!entry.startedAt) continue
+
+    const existingStart = minutesFromMidnight(entry.startedAt)
+    const existingEnd = existingStart + entry.actualSeconds / 60
+
+    // Check if ranges overlap: new range [newStart, newEnd) overlaps with [existingStart, existingEnd)
+    if (newStart < existingEnd && newEnd > existingStart) {
+      return true
+    }
+  }
+
+  return false
+}
+
 /**
  * Single source-of-truth session summary used by Execute tab, Log tab, and the popup overlay.
  *
@@ -147,8 +190,19 @@ export const useExecuteLog = create<ExecuteLogStore>()(
         set((s) => {
           const entry = s.entries[key]
           if (!entry || !entry.startedAt) return s
+
+          const parts = key.split(':')
+          if (parts.length < 3) return s
+          const [checklistId, dateStr, taskId] = parts
+
+          // Check for overlaps with other sessions for the same task
+          if (hasTimeOverlap(s.entries, Number(checklistId), Number(taskId), dateStr, startMin, durationMin, key)) {
+            console.warn('[useExecuteLog] Cannot update: overlapping time range with another session for this task')
+            return s
+          }
+
           // Reconstruct startedAt using the date from the key (format: checklistId:yyyy-MM-dd:taskId)
-          const datePart = key.split(':')[1] ?? entry.startedAt.slice(0, 10)
+          const datePart = dateStr ?? entry.startedAt.slice(0, 10)
           const h = Math.floor(startMin / 60) % 24
           const m = Math.round(startMin % 60)
           const newStartedAt = `${datePart}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00.000Z`
