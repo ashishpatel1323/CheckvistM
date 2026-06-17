@@ -22,6 +22,8 @@ export interface CheckinLog {
   routineTaskId: number
   date: string  // YYYY-MM-DD
   completedStepIds: string[]
+  /** Step ids explicitly marked as failed for this date (date-specific, not permanent on the step) */
+  failedStepIds?: string[]
   durationSec: number
   /** stepId → HH:MM (24h) — wall-clock time when that individual step was marked done */
   stepCompletionTimes?: Record<string, string>

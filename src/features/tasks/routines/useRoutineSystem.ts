@@ -71,7 +71,10 @@ export function encodeCheckin(routineName: string, log: Omit<CheckinLog, 'system
   const stimesPart = stimes && Object.keys(stimes).length > 0
     ? ` stimes=${Object.entries(stimes).map(([id, t]) => `${id}@${t}`).join(',')}`
     : ''
-  return `${ROUTINE_LOG_PREFIX} ${routineName} | ${log.date} | steps=${log.completedStepIds.join(',')} dur=${log.durationSec}${stimesPart}`
+  const failedPart = log.failedStepIds && log.failedStepIds.length > 0
+    ? ` failed=${log.failedStepIds.join(',')}`
+    : ''
+  return `${ROUTINE_LOG_PREFIX} ${routineName} | ${log.date} | steps=${log.completedStepIds.join(',')} dur=${log.durationSec}${stimesPart}${failedPart}`
 }
 
 export function decodeCheckin(content: string, systemTaskId: number, parentId: number): CheckinLog | null {
@@ -81,10 +84,12 @@ export function decodeCheckin(content: string, systemTaskId: number, parentId: n
     const stepsM = content.match(/steps=([^\s|]*)/)
     const durM = content.match(/dur=(\d+)/)
     const stimesM = content.match(/stimes=(\S+)/)
+    const failedM = content.match(/failed=(\S+)/)
 
     if (!dateM) return null
 
     const completedStepIds = stepsM?.[1] ? stepsM[1].split(',').filter(Boolean) : []
+    const failedStepIds = failedM?.[1] ? failedM[1].split(',').filter(Boolean) : []
 
     const stepCompletionTimes: Record<string, string> = {}
     if (stimesM?.[1]) {
@@ -102,6 +107,7 @@ export function decodeCheckin(content: string, systemTaskId: number, parentId: n
       routineTaskId: parentId,
       date: dateM[1],
       completedStepIds,
+      failedStepIds: failedStepIds.length > 0 ? failedStepIds : undefined,
       durationSec: Number(durM?.[1] ?? 0),
       stepCompletionTimes: Object.keys(stepCompletionTimes).length > 0 ? stepCompletionTimes : undefined,
       systemTaskId,

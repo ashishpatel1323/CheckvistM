@@ -45,7 +45,7 @@ export function calculateTabBadges(
       const pending = routine.steps.filter(
         (s) =>
           !checkin.completedStepIds?.includes(s.id) &&
-          !checkin.skippedStepIds?.includes(s.id)
+          !checkin.failedStepIds?.includes(s.id)
       ).length
       pendingStepsCount += pending
     }

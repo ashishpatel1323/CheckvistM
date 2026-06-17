@@ -36,14 +36,16 @@ export function buildWidgetPayload(
   const dayOfWeek = new Date().getDay() // 0 = Sun … 6 = Sat
 
   const routinePayloads = routines.map((routine) => {
-    const completedIds = checkins[routine.taskId]?.find((c) => c.date === today)?.completedStepIds ?? []
+    const todayCheckin = checkins[routine.taskId]?.find((c) => c.date === today)
+    const completedIds = todayCheckin?.completedStepIds ?? []
+    const failedIds = todayCheckin?.failedStepIds ?? []
 
     // Only count steps scheduled for today (empty scheduledDays = every day)
     const todaySteps = routine.steps.filter(
       (s) => s.scheduledDays.length === 0 || s.scheduledDays.includes(dayOfWeek),
     )
     const pendingSteps = todaySteps
-      .filter((s) => !completedIds.includes(s.id))
+      .filter((s) => !completedIds.includes(s.id) && !failedIds.includes(s.id))
       .map((s) => ({ id: s.id, name: s.name, emoji: s.emoji }))
 
     return {

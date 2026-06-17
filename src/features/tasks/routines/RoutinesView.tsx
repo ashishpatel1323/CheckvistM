@@ -3,7 +3,7 @@ import {
   View, Text, Pressable, ScrollView, useWindowDimensions,
   ActivityIndicator, Modal, TextInput,
 } from 'react-native'
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon, Play, Flame, Zap, Clock, CalendarDays } from 'lucide-react-native'
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon, Play, Flame, Zap, Clock, CalendarDays, X as XIcon } from 'lucide-react-native'
 import { format, addDays, subDays, isToday, isFuture, startOfMonth, endOfMonth, eachDayOfInterval, getDay, getDaysInMonth } from 'date-fns'
 import { useRoutineStore } from './useRoutineStore'
 import { useRoutineSystem } from './useRoutineSystem'
@@ -226,7 +226,7 @@ function DayColHeader({ date, completionFraction, doneCount, totalCount, colWidt
 
 interface HabitCircleProps {
   done: boolean
-  scheduled: boolean
+  failed: boolean
   future: boolean
   selected: boolean
   accentColor: string
@@ -235,8 +235,7 @@ interface HabitCircleProps {
   rank?: number
 }
 
-function HabitCircle({ done, scheduled, future, selected, accentColor, onPress, size, rank }: HabitCircleProps) {
-  const inactiveBorder = scheduled ? FAILURE_RED : '#E5E7EB'
+function HabitCircle({ done, failed, future, selected, accentColor, onPress, size, rank }: HabitCircleProps) {
   const selectedBg = selected ? '#EEF2FF' : 'transparent'
   const badgeSize = Math.max(12, Math.round(size * 0.4))
 
@@ -245,15 +244,15 @@ function HabitCircle({ done, scheduled, future, selected, accentColor, onPress, 
       onPress={future ? undefined : onPress}
       style={{
         width: size, height: size, borderRadius: size / 2,
-        backgroundColor: done ? accentColor : selectedBg,
+        backgroundColor: done ? accentColor : failed ? FAILURE_RED : selectedBg,
         borderWidth: 2,
-        borderColor: done ? accentColor : future ? '#E5E7EB' : inactiveBorder,
+        borderColor: done ? accentColor : failed ? FAILURE_RED : '#E5E7EB',
         alignItems: 'center', justifyContent: 'center',
         opacity: future ? 0.5 : 1,
       }}
     >
       {done && <Text style={{ color: '#fff', fontSize: size * 0.45, fontWeight: '700' }}>✓</Text>}
-      {!done && !future && scheduled && <Text style={{ color: FAILURE_RED, fontSize: size * 0.5, fontWeight: '700' }}>✕</Text>}
+      {!done && failed && <Text style={{ color: '#fff', fontSize: size * 0.45, fontWeight: '700' }}>✕</Text>}
       {done && rank === 1 && (
         <View style={{
           position: 'absolute',
@@ -297,13 +296,15 @@ interface HabitRowProps {
   circleSize: number
   onToggle: (stepId: string, date: string) => void
   checkinsByDate: Record<string, string[]> // date → completedStepIds
+  failedByDate: Record<string, string[]> // date → failedStepIds
   completionTimeByDate: Record<string, string> // date → HH:MM
   onSelect?: () => void
   isSelected?: boolean
   onStartStep?: () => void
+  onMarkFailed?: (stepId: string) => void
 }
 
-function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleSize, onToggle, checkinsByDate, completionTimeByDate, onSelect, isSelected, onStartStep }: HabitRowProps) {
+function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleSize, onToggle, checkinsByDate, failedByDate, completionTimeByDate, onSelect, isSelected, onStartStep, onMarkFailed }: HabitRowProps) {
   const accentColor = ROUTINE_COLORS[routine.color]
   const updateCheckinTime = useRoutineStore((s) => s.updateCheckinTime)
   const [editingDate, setEditingDate] = useState<string | null>(null)
@@ -313,6 +314,13 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [step.id, step.scheduledDays, JSON.stringify(checkinsByDate)],
   )
+
+  const selectedDs = format(selectedDate, 'yyyy-MM-dd')
+  const selectedScheduled = step.scheduledDays.length === 0 || step.scheduledDays.includes(selectedDate.getDay())
+  const selectedFuture = isFuture(selectedDate) && !isToday(selectedDate)
+  const selectedDone = (checkinsByDate[selectedDs] ?? []).includes(step.id)
+  const selectedFailed = (failedByDate[selectedDs] ?? []).includes(step.id)
+  const canMarkFailed = onMarkFailed && selectedScheduled && !selectedFuture && !selectedDone
 
   return (
     <Pressable
@@ -382,6 +390,22 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
         </Pressable>
       )}
 
+      {/* Mark-as-failed button — toggles failed status for the selected date */}
+      {canMarkFailed && (
+        <Pressable
+          onPress={(e) => { e.stopPropagation(); onMarkFailed!(step.id) }}
+          hitSlop={8}
+          style={{
+            width: 28, height: 28, borderRadius: 14,
+            backgroundColor: selectedFailed ? FAILURE_RED : FAILURE_RED + '18',
+            alignItems: 'center', justifyContent: 'center',
+            marginRight: 6,
+          }}
+        >
+          <XIcon size={13} color={selectedFailed ? '#fff' : FAILURE_RED} />
+        </Pressable>
+      )}
+
       {editingDate && (
         <TimeEditModal
           visible={!!editingDate}
@@ -398,9 +422,8 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
       <View style={{ flexDirection: 'row', gap: 0 }}>
         {visibleDates.map((date) => {
           const ds = format(date, 'yyyy-MM-dd')
-          const dow = date.getDay()
-          const isScheduled = step.scheduledDays.length === 0 || step.scheduledDays.includes(dow)
           const isDone = (checkinsByDate[ds] ?? []).includes(step.id)
+          const isFailed = (failedByDate[ds] ?? []).includes(step.id)
           const future = isFuture(date) && !isToday(date)
           const isSelected = ds === format(selectedDate, 'yyyy-MM-dd')
           const thisTime = completionTimeByDate[ds]
@@ -427,7 +450,7 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
             >
               <HabitCircle
                 done={isDone}
-                scheduled={isScheduled}
+                failed={isFailed}
                 future={future}
                 selected={isSelected}
                 accentColor={accentColor}
@@ -470,35 +493,40 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
 
 // ─── RoutineGroup ─────────────────────────────────────────────────────────────
 
+type RoutineFilterMode = 'all' | 'pending' | 'failed'
+
 interface RoutineGroupProps {
   routine: RoutineDef
   visibleDates: Date[]
   selectedDate: Date
-  showOnlyPending: boolean
+  filterMode: RoutineFilterMode
   colWidth: number
   circleSize: number
   onToggle: (stepId: string, date: string) => void
-  checkins: { date: string; completedStepIds: string[]; stepCompletionTimes?: Record<string, string> }[]
+  checkins: { date: string; completedStepIds: string[]; failedStepIds?: string[]; stepCompletionTimes?: Record<string, string> }[]
   onEdit: () => void
   onDelete: () => void
   selectedStepId?: string
   onSelectStep?: (stepId: string) => void
   onStartRoutine?: () => void
   onStartStep?: (stepId: string) => void
+  onMarkFailed?: (stepId: string) => void
 }
 
 function RoutineGroup({
-  routine, visibleDates, selectedDate, showOnlyPending, colWidth, circleSize,
-  onToggle, checkins, onEdit, onDelete, selectedStepId, onSelectStep, onStartRoutine, onStartStep,
+  routine, visibleDates, selectedDate, filterMode, colWidth, circleSize,
+  onToggle, checkins, onEdit, onDelete, selectedStepId, onSelectStep, onStartRoutine, onStartStep, onMarkFailed,
 }: RoutineGroupProps) {
   const [collapsed, setCollapsed] = useState(false)
   const accentColor = ROUTINE_COLORS[routine.color]
 
-  // Build date → completedStepIds and stepId → (date → HH:MM) maps
+  // Build date → completedStepIds, date → failedStepIds, and stepId → (date → HH:MM) maps
   const checkinsByDate: Record<string, string[]> = {}
+  const failedByDate: Record<string, string[]> = {}
   const stepTimesByStep: Record<string, Record<string, string>> = {}  // stepId → date → HH:MM
   for (const c of checkins) {
     checkinsByDate[c.date] = c.completedStepIds
+    failedByDate[c.date] = c.failedStepIds ?? []
     if (c.stepCompletionTimes) {
       for (const [stepId, time] of Object.entries(c.stepCompletionTimes)) {
         if (!stepTimesByStep[stepId]) stepTimesByStep[stepId] = {}
@@ -509,14 +537,14 @@ function RoutineGroup({
 
   const selectedDs = format(selectedDate, 'yyyy-MM-dd')
   const selectedDow = selectedDate.getDay()
-  const filteredSteps = showOnlyPending
-    ? routine.steps.filter((step) => {
-      const isScheduled = step.scheduledDays.length === 0 || step.scheduledDays.includes(selectedDow)
-      if (!isScheduled) return false
-      const isDone = (checkinsByDate[selectedDs] ?? []).includes(step.id)
-      return !isDone
-    })
-    : routine.steps
+  const filteredSteps = routine.steps.filter((step) => {
+    if (filterMode === 'all') return true
+    const isScheduled = step.scheduledDays.length === 0 || step.scheduledDays.includes(selectedDow)
+    if (!isScheduled) return false
+    const isDone = (checkinsByDate[selectedDs] ?? []).includes(step.id)
+    const isFailed = (failedByDate[selectedDs] ?? []).includes(step.id)
+    return filterMode === 'pending' ? !isDone && !isFailed : isFailed
+  })
 
   if (filteredSteps.length === 0) return null
 
@@ -577,10 +605,12 @@ function RoutineGroup({
           circleSize={circleSize}
           onToggle={onToggle}
           checkinsByDate={checkinsByDate}
+          failedByDate={failedByDate}
           completionTimeByDate={stepTimesByStep[step.id] ?? {}}
           onSelect={onSelectStep ? () => onSelectStep(step.id) : undefined}
           isSelected={selectedStepId === step.id}
           onStartStep={onStartStep ? () => onStartStep(step.id) : undefined}
+          onMarkFailed={onMarkFailed ? () => onMarkFailed(step.id) : undefined}
         />
       ))}
     </View>
@@ -817,24 +847,25 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   const { width } = useWindowDimensions()
   const isMobile = width < 768
 
-  const { routines, checkins, loading, activeTimer, loadRoutines, toggleStep, startQueue, startTimer, getTodayCheckin } = useRoutineStore()
+  const { routines, checkins, loading, activeTimer, loadRoutines, toggleStep, markStepFailed, startQueue, startTimer, getTodayCheckin } = useRoutineStore()
   const { saveRoutineDef, deleteRoutineDef } = useRoutineSystem()
 
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day')
-  const [showOnlyPending, setShowOnlyPending] = useState(true)
+  const [filterMode, setFilterMode] = useState<RoutineFilterMode>('pending')
   const [editingRoutine, setEditingRoutine] = useState<RoutineDef | 'new' | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
   const [selectedHabit, setSelectedHabit] = useState<{ routineTaskId: number; stepId: string } | null>(null)
 
-  // Compute pending step counts for today per routine
+  // Compute pending step counts for today per routine (excludes done and failed)
   const todayPending = useMemo(() => {
     const result: Record<number, number> = {}
     const todayDow = new Date().getDay()
     for (const r of routines) {
       const checkin = getTodayCheckin(r.taskId)
       const completed = checkin?.completedStepIds ?? []
-      result[r.taskId] = getPendingRoutineStepIds(r, completed, todayDow).length
+      const failed = checkin?.failedStepIds ?? []
+      result[r.taskId] = getPendingRoutineStepIds(r, completed, todayDow, failed).length
     }
     return result
   }, [routines, checkins, getTodayCheckin])
@@ -878,12 +909,35 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
     })
   }, [weekDates, routines, checkins])
 
-  const selectedDayStat = dayStats[dayStats.length - 1] ?? { done: 0, total: 0, completionFraction: 0 }
+  // Stats for whichever date is currently selected (done / failed / pending / total)
+  const selectedDayStat = useMemo(() => {
+    const ds = format(selectedDate, 'yyyy-MM-dd')
+    const dow = selectedDate.getDay()
+    let total = 0
+    let done = 0
+    let failed = 0
+    for (const r of routines) {
+      const log = (checkins[r.taskId] ?? []).find((c) => c.date === ds)
+      for (const step of r.steps) {
+        const isScheduled = step.scheduledDays.length === 0 || step.scheduledDays.includes(dow)
+        if (!isScheduled) continue
+        total++
+        if (log?.completedStepIds.includes(step.id)) done++
+        else if (log?.failedStepIds?.includes(step.id)) failed++
+      }
+    }
+    return { done, failed, pending: total - done - failed, total, completionFraction: total === 0 ? 0 : done / total }
+  }, [selectedDate, routines, checkins])
+
   const visibleDates = viewMode === 'week' ? weekDates : [selectedDate]
 
   const handleToggle = useCallback(async (routine: RoutineDef, stepId: string, date: string) => {
     await toggleStep(routine, stepId, date)
   }, [toggleStep])
+
+  const handleMarkFailed = useCallback(async (routine: RoutineDef, stepId: string, date: string) => {
+    await markStepFailed(routine, stepId, date)
+  }, [markStepFailed])
 
   const handleSave = async (def: Omit<RoutineDef, 'taskId'>) => {
     const existingId = editingRoutine !== 'new' ? editingRoutine?.taskId : undefined
@@ -998,32 +1052,29 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
               padding: 3,
               gap: 4,
             }}>
-              <Pressable
-                onPress={() => setShowOnlyPending(false)}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 7,
-                  borderRadius: 9,
-                  backgroundColor: !showOnlyPending ? '#fff' : 'transparent',
-                }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: !showOnlyPending ? '#111827' : '#6B7280' }}>
-                  Show All
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setShowOnlyPending(true)}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 7,
-                  borderRadius: 9,
-                  backgroundColor: showOnlyPending ? '#fff' : 'transparent',
-                }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: showOnlyPending ? '#111827' : '#6B7280' }}>
-                  Only Pending
-                </Text>
-              </Pressable>
+              {([
+                { mode: 'all', label: 'Show All' },
+                { mode: 'pending', label: 'Only Pending' },
+                { mode: 'failed', label: 'Failed' },
+              ] as { mode: RoutineFilterMode; label: string }[]).map(({ mode, label }) => (
+                <Pressable
+                  key={mode}
+                  onPress={() => setFilterMode(mode)}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    borderRadius: 9,
+                    backgroundColor: filterMode === mode ? '#fff' : 'transparent',
+                  }}
+                >
+                  <Text style={{
+                    fontSize: 12, fontWeight: '700',
+                    color: filterMode !== mode ? '#6B7280' : mode === 'failed' ? FAILURE_RED : '#111827',
+                  }}>
+                    {label}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
           </View>
         </View>
@@ -1063,9 +1114,16 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
             <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600' }}>
               Items for {isToday(selectedDate) ? 'Today' : format(selectedDate, 'EEE, MMM d')}
             </Text>
-            <Text style={{ fontSize: 12, color: '#111827', fontWeight: '700' }}>
-              {selectedDayStat.done}/{selectedDayStat.total}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {selectedDayStat.failed > 0 && (
+                <Text style={{ fontSize: 12, color: FAILURE_RED, fontWeight: '700' }}>
+                  ✕ {selectedDayStat.failed}
+                </Text>
+              )}
+              <Text style={{ fontSize: 12, color: '#111827', fontWeight: '700' }}>
+                {selectedDayStat.done}/{selectedDayStat.total}
+              </Text>
+            </View>
           </View>
         )}
       </View>
@@ -1098,7 +1156,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
                 routine={routine}
                 visibleDates={visibleDates}
                 selectedDate={selectedDate}
-                showOnlyPending={showOnlyPending}
+                filterMode={filterMode}
                 colWidth={COL}
                 circleSize={CIRCLE}
                 checkins={checkins[routine.taskId] ?? []}
@@ -1112,6 +1170,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
                   const step = routine.steps.find((s) => s.id === stepId)
                   if (step) startTimer({ ...routine, steps: [step] })
                 } : undefined}
+                onMarkFailed={(stepId) => handleMarkFailed(routine, stepId, format(selectedDate, 'yyyy-MM-dd'))}
               />
             ))}
           </ScrollView>
