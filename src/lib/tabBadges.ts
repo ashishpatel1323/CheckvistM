@@ -11,7 +11,7 @@ export interface TabBadges {
 
 /**
  * Calculate badge counts for each tab
- * - date: overdue tasks count
+ * - date: tasks due today count
  * - execute: tasks logged today
  * - routines: pending steps across all routines
  * - log: sessions recorded today
@@ -23,11 +23,11 @@ export function calculateTabBadges(
   getTodayCheckin: (routineTaskId: number) => CheckinLog | undefined,
   sessionCount: number,
 ): TabBadges {
-  // Overdue tasks
-  const overdueCount = tasks.filter((t) => {
+  // Tasks due today
+  const todayCount = tasks.filter((t) => {
     if (!t.due || t.status !== 0) return false
     const dueDate = parseISO(t.due.replace(/\//g, '-'))
-    return isPast(dueDate) && !isToday(dueDate)
+    return isToday(dueDate)
   }).length
 
   // Execute: tasks with logged time today (count as "in progress")
@@ -56,7 +56,7 @@ export function calculateTabBadges(
   const logCount = sessionCount > 0 ? 1 : 0
 
   return {
-    date: overdueCount,
+    date: todayCount,
     execute: executeCount,
     routines: pendingStepsCount,
     log: logCount,
