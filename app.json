@@ -66,14 +66,6 @@
           "sounds": []
         }
       ],
-      [
-        "@sentry/react-native/expo",
-        {
-          "url": "https://sentry.io/",
-          "project": "checkvist-app",
-          "organization": "ashishpatel"
-        }
-      ]
     ],
     "experiments": {
       "typedRoutes": false
