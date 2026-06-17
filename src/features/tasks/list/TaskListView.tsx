@@ -1035,10 +1035,14 @@ const { view, setView, focusedTaskId } = useTaskView()
         {/* Web: show tabs inline in header */}
         {!isMobile && TABS.map(({ key, icon: Icon, label, shortcut }) => {
           const active = view === key
+          const badgeCount = tabBadges[key as keyof typeof tabBadges] ?? 0
           return (
             <Pressable
               key={key}
-              onPress={() => guardedSetView(key)}
+              onPress={async () => {
+                await hapticSelection()
+                guardedSetView(key)
+              }}
               hitSlop={6}
               style={{
                 flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -1047,7 +1051,10 @@ const { view, setView, focusedTaskId } = useTaskView()
                 position: 'relative',
               }}
             >
-              <Icon size={16} color={active ? BLUE : '#666'} style={{ opacity: active ? 1 : 0.7 }} />
+              <View style={{ position: 'relative' }}>
+                <Icon size={16} color={active ? BLUE : '#666'} style={{ opacity: active ? 1 : 0.7 }} />
+                <TabBadge count={badgeCount} color={key === 'date' ? '#EF4444' : key === 'routines' ? '#F59E0B' : '#6366F1'} />
+              </View>
               {showTabLabels && (
                 <Text className="text-xs font-medium" style={{ color: active ? BLUE : '#666', opacity: active ? 1 : 0.8 }}>
                   {label}
