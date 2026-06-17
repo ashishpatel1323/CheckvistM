@@ -215,7 +215,10 @@ function SessionsStatBadge() {
   const timerRunningKey = useExecuteLog((s) => s.timerRunningKey)
   const timerStartedAt = useExecuteLog((s) => s.timerStartedAt)
   const remoteSessions = useSystemLog((s) => s.remoteSessions)
+  const fetchTodaySessions = useSystemLog((s) => s.fetchTodaySessions)
   const todayStr = format(new Date(), 'yyyy-MM-dd')
+
+  useEffect(() => { fetchTodaySessions() }, [fetchTodaySessions])
 
   const { sessionCount, sessionTotalSeconds } = useMemo(() => {
     return summarizeDaySessions(todayStr, entries, remoteSessions, timerRunningKey, timerStartedAt)
