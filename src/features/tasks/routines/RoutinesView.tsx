@@ -10,8 +10,8 @@ import { useRoutineSystem } from './useRoutineSystem'
 import { RoutineDetailView } from './RoutineDetailView'
 import { RoutineEditSheet } from './RoutineEditSheet'
 import { ROUTINE_COLORS } from './routineTypes'
-import type { RoutineDef, RoutineStep } from './routineTypes'
-import { getPendingRoutineStepIds } from './routineSchedule'
+import type { RoutineDef, RoutineStep, HabitStatus } from './routineTypes'
+import { getPendingRoutineStepIds, getStepStatus } from './routineSchedule'
 
 const BLUE = '#4772FA'
 const FAILURE_RED = '#DC2626'
@@ -224,36 +224,70 @@ function DayColHeader({ date, completionFraction, doneCount, totalCount, colWidt
 
 // ─── HabitCircle ─────────────────────────────────────────────────────────────
 
+import type { HabitStatus } from './routineTypes'
+
 interface HabitCircleProps {
-  done: boolean
-  failed: boolean
-  future: boolean
+  status: HabitStatus
   selected: boolean
   accentColor: string
-  onPress: () => void
+  onTap: () => void
+  onLongPress?: () => void
   size: number
   rank?: number
 }
 
-function HabitCircle({ done, failed, future, selected, accentColor, onPress, size, rank }: HabitCircleProps) {
-  const selectedBg = selected ? '#EEF2FF' : 'transparent'
+function HabitCircle({ status, selected, accentColor, onTap, onLongPress, size, rank }: HabitCircleProps) {
+  const isDisabled = status === 'not_applicable'
+  const selectedBg = selected && !isDisabled ? '#EEF2FF' : 'transparent'
   const badgeSize = Math.max(12, Math.round(size * 0.4))
+
+  const bgColor = (() => {
+    if (status === 'done') return accentColor
+    if (status === 'failed') return FAILURE_RED
+    if (status === 'not_applicable') return '#D1D5DB'
+    return selectedBg
+  })()
+
+  const borderColor = (() => {
+    if (status === 'done') return accentColor
+    if (status === 'failed') return FAILURE_RED
+    if (status === 'not_applicable') return '#D1D5DB'
+    return '#E5E7EB'
+  })()
+
+  const icon = (() => {
+    if (status === 'done') return '✓'
+    if (status === 'failed') return '✕'
+    if (status === 'not_applicable') return 'NA'
+    return null
+  })()
 
   return (
     <Pressable
-      onPress={future ? undefined : onPress}
+      onPress={isDisabled ? undefined : onTap}
+      onLongPress={isDisabled ? undefined : onLongPress}
+      delayLongPress={500}
       style={{
         width: size, height: size, borderRadius: size / 2,
-        backgroundColor: done ? accentColor : failed ? FAILURE_RED : selectedBg,
+        backgroundColor: bgColor,
         borderWidth: 2,
-        borderColor: done ? accentColor : failed ? FAILURE_RED : '#E5E7EB',
+        borderColor,
         alignItems: 'center', justifyContent: 'center',
-        opacity: future ? 0.5 : 1,
+        opacity: isDisabled ? 0.5 : 1,
       }}
     >
-      {done && <Text style={{ color: '#fff', fontSize: size * 0.45, fontWeight: '700' }}>✓</Text>}
-      {!done && failed && <Text style={{ color: '#fff', fontSize: size * 0.45, fontWeight: '700' }}>✕</Text>}
-      {done && rank === 1 && (
+      {icon && (
+        <Text
+          style={{
+            color: status === 'not_applicable' ? '#6B7280' : '#fff',
+            fontSize: status === 'not_applicable' ? size * 0.35 : size * 0.45,
+            fontWeight: '700',
+          }}
+        >
+          {icon}
+        </Text>
+      )}
+      {status === 'done' && rank === 1 && (
         <View style={{
           position: 'absolute',
           top: -size * 0.35,
@@ -262,7 +296,7 @@ function HabitCircle({ done, failed, future, selected, accentColor, onPress, siz
           <Text style={{ fontSize: size * 0.65 }}>⭐</Text>
         </View>
       )}
-      {done && rank != null && rank > 1 && (
+      {status === 'done' && rank != null && rank > 1 && (
         <View style={{
           position: 'absolute',
           top: -badgeSize * 0.4,
@@ -390,22 +424,6 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
         </Pressable>
       )}
 
-      {/* Mark-as-failed button — toggles failed status for the selected date */}
-      {canMarkFailed && (
-        <Pressable
-          onPress={(e) => { e.stopPropagation(); onMarkFailed!(step.id) }}
-          hitSlop={8}
-          style={{
-            width: 28, height: 28, borderRadius: 14,
-            backgroundColor: selectedFailed ? FAILURE_RED : FAILURE_RED + '18',
-            alignItems: 'center', justifyContent: 'center',
-            marginRight: 6,
-          }}
-        >
-          <XIcon size={13} color={selectedFailed ? '#fff' : FAILURE_RED} />
-        </Pressable>
-      )}
-
       {editingDate && (
         <TimeEditModal
           visible={!!editingDate}
@@ -424,8 +442,9 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
           const ds = format(date, 'yyyy-MM-dd')
           const isDone = (checkinsByDate[ds] ?? []).includes(step.id)
           const isFailed = (failedByDate[ds] ?? []).includes(step.id)
-          const future = isFuture(date) && !isToday(date)
           const isSelected = ds === format(selectedDate, 'yyyy-MM-dd')
+          const dayOfWeek = date.getDay()
+          const status = getStepStatus(step, dayOfWeek, isDone, isFailed)
           const thisTime = completionTimeByDate[ds]
           const rank = isDone && thisTime
             ? computeTimeRank(
@@ -437,6 +456,19 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
                   .map(([, t]) => t),
               )
             : undefined
+
+          const handleTap = () => {
+            if (status === 'pending' || status === 'failed') {
+              onToggle(step.id, ds)
+            }
+          }
+
+          const handleLongPress = () => {
+            if (status === 'pending' || status === 'done') {
+              onMarkFailed?.(step.id)
+            }
+          }
+
           return (
             <View
               key={ds}
@@ -449,12 +481,11 @@ function HabitRow({ step, routine, visibleDates, selectedDate, colWidth, circleS
               }}
             >
               <HabitCircle
-                done={isDone}
-                failed={isFailed}
-                future={future}
+                status={status}
                 selected={isSelected}
                 accentColor={accentColor}
-                onPress={() => onToggle(step.id, ds)}
+                onTap={handleTap}
+                onLongPress={handleLongPress}
                 size={circleSize}
                 rank={rank}
               />
@@ -538,12 +569,14 @@ function RoutineGroup({
   const selectedDs = format(selectedDate, 'yyyy-MM-dd')
   const selectedDow = selectedDate.getDay()
   const filteredSteps = routine.steps.filter((step) => {
-    if (filterMode === 'all') return true
-    const isScheduled = step.scheduledDays.length === 0 || step.scheduledDays.includes(selectedDow)
-    if (!isScheduled) return false
     const isDone = (checkinsByDate[selectedDs] ?? []).includes(step.id)
     const isFailed = (failedByDate[selectedDs] ?? []).includes(step.id)
-    return filterMode === 'pending' ? !isDone && !isFailed : isFailed
+    const status = getStepStatus(step, selectedDow, isDone, isFailed)
+
+    if (filterMode === 'all') return true
+    if (filterMode === 'pending') return status === 'pending'
+    if (filterMode === 'failed') return status === 'failed'
+    return false
   })
 
   if (filteredSteps.length === 0) return null

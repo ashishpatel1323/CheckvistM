@@ -18,6 +18,8 @@ export interface RoutineDef {
   steps: RoutineStep[]
 }
 
+export type HabitStatus = 'pending' | 'done' | 'failed' | 'not_applicable'
+
 export interface CheckinLog {
   routineTaskId: number
   date: string  // YYYY-MM-DD
@@ -28,6 +30,12 @@ export interface CheckinLog {
   /** stepId → HH:MM (24h) — wall-clock time when that individual step was marked done */
   stepCompletionTimes?: Record<string, string>
   systemTaskId?: number
+}
+
+export interface StepStatus {
+  stepId: string
+  status: HabitStatus
+  date: string
 }
 
 export const ROUTINE_COLORS: Record<RoutineColor, string> = {
