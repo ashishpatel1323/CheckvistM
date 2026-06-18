@@ -1224,7 +1224,7 @@ const { view, setView, focusedTaskId } = useTaskView()
             <ScrollView
               className="flex-1"
               style={{ paddingBottom: isMobile ? tabBarH : 0 }}
-              scrollEnabled={false}
+              scrollEnabled={true}
               refreshControl={isMobile ? (
                 <RefreshControl
                   refreshing={isFetching}
