@@ -74,6 +74,7 @@ export async function run(): Promise<void> {
 
   running = true
   useSyncState.getState().markSyncStarted()
+  useSyncState.getState().setSyncing(1)
   let anyFailed = false
 
   try {
@@ -91,9 +92,6 @@ export async function run(): Promise<void> {
         await incrementRetry(item.id)
         continue
       }
-
-      useSyncState.getState().setSyncing(1)
-      refreshCounts()
 
       try {
         await handler(item)
