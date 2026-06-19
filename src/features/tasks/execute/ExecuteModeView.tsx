@@ -31,8 +31,6 @@ import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
 import { InlineMarkdown, stripMarkdown } from '@/components/InlineMarkdown'
-import { useTTSBroadcast, speak as ttsSpeak, useTTSStore, fmtElapsedForSpeech } from '@/features/tasks/shared/useTTS'
-import { MuteButton } from '@/features/tasks/shared/MuteButton'
 import { BottomSheet } from '@/components/BottomSheet'
 import { isToday, isPast, format, addDays } from 'date-fns'
 
@@ -557,29 +555,12 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
     })
   }
 
-  const { muted: ttsMuted, sayElapsedTime } = useTTSStore()
-  const currentTaskRef = useRef(currentTask)
-  useEffect(() => { currentTaskRef.current = currentTask }, [currentTask])
-  const currentSecondsRef = useRef(currentSeconds)
-  useEffect(() => { currentSecondsRef.current = currentSeconds }, [currentSeconds])
-
   const togglePlay = () => {
     if (!currentKey) return
     if (isRunning) {
       pause()
     } else {
       play(currentKey)
-      // Chrome requires speech synthesis to be called within a user gesture.
-      // Calling speak() here (synchronously in the click handler) unlocks it
-      // for all subsequent interval-based announcements.
-      if (!ttsMuted && currentTaskRef.current && Platform.OS === 'web') {
-        const name = stripMarkdown(currentTaskRef.current.content)
-        const elapsed = currentSecondsRef.current
-        const text = sayElapsedTime && elapsed != null
-          ? `${name}. ${fmtElapsedForSpeech(elapsed)}`
-          : name
-        ttsSpeak(text)
-      }
     }
   }
   const playTask = (index: number) => {
@@ -658,9 +639,6 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
     currentIndex,
     togglePlay, adjust, setEstimateDirect, complete, resetCurrent, prevTask, nextTask, updateTask, checklistId,
   } = useExecCtx()
-
-  // Broadcast active task name and elapsed time to TTS system
-  useTTSBroadcast(isRunning && currentTask ? stripMarkdown(currentTask.content) : null, isRunning ? currentSeconds : null)
 
   const [editingEstimate, setEditingEstimate] = useState(false)
   const [estimateDraft, setEstimateDraft] = useState('')
@@ -1479,7 +1457,6 @@ export function ExecuteViewContent({ onClose, onSwitchToLog }: { onClose: () => 
     confirmSwitch, cancelSwitch, completedStreak, pendingSwitch,
   } = useExecCtx()
   const remoteSessions = useSystemLog((s) => s.remoteSessions)
-  useTTSBroadcast(isRunning && currentTask ? stripMarkdown(currentTask.content) : null, isRunning ? currentSeconds : null)
 
   const { width } = useWindowDimensions()
   const isMobile = width < 768
@@ -1782,7 +1759,6 @@ export function ExecuteViewContent({ onClose, onSwitchToLog }: { onClose: () => 
                 {isRunning ? <Pause size={15} color="white" /> : <Play size={15} color="white" />}
               </Pressable>
               <Pressable hitSlop={8} onPress={() => adjust(ESTIMATE_STEP)}><Plus size={18} color="#9CA3AF" /></Pressable>
-              <MuteButton />
             </View>
           </View>
 

@@ -33,7 +33,6 @@ import { TimerModeView, MiniTimerBar } from '@/features/tasks/routines/TimerMode
 import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
-import { MuteButton } from '@/features/tasks/shared/MuteButton'
 import { TabBadge } from '@/components/TabBadge'
 import { SyncButton } from '@/components/SyncButton'
 import { hapticSelection, hapticSuccess } from '@/lib/haptics'
@@ -1087,9 +1086,6 @@ const { view, setView, focusedTaskId } = useTaskView()
             <Plus size={20} color={showFabInput ? BLUE : '#666'} />
           </Pressable>
         )}
-
-        {/* TTS mute/unmute */}
-        <MuteButton />
 
         {/* Refresh button */}
         <Pressable hitSlop={8} onPress={() => refetch()} disabled={isFetching} style={{ opacity: isFetching ? 0.4 : 1 }}>

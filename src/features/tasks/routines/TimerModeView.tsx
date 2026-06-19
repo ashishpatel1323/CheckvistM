@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, Modal, Platform, LayoutChangeEvent } from 'react-native'
 import { Pause, Play, SkipForward, SkipBack, Check, X, Plus, ChevronDown } from 'lucide-react-native'
 import { format } from 'date-fns'
 import { useRoutineStore } from './useRoutineStore'
-import { useTTSBroadcast } from '@/features/tasks/shared/useTTS'
 import { ROUTINE_COLORS } from './routineTypes'
 import { playBeep, playLoudBeep } from '@/platform/sound'
 import {
@@ -331,21 +330,6 @@ export function TimerModeView() {
     }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, activeTimer])
-
-  // Compute TTS name before early returns (hooks must not be conditional)
-  const ttsName = useMemo(() => {
-    if (!activeTimer || activeTimer.pausedAt !== null) return null
-    const rt = routines.find((r) => r.taskId === activeTimer.routineTaskId)
-    if (!rt) return null
-    const step = rt.steps.find((s) => s.id === activeTimer.pendingStepIds[activeTimer.stepIndex])
-    return step ? step.name : rt.name
-  }, [activeTimer, routines])
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const ttsElapsed = useMemo(() => {
-    if (!activeTimer || activeTimer.pausedAt !== null) return null
-    return activeTimer.stepElapsedSec + (Date.now() - activeTimer.stepStartedAt) / 1000
-  }, [activeTimer, tick])
-  useTTSBroadcast(ttsName, ttsElapsed)
 
   if (!activeTimer) return null
 
