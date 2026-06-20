@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react'
 import { View, Text, Pressable, ScrollView, Platform, TextInput, Animated, Modal, useWindowDimensions } from 'react-native'
-import { Play, Pause, Minus, Plus, Check, RotateCcw, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft, Maximize2, Network, Clock, Timer, Target, Zap, EyeOff, List, ArrowDown, Sunrise } from 'lucide-react-native'
+import { Play, Pause, Minus, Plus, Check, RotateCcw, CheckCircle2, GripVertical, Calendar, Pencil, X, ChevronLeft, ChevronRight, AlignLeft, Maximize2, Network, Clock, Timer, Target, Zap, EyeOff, List, ArrowDown, Sunrise, Search } from 'lucide-react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import type { CheckvistTask } from '@/api/types'
 import { buildTaskTree } from '@/lib/taskTree'
@@ -20,7 +20,6 @@ import {
 import { priorityTextColor, priorityDisplay, priorityRowBg, PriorityPicker } from '@/features/tasks/shared/PriorityPicker'
 import { useSystemLog, type SyncedSession } from './useSystemLog'
 import { hapticMedium } from '@/platform/haptics'
-import { playBeep } from '@/platform/sound'
 import {
   setupTimerNotifications,
   teardownTimerNotifications,
@@ -31,6 +30,8 @@ import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
 import { InlineMarkdown, stripMarkdown } from '@/components/InlineMarkdown'
+import { FocusReminderButton } from '@/features/tasks/shared/FocusReminderButton'
+import { useFocusReminderControl, useOvertimeBeep } from '@/services/focusReminder'
 import { BottomSheet } from '@/components/BottomSheet'
 import { isToday, isPast, format, addDays } from 'date-fns'
 
@@ -230,21 +231,10 @@ function FullScreenCounterModal({ onClose }: { onClose: () => void }) {
 
   const estimateSeconds = (currentEntry?.estimateMin ?? DEFAULT_ESTIMATE) * 60
   const isOverrun = isRunning && currentSeconds >= estimateSeconds
-  const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Beep every 5s once the running timer overruns its estimate, until extended or stopped
-  useEffect(() => {
-    if (isOverrun) {
-      playBeep()
-      beepIntervalRef.current = setInterval(() => playBeep(), 5000)
-    }
-    return () => {
-      if (beepIntervalRef.current) {
-        clearInterval(beepIntervalRef.current)
-        beepIntervalRef.current = null
-      }
-    }
-  }, [isOverrun])
+  // Continuous overtime beep via the shared engine; stops automatically when extended
+  // (estimate grows → isOverrun false), completed, or the timer stops.
+  useOvertimeBeep(isOverrun)
 
   return (
     <Modal visible animationType="fade" presentationStyle="fullScreen">
@@ -264,8 +254,15 @@ function FullScreenCounterModal({ onClose }: { onClose: () => void }) {
             </Text>
           )}
 
-          {/* Giant flip clock */}
-          <FlipClock totalSeconds={currentSeconds} color={isRunning ? BLUE : '#DC2626'} size="xl" />
+          {/* Giant flip clock — turns red on overtime */}
+          <FlipClock totalSeconds={currentSeconds} color={isOverrun ? '#EF4444' : isRunning ? BLUE : '#DC2626'} size="xl" />
+
+          {/* Overtime badge */}
+          {isOverrun && (
+            <View style={{ backgroundColor: '#FEE2E2', borderRadius: 12, paddingVertical: 3, paddingHorizontal: 10, marginTop: 2 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#DC2626', letterSpacing: 0.5 }}>OVERTIME</Text>
+            </View>
+          )}
 
           {/* Extend control — shown once the running timer overruns its estimate */}
           {isOverrun && (
@@ -505,6 +502,9 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
   const currentTask = orderedTasks[currentIndex]
   const currentKey = currentTask ? entryKey(checklistId, currentTask.id) : null
   const isRunning = timerRunningKey === currentKey && currentKey !== null
+
+  // Focus reminder engine runs while a task timer is active; stays alive across task switches.
+  useFocusReminderControl('execute', isRunning)
 
   const getEntry = (taskId: number): ExecuteLogEntry | undefined =>
     entries[entryKey(checklistId, taskId)]
@@ -1081,26 +1081,34 @@ export function ExecuteTaskList() {
     setCollapsedGroups((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
   }
 
+  // Filter today's tasks by title (case-insensitive substring)
+  const [searchQuery, setSearchQuery] = useState('')
+  const matchesQuery = (t: TaskNode) => {
+    const q = searchQuery.trim().toLowerCase()
+    return q === '' || t.content.toLowerCase().includes(q)
+  }
+
   // Build priority groups preserving flat orderedTasks indices for drag/keyboard
   type PriBucket = 'high' | 'medium' | 'low' | 'tbd'
   const PRI_BUCKETS: PriBucket[] = ['high', 'medium', 'low', 'tbd']
   const priorityGroups = useMemo(() => {
     const buckets: Record<PriBucket, { task: TaskNode; index: number }[]> = { high: [], medium: [], low: [], tbd: [] }
-    orderedTasks.forEach((t, index) => buckets[classifyPriority(t.priority)].push({ task: t, index }))
+    orderedTasks.forEach((t, index) => { if (!matchesQuery(t)) return; buckets[classifyPriority(t.priority)].push({ task: t, index }) })
     return PRI_BUCKETS.filter((b) => buckets[b].length > 0).map((b) => ({ bucket: b, items: buckets[b] }))
-  }, [orderedTasks])
+  }, [orderedTasks, searchQuery])
 
   // Build time groups
   const timeGroups = useMemo(() => {
     const bucketMap = new Map<string, { task: TaskNode; index: number }[]>()
     for (const q of TIME_QUADRANTS) bucketMap.set(q.bucket, [])
     orderedTasks.forEach((t, index) => {
+      if (!matchesQuery(t)) return
       const b = classifyTime(t)
       bucketMap.get(b)?.push({ task: t, index })
     })
     return TIME_QUADRANTS.filter((q) => (bucketMap.get(q.bucket)?.length ?? 0) > 0)
       .map((q) => ({ ...q, items: bucketMap.get(q.bucket)! }))
-  }, [orderedTasks])
+  }, [orderedTasks, searchQuery])
 
   // Shared group header renderer
   function renderGroupHeader(key: string, label: string, sublabel: string, color: string, bg: string, count: number) {
@@ -1138,6 +1146,25 @@ export function ExecuteTaskList() {
       </Pressable>
     )
   }
+
+  // Search/filter strip (filters today's tasks by title)
+  const searchBar = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'white', paddingHorizontal: 14, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' }}>
+      <Search size={14} color="#94A3B8" />
+      <TextInput
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        placeholder="Search today's tasks"
+        placeholderTextColor="#94A3B8"
+        style={{ flex: 1, fontSize: 13, color: '#374151', paddingVertical: 0, ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : null) }}
+      />
+      {searchQuery !== '' && (
+        <Pressable onPress={() => setSearchQuery('')} hitSlop={8} style={{ padding: 2 }}>
+          <X size={14} color="#94A3B8" />
+        </Pressable>
+      )}
+    </View>
+  )
 
   // Group-by toggle strip
   const groupByToggle = (
@@ -1351,6 +1378,13 @@ export function ExecuteTaskList() {
         return <View key={key}>{header}{rows}</View>
       })}
 
+      {searchQuery.trim() !== '' && priorityGroups.length === 0 && (
+        <View style={{ alignItems: 'center', paddingVertical: 32, gap: 6 }}>
+          <Search size={20} color="#CBD5E1" />
+          <Text style={{ fontSize: 13, color: '#94A3B8' }}>No tasks match "{searchQuery.trim()}"</Text>
+        </View>
+      )}
+
       {insertIdx === orderedTasks.length && draggingIdx !== null && draggingIdx !== orderedTasks.length - 1 && (
         <View style={{ height: 2, backgroundColor: BLUE, borderRadius: 1, marginHorizontal: 4, marginTop: 10 }} />
       )}
@@ -1410,6 +1444,7 @@ export function ExecuteTaskList() {
           className="execute-left-panel"
           style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         >
+          {searchBar}
           {groupByToggle}
           {columnMode && columnHeader}
           {listContent}
@@ -1419,7 +1454,7 @@ export function ExecuteTaskList() {
     )
   }
 
-  return <>{groupByToggle}{listContent}{pickers}</>
+  return <>{searchBar}{groupByToggle}{listContent}{pickers}</>
 }
 
 // ─── Full standalone view (mobile / non-split desktop) ───────────────────────
@@ -1759,6 +1794,7 @@ export function ExecuteViewContent({ onClose, onSwitchToLog }: { onClose: () => 
                 {isRunning ? <Pause size={15} color="white" /> : <Play size={15} color="white" />}
               </Pressable>
               <Pressable hitSlop={8} onPress={() => adjust(ESTIMATE_STEP)}><Plus size={18} color="#9CA3AF" /></Pressable>
+              <FocusReminderButton />
             </View>
           </View>
 

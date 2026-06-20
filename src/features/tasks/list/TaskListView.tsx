@@ -34,6 +34,7 @@ import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
 import { TabBadge } from '@/components/TabBadge'
+import { FocusReminderButton } from '@/features/tasks/shared/FocusReminderButton'
 import { SyncButton } from '@/components/SyncButton'
 import { hapticSelection, hapticSuccess } from '@/lib/haptics'
 import { calculateTabBadges } from '@/lib/tabBadges'
@@ -1086,6 +1087,9 @@ const { view, setView, focusedTaskId } = useTaskView()
             <Plus size={20} color={showFabInput ? BLUE : '#666'} />
           </Pressable>
         )}
+
+        {/* Focus reminder settings */}
+        <FocusReminderButton />
 
         {/* Refresh button */}
         <Pressable hitSlop={8} onPress={() => refetch()} disabled={isFetching} style={{ opacity: isFetching ? 0.4 : 1 }}>

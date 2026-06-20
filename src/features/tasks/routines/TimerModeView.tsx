@@ -4,7 +4,8 @@ import { Pause, Play, SkipForward, SkipBack, Check, X, Plus, ChevronDown } from 
 import { format } from 'date-fns'
 import { useRoutineStore } from './useRoutineStore'
 import { ROUTINE_COLORS } from './routineTypes'
-import { playBeep, playLoudBeep } from '@/platform/sound'
+import { FocusReminderButton } from '@/features/tasks/shared/FocusReminderButton'
+import { useFocusReminderControl, useOvertimeBeep } from '@/services/focusReminder'
 import {
   setupTimerNotifications,
   showRoutineTimerNotification,
@@ -53,28 +54,50 @@ function dayPct(min: number) {
 }
 
 /** Decide which dots should show their time label.
- *  Always show first and last; hide intermediate labels that are too close. */
-function computeVisibleLabels(sortedMins: number[], barWidth: number): boolean[] {
+ *  Always show first and last; hide intermediate labels that are too close.
+ *  When the current-time label is shown (`currentMin` provided), it takes priority:
+ *  any historical label that would collide with it is hidden. */
+function computeVisibleLabels(
+  sortedMins: number[],
+  barWidth: number,
+  currentMin: number | null,
+): boolean[] {
   const MIN_PX_GAP = 52
   const n = sortedMins.length
   if (n === 0) return []
-  if (n === 1) return [true]
 
+  const px = (min: number) => dayPct(min) * barWidth
   const visible = new Array(n).fill(false)
-  visible[0] = true
-  visible[n - 1] = true
 
-  let lastShownIdx = 0
-  for (let i = 1; i < n - 1; i++) {
-    const pxDist = (dayPct(sortedMins[i]) - dayPct(sortedMins[lastShownIdx])) * barWidth
-    if (pxDist >= MIN_PX_GAP) {
-      const pxToLast = (dayPct(sortedMins[n - 1]) - dayPct(sortedMins[i])) * barWidth
-      if (pxToLast >= MIN_PX_GAP) {
-        visible[i] = true
-        lastShownIdx = i
+  if (n === 1) {
+    visible[0] = true
+  } else {
+    visible[0] = true
+    visible[n - 1] = true
+
+    let lastShownIdx = 0
+    for (let i = 1; i < n - 1; i++) {
+      const pxDist = px(sortedMins[i]) - px(sortedMins[lastShownIdx])
+      if (pxDist >= MIN_PX_GAP) {
+        const pxToLast = px(sortedMins[n - 1]) - px(sortedMins[i])
+        if (pxToLast >= MIN_PX_GAP) {
+          visible[i] = true
+          lastShownIdx = i
+        }
       }
     }
   }
+
+  // Current-time label is always shown and is the most prominent — drop any
+  // historical label that would sit too close to it (including the endpoints).
+  if (currentMin != null) {
+    for (let i = 0; i < n; i++) {
+      if (visible[i] && Math.abs(px(sortedMins[i]) - px(currentMin)) < MIN_PX_GAP) {
+        visible[i] = false
+      }
+    }
+  }
+
   return visible
 }
 
@@ -88,7 +111,17 @@ function CompletionTimeBar({ times, accentColor }: { times: string[]; accentColo
 
   const sorted = [...times].sort()
   const sortedMins = sorted.map(toMinutes)
-  const visibleLabels = barWidth > 0 ? computeVisibleLabels(sortedMins, barWidth) : []
+  const visibleLabels =
+    barWidth > 0
+      ? computeVisibleLabels(sortedMins, barWidth, currentInWindow ? currentMin : null)
+      : []
+
+  // Rank of "now" among historical completions: how many past completions were
+  // earlier than the current time. If finished now, today's completion would land
+  // at position `currentRank` out of `rankTotal` (history + today).
+  const earlierThanNow = sortedMins.filter((m) => m < currentMin).length
+  const currentRank = earlierThanNow + 1
+  const rankTotal = sortedMins.length + 1
 
   const onLayout = (e: LayoutChangeEvent) => setBarWidth(e.nativeEvent.layout.width)
 
@@ -98,13 +131,26 @@ function CompletionTimeBar({ times, accentColor }: { times: string[]; accentColo
 
   return (
     <View style={{ marginVertical: 8 }}>
-      {/* Summary header — no "last N completions" line */}
+      {/* Summary header — min time, max time, and where "now" ranks */}
       {times.length > 0 && (
-        <Text style={{ fontSize: 11, color: '#9CA3AF', textAlign: 'center', marginBottom: 10 }}>
-          {times.length === 1
-            ? `Usually at ${fmtTime12(sorted[0])}`
-            : `Usually between ${fmtTime12(sorted[0])} and ${fmtTime12(sorted[sorted.length - 1])}`}
-        </Text>
+        <View
+          style={{
+            flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
+            gap: 14, marginBottom: 10,
+          }}
+        >
+          <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
+            Min <Text style={{ fontWeight: '700', color: '#6B7280' }}>{fmtTime12(sorted[0])}</Text>
+          </Text>
+          <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
+            Max <Text style={{ fontWeight: '700', color: '#6B7280' }}>{fmtTime12(sorted[sorted.length - 1])}</Text>
+          </Text>
+          {currentInWindow && (
+            <Text style={{ fontSize: 11, color: '#9CA3AF' }}>
+              Rank <Text style={{ fontWeight: '700', color: accentColor }}>#{currentRank}/{rankTotal}</Text>
+            </Text>
+          )}
+        </View>
       )}
 
       {/* Number labels above dots */}
@@ -271,8 +317,6 @@ export function TimerModeView() {
   } = useRoutineStore()
   const [tick, setTick] = useState(0)
   const [celebrated, setCelebrated] = useState(false)
-  const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const minuteBeepRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastNotifTickRef = useRef(-99)
 
   useEffect(() => {
@@ -280,13 +324,8 @@ export function TimerModeView() {
     return () => clearInterval(id)
   }, [])
 
-  // ── Loud beep every 60 s while timer is running ─────────────────────────────
-  useEffect(() => {
-    minuteBeepRef.current = setInterval(() => playLoudBeep(), 60_000)
-    return () => {
-      if (minuteBeepRef.current) clearInterval(minuteBeepRef.current)
-    }
-  }, [])
+  // (60 s focus-reminder beep removed — now handled by the configurable Focus Reminder
+  //  engine via useFocusReminderControl below.)
 
   // ── Notification setup / teardown ──────────────────────────────────────────
   useEffect(() => {
@@ -330,6 +369,10 @@ export function TimerModeView() {
     }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, activeTimer])
+
+  // Focus reminder engine runs while a routine step timer is active (not paused), and stays
+  // alive while moving between habits. Hook must run before any early return.
+  useFocusReminderControl('routine', !!activeTimer && activeTimer.pausedAt === null)
 
   if (!activeTimer) return null
 
@@ -381,22 +424,15 @@ export function TimerModeView() {
   )
   const stepDurationSec = step ? step.durationMin * 60 + activeTimer.extensionSec : 0
   const remainingSec = Math.max(0, stepDurationSec - stepElapsedSec)
-  const isOverrun = !!step && remainingSec <= 0
+  // Only overrun when the habit actually has an estimate (durationMin > 0); a 0-minute /
+  // not-applicable step never triggers overtime.
+  const hasEstimate = !!step && step.durationMin > 0
+  const isOverrun = hasEstimate && remainingSec <= 0
   const progressPct = stepDurationSec > 0 ? Math.min(1, stepElapsedSec / stepDurationSec) : 0
 
-  // Beep every 5s while a step has overrun its (extended) duration and isn't paused
-  useEffect(() => {
-    if (isOverrun && !isPaused) {
-      playBeep()
-      beepIntervalRef.current = setInterval(() => playBeep(), 5000)
-    }
-    return () => {
-      if (beepIntervalRef.current) {
-        clearInterval(beepIntervalRef.current)
-        beepIntervalRef.current = null
-      }
-    }
-  }, [isOverrun, isPaused, currentStepId])
+  // Continuous overtime beep via the shared engine; stops automatically when extended
+  // (duration grows → not overrun), paused, or the step is completed/skipped.
+  useOvertimeBeep(isOverrun && !isPaused)
 
   const fmtSec = (sec: number) => {
     const m = Math.floor(sec / 60)
@@ -475,9 +511,12 @@ export function TimerModeView() {
               {stepIndex + 1} / {pendingStepIds.length} pending
             </Text>
           </View>
-          <Pressable onPress={minimizeTimer} hitSlop={8}>
-            <ChevronDown size={22} color="#6B7280" />
-          </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <FocusReminderButton />
+            <Pressable onPress={minimizeTimer} hitSlop={8}>
+              <ChevronDown size={22} color="#6B7280" />
+            </Pressable>
+          </View>
         </View>
 
         {/* Progress dots — only pending steps */}
@@ -527,6 +566,9 @@ export function TimerModeView() {
           {/* Overrun indicator */}
           {isOverrun ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <View style={{ backgroundColor: '#FEE2E2', borderRadius: 10, paddingVertical: 2, paddingHorizontal: 8 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#DC2626', letterSpacing: 0.5 }}>OVERTIME</Text>
+              </View>
               <Text style={{ fontSize: 13, color: '#EF4444', fontWeight: '600' }}>
                 +{fmtSec(overrunSec)} over
               </Text>
