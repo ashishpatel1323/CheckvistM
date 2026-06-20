@@ -1070,7 +1070,7 @@ export function ExecuteTaskList() {
   }
 
   // Group-by toggle
-  const [groupBy, setGroupBy] = useState<'priority' | 'time'>('priority')
+  const [groupBy, setGroupBy] = useState<'priority' | 'time' | 'inProgress'>('priority')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   function toggleGroup(key: string) {
     setCollapsedGroups((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
@@ -1104,6 +1104,25 @@ export function ExecuteTaskList() {
     return TIME_QUADRANTS.filter((q) => (bucketMap.get(q.bucket)?.length ?? 0) > 0)
       .map((q) => ({ ...q, items: bucketMap.get(q.bucket)! }))
   }, [orderedTasks, searchQuery])
+
+  // "In Progress": only tasks with some time logged today (running counts), kept in the
+  // same priority buckets as the By Priority view.
+  const hasLoggedTimeToday = (t: TaskNode) => {
+    const entry = getEntry(t.id)
+    if (!entry) return false
+    const k = entryKey(checklistId, t.id)
+    return liveSeconds(entry, timerRunningKey, timerStartedAt, k) > 0
+  }
+  const inProgressGroups = useMemo(() => {
+    const buckets: Record<PriBucket, { task: TaskNode; index: number }[]> = { high: [], medium: [], low: [], tbd: [] }
+    orderedTasks.forEach((t, index) => {
+      if (!matchesQuery(t)) return
+      if (!hasLoggedTimeToday(t)) return
+      buckets[classifyPriority(t.priority)].push({ task: t, index })
+    })
+    return PRI_BUCKETS.filter((b) => buckets[b].length > 0).map((b) => ({ bucket: b, items: buckets[b] }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderedTasks, searchQuery, entries, timerRunningKey, timerStartedAt, checklistId])
 
   // Shared group header renderer
   function renderGroupHeader(key: string, label: string, sublabel: string, color: string, bg: string, count: number) {
@@ -1164,7 +1183,7 @@ export function ExecuteTaskList() {
   // Group-by toggle strip
   const groupByToggle = (
     <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#E2E8F0', backgroundColor: 'white', paddingHorizontal: 14 }}>
-      {(['priority', 'time'] as const).map((v) => {
+      {(['priority', 'time', 'inProgress'] as const).map((v) => {
         const active = groupBy === v
         return (
           <Pressable
@@ -1173,7 +1192,7 @@ export function ExecuteTaskList() {
             style={{ paddingVertical: 8, paddingHorizontal: 2, marginRight: 16, borderBottomWidth: 2, borderBottomColor: active ? '#E8632A' : 'transparent' }}
           >
             <Text style={{ fontSize: 12, fontWeight: active ? '600' : '400', color: active ? '#E8632A' : '#6B7280' }}>
-              {v === 'priority' ? 'By Priority' : 'By Time'}
+              {v === 'priority' ? 'By Priority' : v === 'time' ? 'By Time' : 'In Progress'}
             </Text>
           </Pressable>
         )
@@ -1190,7 +1209,7 @@ export function ExecuteTaskList() {
     >
       {(groupBy === 'time'
         ? timeGroups.map(({ bucket, label, sublabel, color, bg, items }) => ({ key: bucket, label, sublabel, color, bg, items }))
-        : priorityGroups.map(({ bucket, items }) => ({
+        : (groupBy === 'inProgress' ? inProgressGroups : priorityGroups).map(({ bucket, items }) => ({
             key: bucket,
             label: PRIORITY_LABEL[bucket],
             sublabel: PRIORITY_META[bucket].sublabel,
@@ -1377,6 +1396,14 @@ export function ExecuteTaskList() {
         <View style={{ alignItems: 'center', paddingVertical: 32, gap: 6 }}>
           <Search size={20} color="#CBD5E1" />
           <Text style={{ fontSize: 13, color: '#94A3B8' }}>No tasks match "{searchQuery.trim()}"</Text>
+        </View>
+      )}
+
+      {groupBy === 'inProgress' && inProgressGroups.length === 0 && (
+        <View style={{ alignItems: 'center', paddingVertical: 32, gap: 6 }}>
+          <Timer size={20} color="#CBD5E1" />
+          <Text style={{ fontSize: 13, color: '#94A3B8' }}>Nothing in progress yet today</Text>
+          <Text style={{ fontSize: 11, color: '#CBD5E1' }}>Tasks appear here once you log time on them</Text>
         </View>
       )}
 
