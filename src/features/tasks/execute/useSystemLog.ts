@@ -19,6 +19,7 @@ import { Platform } from 'react-native'
 import { format, parseISO } from 'date-fns'
 import { apiClient } from '@/api/client'
 import { fetchChecklists, createChecklist, fetchTasks, createTask, updateTask, deleteTask } from '@/api/endpoints'
+import { clientId, clientLabel } from '@/platform/clientIdentity'
 import type { ExecuteLogEntry } from './useExecuteLog'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -48,8 +49,9 @@ function encodeSession(key: string, taskName: string, entry: ExecuteLogEntry): s
   const endIso = entry.completedAt ?? new Date().toISOString()
   const end = fmtTime(endIso)
   const dur = fmtDur(entry.actualSeconds)
-  // Human-readable label + machine key at the end
-  return `${EXLOG_PREFIX} ${taskName} | ${start}–${end} | ${dur} | key=${key} sec=${entry.actualSeconds} s=${entry.startedAt ?? ''} done=${entry.completedAt ?? ''}`
+  // Human-readable label + machine key at the end.
+  // client=<id> cname=<url-encoded friendly label> identify the originating device.
+  return `${EXLOG_PREFIX} ${taskName} | ${start}–${end} | ${dur} | key=${key} sec=${entry.actualSeconds} s=${entry.startedAt ?? ''} done=${entry.completedAt ?? ''} client=${clientId()} cname=${encodeURIComponent(clientLabel())}`
 }
 
 export interface SyncedSession {
@@ -62,6 +64,9 @@ export interface SyncedSession {
   completedAt: string | null
   // The Checkvist system-list task id that stores this session (for updates)
   systemTaskId?: number
+  // Identity of the client/device that recorded this session (undefined for legacy entries)
+  clientId?: string
+  clientLabel?: string
 }
 
 /** Parse a session back from Checkvist task content */
@@ -72,6 +77,8 @@ function decodeSession(content: string, systemTaskId: number): SyncedSession | n
     const secM = content.match(/sec=(\d+)/)
     const sM = content.match(/s=([^\s|]+)/)
     const doneM = content.match(/done=([^\s|]+)/)
+    const clientM = content.match(/client=([\w-]+)/)
+    const cnameM = content.match(/cname=([^\s|]+)/)
     // Extract task name from between prefix and first |
     const nameM = content.match(/\[EXLOG\] (.+?) \|/)
 
@@ -80,6 +87,11 @@ function decodeSession(content: string, systemTaskId: number): SyncedSession | n
     const parts = key.split(':')
     if (parts.length < 3) return null
     const [checklistId, , taskId] = parts
+
+    let decodedLabel: string | undefined
+    if (cnameM?.[1]) {
+      try { decodedLabel = decodeURIComponent(cnameM[1]) } catch { decodedLabel = cnameM[1] }
+    }
 
     return {
       key,
@@ -90,6 +102,8 @@ function decodeSession(content: string, systemTaskId: number): SyncedSession | n
       actualSeconds: Number(secM?.[1] ?? 0),
       completedAt: doneM?.[1] && doneM[1] !== 'null' && doneM[1] !== '' ? doneM[1] : null,
       systemTaskId,
+      clientId: clientM?.[1],
+      clientLabel: decodedLabel,
     }
   } catch {
     return null
@@ -178,6 +192,8 @@ export const useSystemLog = create<SystemLogStore>()(
           startedAt: entry.startedAt,
           actualSeconds: entry.actualSeconds,
           completedAt: entry.completedAt,
+          clientId: clientId(),
+          clientLabel: clientLabel(),
         }
         set((s) => ({ remoteSessions: { ...s.remoteSessions, [key]: optimisticSession } }))
 
@@ -283,13 +299,15 @@ export const useSystemLog = create<SystemLogStore>()(
             startedAt: startDate.toISOString(),
             actualSeconds: durationMin * 60,
             completedAt: endDate.toISOString(),
+            clientId: clientId(),
+            clientLabel: clientLabel(),
           }
           set((s) => ({ remoteSessions: { ...s.remoteSessions, [key]: session } }))
 
           // Sync to Checkvist
           const systemListId = await get().ensureSystemList()
           const dayTaskId = await get().ensureDayTask(systemListId, dateStr)
-          const content = `${EXLOG_PREFIX} ${taskName} | ${format(startDate, 'h:mm a')}–${format(endDate, 'h:mm a')} | ${durationMin}m | key=${key} sec=${entry.actualSeconds} s=${entry.startedAt} done=${entry.completedAt}`
+          const content = `${EXLOG_PREFIX} ${taskName} | ${format(startDate, 'h:mm a')}–${format(endDate, 'h:mm a')} | ${durationMin}m | key=${key} sec=${entry.actualSeconds} s=${entry.startedAt} done=${entry.completedAt} client=${clientId()} cname=${encodeURIComponent(clientLabel())}`
           const created = await createTask(systemListId, { content, parent_id: dayTaskId })
           set((s) => ({ sessionTaskIds: { ...s.sessionTaskIds, [key]: created.id } }))
         } catch (e) {

@@ -9,6 +9,7 @@ import { groupTasksByDate } from '@/lib/dateSort'
 import { TaskSkeleton } from '@/components/TaskSkeleton'
 import { VirtualTaskList } from './VirtualTaskList'
 import { PriorityDateView } from './PriorityDateView'
+import { GlobalTimerBar } from './GlobalTimerBar'
 import { FlatTaskList } from './FlatTaskList'
 import { MindMapView } from './MindMapView'
 import { SearchView } from '@/features/tasks/search/SearchView'
@@ -29,7 +30,7 @@ import { RawView } from '@/features/tasks/raw/RawView'
 import { EisenhowerMatrixView } from './EisenhowerMatrixView'
 import { KanbanView } from './KanbanView'
 import { RoutinesView } from '@/features/tasks/routines/RoutinesView'
-import { TimerModeView, MiniTimerBar } from '@/features/tasks/routines/TimerModeView'
+import { TimerModeView } from '@/features/tasks/routines/TimerModeView'
 import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
@@ -1052,15 +1053,19 @@ const { view, setView, focusedTaskId } = useTaskView()
                 position: 'relative',
               }}
             >
-              <View style={{ position: 'relative' }}>
-                <Icon size={16} color={active ? BLUE : '#666'} style={{ opacity: active ? 1 : 0.7 }} />
-                <TabBadge count={badgeCount} color={key === 'date' ? '#EF4444' : key === 'routines' ? '#F59E0B' : '#6366F1'} />
-              </View>
+              <Icon size={16} color={active ? BLUE : '#666'} style={{ opacity: active ? 1 : 0.7 }} />
               {showTabLabels && (
                 <Text className="text-xs font-medium" style={{ color: active ? BLUE : '#666', opacity: active ? 1 : 0.8 }}>
                   {label}
                 </Text>
               )}
+              {/* Anchor badge to the tab's top-right corner so it doesn't sit on the icon/label */}
+              <TabBadge
+                count={badgeCount}
+                color={key === 'date' ? '#EF4444' : key === 'routines' ? '#F59E0B' : '#6366F1'}
+                compact
+                style={{ top: -6, right: -6 }}
+              />
               {showShortcuts && (
                 <View style={{
                   position: 'absolute', top: -8, right: -4,
@@ -1139,6 +1144,10 @@ const { view, setView, focusedTaskId } = useTaskView()
 
       {/* Daily time progress bar */}
       <DailyProgressBar />
+
+      {/* Global timer — one bar across every tab: execution timer, routine timer, or the
+          idle "nothing is being tracked" countdown. */}
+      <GlobalTimerBar onOpenExecute={() => setView('execute')} />
 
       {/* ── Eisenhower Matrix view ──────────────────────────────── */}
       {view === 'matrix' && tasks && (
@@ -1332,12 +1341,8 @@ const { view, setView, focusedTaskId } = useTaskView()
       )}
 
       {/* ── Bottom tab bar (mobile only) ────────────────────────── */}
-      {/* Mini timer bar — sits above the tab bar when timer is minimized */}
-      {activeTimer && timerMinimized && (
-        <View style={{ position: 'absolute', bottom: isMobile ? tabBarH : 0, left: 0, right: 0, zIndex: 40 }}>
-          <MiniTimerBar />
-        </View>
-      )}
+      {/* A minimized routine now surfaces in the GlobalTimerBar at the top, so there is no
+          separate bottom mini bar. */}
 
       {/* Full-screen timer — rendered here so it persists across tab switches */}
       {activeTimer && !timerMinimized && <TimerModeView />}

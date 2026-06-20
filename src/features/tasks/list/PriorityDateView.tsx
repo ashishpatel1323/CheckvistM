@@ -1,12 +1,14 @@
 import { useState, useMemo } from 'react'
-import { View, Text, Pressable, ScrollView, Platform } from 'react-native'
-import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react-native'
+import { View, Text, Pressable, ScrollView, Platform, Modal } from 'react-native'
+import { ChevronDown, ChevronRight, ChevronUp, CalendarArrowUp } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import type { GroupedTasks, DateGroup } from '@/lib/dateSort'
 import { PriorityTaskRow } from './PriorityTaskRow'
 import { classifyPriority } from '@/features/tasks/shared/PriorityPicker'
 import type { PriorityBucket } from '@/features/tasks/shared/PriorityPicker'
 import { useUpdateTask } from './useTasksQuery'
+import { toApiDate } from '@/lib/dateUtils'
+import { useToast } from '@/components/Toast'
 
 export type { PriorityBucket }
 
@@ -203,7 +205,12 @@ function DateGroupCard({
   isMobile: boolean
 }) {
   const [collapsed, setCollapsed] = useState(!DATE_GROUP_DEFAULT_OPEN[group.group])
+  const [showMoveDialog, setShowMoveDialog] = useState(false)
+  const [moving, setMoving] = useState(false)
+  const { mutate: updateTask } = useUpdateTask(checklistId)
+  const toast = useToast()
   const accent = DATE_GROUP_COLOR[group.group]
+  const isOverdue = group.group === 'overdue'
 
   const buckets = useMemo(() => {
     const b: Record<PriorityBucket, TaskNode[]> = { high: [], medium: [], low: [], tbd: [] }
@@ -212,6 +219,34 @@ function DateGroupCard({
   }, [group.tasks])
 
   const activeBuckets = PRIORITY_BUCKETS.filter((b) => buckets[b].length > 0)
+
+  // Move every overdue task in this card to today's date.
+  const moveAllToToday = () => {
+    const today = toApiDate(new Date())
+    const datedTasks = group.tasks.filter((t) => t.due)
+    if (datedTasks.length === 0) {
+      setShowMoveDialog(false)
+      toast.info('No dated overdue tasks to move')
+      return
+    }
+    setMoving(true)
+    let settled = 0
+    let failed = false
+    const done = () => {
+      settled++
+      if (settled < datedTasks.length) return
+      setMoving(false)
+      setShowMoveDialog(false)
+      if (failed) toast.error('Failed to move some tasks')
+      else toast.success(`${datedTasks.length} task${datedTasks.length > 1 ? 's' : ''} moved to today`)
+    }
+    datedTasks.forEach((task) => {
+      updateTask(
+        { taskId: task.id, payload: { due_date: today } },
+        { onSuccess: done, onError: () => { failed = true; done() } },
+      )
+    })
+  }
 
   return (
     <View style={{
@@ -241,9 +276,31 @@ function DateGroupCard({
           gap: 8,
         }}
       >
-        <Text style={{ flex: 1, fontSize: 15, fontWeight: '700', color: accent }}>
+        <Text style={{ fontSize: 15, fontWeight: '700', color: accent }}>
           {group.label}
         </Text>
+        {/* Move-all-to-today CTA — overdue card only */}
+        {isOverdue && group.tasks.length > 0 && (
+          <Pressable
+            onPress={(e) => { e.stopPropagation(); setShowMoveDialog(true) }}
+            hitSlop={6}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              paddingHorizontal: 8,
+              paddingVertical: 3,
+              borderRadius: 6,
+              backgroundColor: accent,
+            }}
+          >
+            <CalendarArrowUp size={11} color="#fff" />
+            <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff', letterSpacing: 0.3 }}>
+              Move to Today
+            </Text>
+          </Pressable>
+        )}
+        <View style={{ flex: 1 }} />
         <Text style={{ fontSize: 13, color: '#9CA3AF', marginRight: 4 }}>
           {group.tasks.length}
         </Text>
@@ -266,6 +323,59 @@ function DateGroupCard({
           isMobile={isMobile}
         />
       ))}
+
+      {/* Move-to-today confirmation dialog */}
+      <Modal
+        visible={showMoveDialog}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !moving && setShowMoveDialog(false)}
+      >
+        <Pressable
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }}
+          onPress={() => !moving && setShowMoveDialog(false)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: '#fff',
+              borderRadius: 16,
+              paddingTop: 24,
+              paddingHorizontal: 24,
+              paddingBottom: 8,
+              width: '100%',
+              maxWidth: 360,
+              shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 20, elevation: 16,
+            }}
+            onPress={() => {}}
+          >
+            <Text style={{ fontSize: 17, fontWeight: '700', color: '#111', marginBottom: 10 }}>
+              Move overdue to Today
+            </Text>
+            <Text style={{ fontSize: 14.5, color: '#555', lineHeight: 22, marginBottom: 24 }}>
+              All {group.tasks.filter((t) => t.due).length} dated overdue task
+              {group.tasks.filter((t) => t.due).length === 1 ? '' : 's'} will be rescheduled to today.
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, borderTopWidth: 1, borderTopColor: '#F0F0F0', paddingVertical: 8 }}>
+              <Pressable
+                onPress={() => setShowMoveDialog(false)}
+                disabled={moving}
+                style={{ paddingVertical: 8, paddingHorizontal: 16 }}
+              >
+                <Text style={{ fontSize: 15, color: '#4772FA', fontWeight: '500', opacity: moving ? 0.4 : 1 }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={moveAllToToday}
+                disabled={moving}
+                style={{ paddingVertical: 8, paddingHorizontal: 16 }}
+              >
+                <Text style={{ fontSize: 15, color: '#4772FA', fontWeight: '700', opacity: moving ? 0.4 : 1 }}>
+                  {moving ? 'Moving…' : 'Move'}
+                </Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   )
 }

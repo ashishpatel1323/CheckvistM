@@ -4,6 +4,13 @@ import { useRoutineSystem } from './useRoutineSystem'
 import type { RoutineDef, CheckinLog } from './routineTypes'
 import { getPendingRoutineStepIds } from './routineSchedule'
 import { syncWidget } from '@/lib/widgetBridge'
+import { useExecuteLog } from '@/features/tasks/execute/useExecuteLog'
+
+/** Mutual exclusion: pause any running Execute task timer before a routine takes over. */
+function pauseExecuteTimer() {
+  const ex = useExecuteLog.getState()
+  if (ex.timerRunningKey) ex.pause()
+}
 
 export interface ActiveTimer {
   routineTaskId: number
@@ -252,6 +259,7 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
     const pendingStepIds = getPendingRoutineStepIds(routine, completedToday, new Date().getDay(), failedToday)
     if (pendingStepIds.length === 0) return
 
+    pauseExecuteTimer()
     set({
       activeTimer: {
         routineTaskId: routine.taskId,
@@ -295,6 +303,7 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
   resumeTimer: () => {
     const { activeTimer } = get()
     if (!activeTimer || activeTimer.pausedAt === null) return
+    pauseExecuteTimer()
     set({ activeTimer: { ...activeTimer, pausedAt: null, stepStartedAt: Date.now() } })
   },
 

@@ -11,12 +11,14 @@ import { ToastProvider } from '@/components/Toast'
 import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { initAutoSync, stopAutoSync } from '@/lib/sync/autoSync'
 import { registerTaskHandlers } from '@/lib/sync/taskSyncHandlers'
+import { initClientIdentity } from '@/platform/clientIdentity'
 
 function AppInitializer() {
   const initFromStorage = useAuth((s) => s.initFromStorage)
 
   useEffect(() => {
     initFromStorage()
+    initClientIdentity().catch(console.warn)
   }, [initFromStorage])
 
   // Initialize offline-first sync system
