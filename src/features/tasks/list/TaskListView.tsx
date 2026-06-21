@@ -1150,8 +1150,9 @@ const { view, setView, focusedTaskId } = useTaskView()
         </View>
       )}
 
-      {/* Daily time progress bar */}
-      <DailyProgressBar />
+      {/* Daily time progress bar — hidden on Execute since GlobalTimerBar already
+          covers time-tracking state there; showing both was redundant chrome. */}
+      {view !== 'execute' && <DailyProgressBar />}
 
       {/* Global timer — one bar across every tab: execution timer, routine timer, or the
           idle "nothing is being tracked" countdown. */}
@@ -1272,8 +1273,10 @@ const { view, setView, focusedTaskId } = useTaskView()
         </>
       )}
 
-      {/* Mobile FAB — shown on all views except raw/search */}
-      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && view !== 'routines' && !showFabInput && (
+      {/* Mobile FAB — shown on all views except raw/search/execute. Suppressed on Execute
+          since creating a task isn't that tab's primary action, and the FAB otherwise floats
+          on top of the last visible task row in a screen that's already dense. */}
+      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && view !== 'routines' && view !== 'execute' && !showFabInput && (
         <Pressable
           onPress={() => setShowFabInput(true)}
           className="absolute right-5 items-center justify-center rounded-full"

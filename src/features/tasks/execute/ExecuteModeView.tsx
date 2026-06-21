@@ -38,15 +38,6 @@ import { isToday, isPast, format, addDays } from 'date-fns'
 const BLUE = '#6366F1'
 const INDIGO = '#6366F1'
 
-const DATE_GROUP_THEME: Record<DateGroup, { bgLight: string; stroke: string; text: string }> = {
-  overdue:   { bgLight: '#fff1f1', stroke: '#ef4444', text: '#7f1d1d' },
-  today:     { bgLight: '#eff6ff', stroke: '#3b82f6', text: '#1e3a8a' },
-  tomorrow:  { bgLight: '#f5f3ff', stroke: '#7c3aed', text: '#3b0764' },
-  thisWeek:  { bgLight: '#f0fdf4', stroke: '#22c55e', text: '#14532d' },
-  later:     { bgLight: '#fffbeb', stroke: '#f59e0b', text: '#78350f' },
-  noDueDate: { bgLight: '#f8fafc', stroke: '#94a3b8', text: '#334155' },
-}
-
 // Desktop column layout: fixed-width slots so time/due/priority line up vertically
 const COL_TAGS = 110
 const COL_TIME = 52
@@ -785,16 +776,16 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
                 onPress={() => { updateTask({ taskId: currentTask.id, payload: { due_date: format(addDays(new Date(), 1), 'yyyy-MM-dd') } }); nextTask() }}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
               >
-                <Sunrise size={12} color="#8B5CF6" />
-                <Text style={{ fontSize: 11, fontWeight: '600', color: '#8B5CF6' }}>Tomorrow</Text>
+                <Sunrise size={12} color={INDIGO} />
+                <Text style={{ fontSize: 11, fontWeight: '600', color: INDIGO }}>Tomorrow</Text>
               </Pressable>
               <Pressable
                 hitSlop={8}
                 onPress={() => { updateTask({ taskId: currentTask.id, payload: { priority: 9 } }); nextTask() }}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
               >
-                <ArrowDown size={12} color="#7c3aed" />
-                <Text style={{ fontSize: 11, fontWeight: '600', color: '#7c3aed' }}>De-pri</Text>
+                <ArrowDown size={12} color={INDIGO} />
+                <Text style={{ fontSize: 11, fontWeight: '600', color: INDIGO }}>De-pri</Text>
               </Pressable>
             </>
           )}
@@ -1076,8 +1067,11 @@ export function ExecuteTaskList() {
     setCollapsedGroups((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
   }
 
-  // Filter today's tasks by title (case-insensitive substring)
+  // Filter today's tasks by title (case-insensitive substring). Search starts collapsed to
+  // an icon — it sat empty as a full-width bar 95% of the time, so it's now merged into the
+  // group-by toolbar row instead of being its own permanent row.
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
   const matchesQuery = (t: TaskNode) => {
     const q = searchQuery.trim().toLowerCase()
     return q === '' || t.content.toLowerCase().includes(q)
@@ -1161,44 +1155,55 @@ export function ExecuteTaskList() {
     )
   }
 
-  // Search/filter strip (filters today's tasks by title)
+  // Single toolbar row: group-by tabs + a search icon that expands inline in the same row,
+  // replacing what used to be two separate full-width bars (search strip, then toggle strip).
   const searchBar = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'white', paddingHorizontal: 14, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' }}>
-      <Search size={14} color="#94A3B8" />
-      <TextInput
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-        placeholder="Search today's tasks"
-        placeholderTextColor="#94A3B8"
-        style={{ flex: 1, fontSize: 13, color: '#374151', paddingVertical: 0, ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : null) }}
-      />
-      {searchQuery !== '' && (
-        <Pressable onPress={() => setSearchQuery('')} hitSlop={8} style={{ padding: 2 }}>
-          <X size={14} color="#94A3B8" />
-        </Pressable>
+    <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#E2E8F0', backgroundColor: 'white', paddingHorizontal: 14, minHeight: 38 }}>
+      {searchOpen ? (
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7 }}>
+          <Search size={14} color="#94A3B8" />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search today's tasks"
+            placeholderTextColor="#94A3B8"
+            autoFocus
+            style={{ flex: 1, fontSize: 13, color: '#374151', paddingVertical: 0, ...(Platform.OS === 'web' ? { outlineStyle: 'none' } as object : null) }}
+          />
+          <Pressable
+            onPress={() => { setSearchQuery(''); setSearchOpen(false) }}
+            hitSlop={8}
+            style={{ padding: 2 }}
+          >
+            <X size={14} color="#94A3B8" />
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          <View style={{ flex: 1, flexDirection: 'row' }}>
+            {(['priority', 'time', 'inProgress'] as const).map((v) => {
+              const active = groupBy === v
+              return (
+                <Pressable
+                  key={v}
+                  onPress={() => { setGroupBy(v); setCollapsedGroups(new Set()) }}
+                  style={{ paddingVertical: 8, paddingHorizontal: 2, marginRight: 16, borderBottomWidth: 2, borderBottomColor: active ? INDIGO : 'transparent' }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: active ? '600' : '400', color: active ? INDIGO : '#6B7280' }}>
+                    {v === 'priority' ? 'By Priority' : v === 'time' ? 'By Time' : 'In Progress'}
+                  </Text>
+                </Pressable>
+              )
+            })}
+          </View>
+          <Pressable onPress={() => setSearchOpen(true)} hitSlop={8} style={{ padding: 6 }}>
+            <Search size={15} color={searchQuery !== '' ? INDIGO : '#94A3B8'} />
+          </Pressable>
+        </>
       )}
     </View>
   )
 
-  // Group-by toggle strip
-  const groupByToggle = (
-    <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#E2E8F0', backgroundColor: 'white', paddingHorizontal: 14 }}>
-      {(['priority', 'time', 'inProgress'] as const).map((v) => {
-        const active = groupBy === v
-        return (
-          <Pressable
-            key={v}
-            onPress={() => { setGroupBy(v); setCollapsedGroups(new Set()) }}
-            style={{ paddingVertical: 8, paddingHorizontal: 2, marginRight: 16, borderBottomWidth: 2, borderBottomColor: active ? '#E8632A' : 'transparent' }}
-          >
-            <Text style={{ fontSize: 12, fontWeight: active ? '600' : '400', color: active ? '#E8632A' : '#6B7280' }}>
-              {v === 'priority' ? 'By Priority' : v === 'time' ? 'By Time' : 'In Progress'}
-            </Text>
-          </Pressable>
-        )
-      })}
-    </View>
-  )
 
   const listContent = (
     <ScrollView
@@ -1229,9 +1234,11 @@ export function ExecuteTaskList() {
           const isDragging = draggingIdx === index
           const showDropBefore = insertIdx !== null && insertIdx === index && draggingIdx !== null && draggingIdx !== index && draggingIdx !== index - 1
 
-          const dueGroup = classifyTask(t)
-          const dueTheme = DATE_GROUP_THEME[dueGroup]
-          const bgColor = isCurrent ? '#E0E7FF' : dueTheme.bgLight
+          // Row color is reserved for exactly one thing — "this is the active task" — so it
+          // doesn't compete with the priority-group header color above it or the due-date
+          // chip already shown inline. Previously every row also carried a due-date tint +
+          // due-date-colored border, layering three signals into one row.
+          const bgColor = isCurrent ? '#E0E7FF' : 'white'
           const k = entryKey(checklistId, t.id)
           const elapsed = entry ? liveSeconds(entry, timerRunningKey, timerStartedAt, k) : 0
           const timeLabel = isDone || elapsed > 0 ? fmtMins(elapsed) : `${entry?.estimateMin ?? DEFAULT_ESTIMATE}m`
@@ -1244,17 +1251,19 @@ export function ExecuteTaskList() {
                 paddingHorizontal: 10, paddingVertical: 7,
                 borderRadius: 8, marginHorizontal: 4, marginVertical: 2,
                 backgroundColor: bgColor, opacity: isDragging ? 0.3 : 1,
-                borderLeftWidth: 3, borderLeftColor: isCurrent ? BLUE : dueTheme.stroke,
+                borderLeftWidth: 3, borderLeftColor: isCurrent ? BLUE : 'transparent',
+                borderWidth: 1, borderColor: '#F1F5F9',
               }}
             >
-              {/* Drag handle */}
+              {/* Drag handle — raised from opacity 0.3 since reordering is a core Execute
+                  interaction and the handle was nearly invisible before. */}
               {Platform.OS === 'web' ? (
-                <div onPointerDown={(e) => onGripPointerDown(e, index)} style={{ cursor: 'grab', display: 'flex', alignItems: 'center', opacity: 0.3 }}>
-                  <GripVertical size={13} color="#9CA3AF" />
+                <div onPointerDown={(e) => onGripPointerDown(e, index)} style={{ cursor: 'grab', display: 'flex', alignItems: 'center', opacity: 0.55 }}>
+                  <GripVertical size={14} color="#9CA3AF" />
                 </div>
               ) : (
                 <GestureDetector gesture={makeNativeGesture(index)}>
-                  <View hitSlop={8} style={{ opacity: 0.3 }}><GripVertical size={13} color="#9CA3AF" /></View>
+                  <View hitSlop={8} style={{ opacity: 0.55 }}><GripVertical size={14} color="#9CA3AF" /></View>
                 </GestureDetector>
               )}
               {/* Play/pause button */}
@@ -1333,7 +1342,8 @@ export function ExecuteTaskList() {
                   </Text>
                 </Pressable>
               ))}
-              {/* Priority chip */}
+              {/* Priority chip — kept visible in every grouping (including By Priority)
+                  since it's the per-row control for changing priority, not just a label. */}
               {col(COL_PRI, (
                 <Pressable
                   hitSlop={6}
@@ -1467,7 +1477,6 @@ export function ExecuteTaskList() {
           style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         >
           {searchBar}
-          {groupByToggle}
           {columnMode && columnHeader}
           {listContent}
         </div>
@@ -1476,7 +1485,7 @@ export function ExecuteTaskList() {
     )
   }
 
-  return <>{searchBar}{groupByToggle}{listContent}{pickers}</>
+  return <>{searchBar}{listContent}{pickers}</>
 }
 
 // ─── Full standalone view (mobile / non-split desktop) ───────────────────────
