@@ -1,0 +1,107 @@
+import { useState } from 'react'
+import { View, Text, Pressable, Modal, ScrollView, Platform } from 'react-native'
+import { MonitorDot, X, Copy, Check } from 'lucide-react-native'
+import { getOrCreateMenuBarTopic, NTFY_SERVER } from '@/services/menuBarSync'
+
+// Web-only header button that reveals the macOS menu-bar (SwiftBar) setup: the per-user key plus
+// install instructions. Display-only mirror of the in-app global timer — see tools/swiftbar/.
+
+const BLUE = '#4772FA'
+
+function CopyRow({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* clipboard blocked — user can select the text manually */
+    }
+  }
+  return (
+    <View style={{ gap: 4 }}>
+      <Text style={{ fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+        {label}
+      </Text>
+      <Pressable
+        onPress={copy}
+        style={{
+          flexDirection: 'row', alignItems: 'center', gap: 8,
+          backgroundColor: '#F1F5F9', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8,
+        }}
+      >
+        <Text selectable style={{ flex: 1, fontSize: 12, color: '#111827', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }} numberOfLines={1}>
+          {value}
+        </Text>
+        {copied ? <Check size={15} color="#16A34A" /> : <Copy size={15} color={BLUE} />}
+      </Pressable>
+    </View>
+  )
+}
+
+function SetupPanel({ onClose }: { onClose: () => void }) {
+  const topic = getOrCreateMenuBarTopic()
+
+  return (
+    <Modal transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <Pressable onPress={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 460, backgroundColor: 'white', borderRadius: 16, overflow: 'hidden' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <MonitorDot size={18} color={BLUE} />
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#111827' }}>Menu bar timer</Text>
+            </View>
+            <Pressable hitSlop={8} onPress={onClose}><X size={18} color="#9CA3AF" /></Pressable>
+          </View>
+
+          <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ padding: 16, gap: 16 }}>
+            <Text style={{ fontSize: 13, color: '#4B5563', lineHeight: 19 }}>
+              Mirror this app's live timer in the macOS menu bar with SwiftBar. Keep this tab open so it
+              keeps publishing (to the public ntfy.sh topic below); the menu bar shows the running task,
+              routine step, or idle countdown.
+            </Text>
+
+            <CopyRow label="Menu bar topic" value={topic} />
+            <CopyRow label="ntfy server" value={NTFY_SERVER} />
+
+            <View style={{ gap: 6 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                Setup
+              </Text>
+              {[
+                'Install SwiftBar:  brew install swiftbar',
+                'Copy tools/swiftbar/checkvist-timer.15s.py into your SwiftBar plugins folder and make it executable.',
+                'In the plugin’s settings, set VAR_NTFY_TOPIC to the topic above (VAR_NTFY_SERVER only if self-hosting ntfy).',
+              ].map((step, i) => (
+                <View key={i} style={{ flexDirection: 'row', gap: 8 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: BLUE, width: 14 }}>{i + 1}.</Text>
+                  <Text style={{ flex: 1, fontSize: 12, color: '#374151', lineHeight: 18 }}>{step}</Text>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  )
+}
+
+export function MenuBarButton() {
+  const [open, setOpen] = useState(false)
+  // Menu-bar mirror only makes sense on the web build (the desktop browser tab does the publishing).
+  if (Platform.OS !== 'web') return null
+
+  return (
+    <>
+      <Pressable
+        hitSlop={8}
+        onPress={() => setOpen(true)}
+        style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8 }}
+      >
+        <MonitorDot size={16} color="#9CA3AF" />
+      </Pressable>
+      {open && <SetupPanel onClose={() => setOpen(false)} />}
+    </>
+  )
+}

@@ -10,6 +10,7 @@ import { TaskSkeleton } from '@/components/TaskSkeleton'
 import { VirtualTaskList } from './VirtualTaskList'
 import { PriorityDateView } from './PriorityDateView'
 import { GlobalTimerBar } from './GlobalTimerBar'
+import { useMenuBarSync } from '@/services/menuBarSync'
 import { FlatTaskList } from './FlatTaskList'
 import { MindMapView } from './MindMapView'
 import { SearchView } from '@/features/tasks/search/SearchView'
@@ -36,6 +37,7 @@ import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
 import { TabBadge } from '@/components/TabBadge'
 import { FocusReminderButton } from '@/features/tasks/shared/FocusReminderButton'
+import { MenuBarButton } from '@/features/tasks/shared/MenuBarButton'
 import { SyncButton } from '@/components/SyncButton'
 import { hapticSelection, hapticSuccess } from '@/lib/haptics'
 import { calculateTabBadges } from '@/lib/tabBadges'
@@ -902,6 +904,9 @@ const { view, setView, focusedTaskId } = useTaskView()
   const { order: tabOrder, moveTab, reorderTab } = useTabBarConfig()
   const [logInitialMode, setLogInitialMode] = useState<'calendar' | 'agenda'>('calendar')
 
+  // Publish the live global-timer snapshot for the macOS menu-bar mirror (web-only).
+  useMenuBarSync()
+
   const [showMoreSheet, setShowMoreSheet] = useState(false)
   const [customizing, setCustomizing] = useState(false)
   const [pendingTabSwitch, setPendingTabSwitch] = useState<Parameters<typeof setView>[0] | null>(null)
@@ -1095,6 +1100,9 @@ const { view, setView, focusedTaskId } = useTaskView()
 
         {/* Focus reminder settings */}
         <FocusReminderButton />
+
+        {/* macOS menu-bar timer setup (web only) */}
+        <MenuBarButton />
 
         {/* Refresh button */}
         <Pressable hitSlop={8} onPress={() => refetch()} disabled={isFetching} style={{ opacity: isFetching ? 0.4 : 1 }}>
