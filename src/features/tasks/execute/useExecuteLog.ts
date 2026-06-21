@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { format } from 'date-fns'
 import { useSystemLog } from './useSystemLog'
 import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
+import { clientId, clientLabel } from '@/platform/clientIdentity'
 
 export const MIN_ESTIMATE = 5
 export const ESTIMATE_STEP = 5
@@ -79,9 +80,13 @@ function minutesFromMidnight(iso: string): number {
   }
 }
 
-/** Check if a time range overlaps with any existing session for the same task on the same date. */
+/**
+ * Check if a time range overlaps with any existing session for the same task on the same date.
+ * Accepts any keyed map exposing `startedAt`/`actualSeconds` — works for both the 3-part
+ * `entries` aggregate and the 4-part `sessionLog` per-block map.
+ */
 export function hasTimeOverlap(
-  entries: Record<string, ExecuteLogEntry>,
+  entries: Record<string, { startedAt: string | null; actualSeconds: number }>,
   checklistId: number,
   taskId: number,
   dateStr: string,
@@ -112,46 +117,88 @@ export function hasTimeOverlap(
   return false
 }
 
+/** One play→pause block, resolved for a given day. */
+export interface DayBlock {
+  key: string            // 4-part key: checklistId:date:taskId:startMs (or :manual:uid)
+  taskId: number
+  startedAt: string
+  actualSeconds: number  // live seconds for the currently-running block
+  completedAt: string | null
+  taskName?: string
+  clientId?: string
+  clientLabel?: string
+}
+
 /**
- * Single source-of-truth session summary used by Execute tab, Log tab, and the popup overlay.
+ * Single source-of-truth list of play→pause blocks for one day. Used by the Log view and
+ * every "X sessions" badge so all counts agree.
  *
- * Algorithm (same as Log tab):
- *  1. Local `entries` (3-part keys) are the live source for in-progress tasks.
- *  2. `remoteSessions` fills in everything else (any key length), deduped against entries.
- *  3. The currently-running session key (4-part) is also deduped so it isn't double-counted.
+ * Each block is emitted once:
+ *  1. `remoteSessions` (synced, authoritative — carries client identity + manual entries) first.
+ *  2. `sessionLog` fills in blocks recorded on this device that aren't synced yet (incl. the
+ *     currently-running one, whose live elapsed is added on the fly). Deduped by exact key,
+ *     which is identical between the two maps for a synced session.
+ */
+export function collectDayBlocks(
+  dateStr: string,
+  sessionLog: Record<string, SessionLogEntry>,
+  remoteSessions: Record<string, {
+    taskId: number; startedAt: string; actualSeconds: number; completedAt: string | null
+    taskName?: string; clientId?: string; clientLabel?: string
+  }>,
+  currentSessionKey: string | null,
+  timerStartedAt: number | null,
+  taskNames?: Record<string, string>,
+): DayBlock[] {
+  const seen = new Set<string>()
+  const blocks: DayBlock[] = []
+
+  for (const [key, s] of Object.entries(remoteSessions)) {
+    if (!s.startedAt) continue
+    const parts = key.split(':')
+    if (parts.length < 3 || parts[1] !== dateStr) continue
+    seen.add(key)
+    blocks.push({
+      key, taskId: s.taskId, startedAt: s.startedAt, actualSeconds: s.actualSeconds,
+      completedAt: s.completedAt ?? null, taskName: s.taskName, clientId: s.clientId, clientLabel: s.clientLabel,
+    })
+  }
+
+  for (const [key, sl] of Object.entries(sessionLog)) {
+    if (seen.has(key) || !sl.startedAt) continue
+    const parts = key.split(':')
+    if (parts.length < 4 || parts[1] !== dateStr) continue
+    seen.add(key)
+    const isRunning = currentSessionKey === key && timerStartedAt !== null
+    const extra = isRunning ? Math.floor((Date.now() - timerStartedAt) / 1000) : 0
+    blocks.push({
+      key, taskId: Number(parts[2]), startedAt: sl.startedAt, actualSeconds: sl.actualSeconds + extra,
+      completedAt: sl.completedAt, taskName: taskNames?.[parts.slice(0, 3).join(':')],
+      clientId: clientId(), clientLabel: clientLabel(),
+    })
+  }
+
+  return blocks
+}
+
+/**
+ * Per-block session summary used by the Execute tab, Log tab, and tab-bar badge.
+ * Counts each play→pause block (not each task) so every badge matches the Log list.
  */
 export function summarizeDaySessions(
   dateStr: string,
-  entries: Record<string, ExecuteLogEntry>,
-  remoteSessions: Record<string, { startedAt: string; actualSeconds: number }>,
-  timerRunningKey: string | null,
+  sessionLog: Record<string, SessionLogEntry>,
+  remoteSessions: Record<string, {
+    taskId: number; startedAt: string; actualSeconds: number; completedAt: string | null
+    clientId?: string; clientLabel?: string
+  }>,
+  currentSessionKey: string | null,
   timerStartedAt: number | null,
 ): { sessionCount: number; sessionTotalSeconds: number } {
-  const seen = new Set<string>()
-  let sessionCount = 0
+  const blocks = collectDayBlocks(dateStr, sessionLog, remoteSessions, currentSessionKey, timerStartedAt)
   let sessionTotalSeconds = 0
-
-  for (const [key, entry] of Object.entries(entries)) {
-    const parts = key.split(':')
-    if (parts.length < 3 || parts[1] !== dateStr || !entry.startedAt) continue
-    seen.add(key)
-    sessionCount++
-    sessionTotalSeconds += liveSeconds(entry, timerRunningKey, timerStartedAt, key)
-  }
-
-  for (const [key, session] of Object.entries(remoteSessions)) {
-    if (seen.has(key) || !session.startedAt) continue
-    const parts = key.split(':')
-    if (parts.length < 3 || parts[1] !== dateStr) continue
-    // For new-format 4-part keys, also dedup against the 3-part task entry key
-    const taskEntryKey = parts.slice(0, 3).join(':')
-    if (seen.has(taskEntryKey)) continue
-    seen.add(key)
-    sessionCount++
-    sessionTotalSeconds += session.actualSeconds
-  }
-
-  return { sessionCount, sessionTotalSeconds }
+  for (const b of blocks) sessionTotalSeconds += b.actualSeconds
+  return { sessionCount: blocks.length, sessionTotalSeconds }
 }
 
 const storage = Platform.OS === 'web'
@@ -189,30 +236,35 @@ export const useExecuteLog = create<ExecuteLogStore>()(
       }),
       updateSessionTimes: (key, startMin, durationMin) =>
         set((s) => {
-          const entry = s.entries[key]
-          if (!entry || !entry.startedAt) return s
+          // Per-block edit: operate on the 4-part sessionLog entry, not the task aggregate.
+          const session = s.sessionLog[key]
+          if (!session || !session.startedAt) return s
 
           const parts = key.split(':')
-          if (parts.length < 3) return s
+          if (parts.length < 4) return s
           const [checklistId, dateStr, taskId] = parts
 
-          // Check for overlaps with other sessions for the same task
-          if (hasTimeOverlap(s.entries, Number(checklistId), Number(taskId), dateStr, startMin, durationMin, key)) {
+          // Check for overlaps with other blocks for the same task on this day
+          if (hasTimeOverlap(s.sessionLog, Number(checklistId), Number(taskId), dateStr, startMin, durationMin, key)) {
             console.warn('[useExecuteLog] Cannot update: overlapping time range with another session for this task')
             return s
           }
 
-          // Reconstruct startedAt using the date from the key (format: checklistId:yyyy-MM-dd:taskId)
-          const datePart = dateStr ?? entry.startedAt.slice(0, 10)
+          // Reconstruct startedAt using the date from the key (format: checklistId:yyyy-MM-dd:taskId:startMs)
+          const datePart = dateStr ?? session.startedAt.slice(0, 10)
           const h = Math.floor(startMin / 60) % 24
           const m = Math.round(startMin % 60)
           const newStartedAt = `${datePart}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00.000Z`
-          return {
-            entries: {
-              ...s.entries,
-              [key]: { ...entry, startedAt: newStartedAt, actualSeconds: Math.round(durationMin * 60) },
-            },
-          }
+          const actualSeconds = Math.round(durationMin * 60)
+          const updated = { ...session, startedAt: newStartedAt, actualSeconds }
+
+          // Re-sync the edited block to the System Log checklist (same 4-part key).
+          const name = s.taskNames?.[parts.slice(0, 3).join(':')] ?? `Task ${taskId}`
+          useSystemLog.getState().syncSession(key, name, {
+            taskId: Number(taskId), estimateMin: 0, startedAt: newStartedAt, actualSeconds, completedAt: session.completedAt,
+          }).catch(() => {})
+
+          return { sessionLog: { ...s.sessionLog, [key]: updated } }
         }),
       seed: (key, taskId, estimateMin) =>
         set((s) => {

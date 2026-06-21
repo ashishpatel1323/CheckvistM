@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { View, Text, ScrollView, Pressable, TextInput, Modal, useWindowDimensions } from 'react-native'
-import { useExecuteLog, summarizeDaySessions, hasTimeOverlap, type ExecuteLogEntry } from './useExecuteLog'
+import { View, Text, ScrollView, Pressable, TextInput, Modal, useWindowDimensions, Platform } from 'react-native'
+import { useExecuteLog, summarizeDaySessions, collectDayBlocks, hasTimeOverlap, type ExecuteLogEntry } from './useExecuteLog'
 import { useSystemLog } from './useSystemLog'
-import { clientColor, clientId, clientLabel } from '@/platform/clientIdentity'
+import { clientColor } from '@/platform/clientIdentity'
 import { format, parseISO, addDays, subDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth, isToday } from 'date-fns'
 import { Cloud, ChevronLeft, ChevronRight, Calendar, CalendarDays, List } from 'lucide-react-native'
 
@@ -23,6 +23,7 @@ interface LogBlock {
   startMin: number
   durationMin: number
   entry: ExecuteLogEntry
+  taskName?: string
   clientId?: string
   clientLabel?: string
 }
@@ -252,7 +253,7 @@ function EditModal({ block, taskName, onSave, onClose }: {
   block: LogBlock; taskName: string
   onSave: (s: number, d: number) => void; onClose: () => void
 }) {
-  const { entries } = useExecuteLog()
+  const { sessionLog } = useExecuteLog()
   const { deleteSession } = useSystemLog()
   const [sh, setSh] = useState(String(Math.floor(bStart(block) / 60) % 24))
   const [sm, setSm] = useState(String(Math.round(bStart(block) % 60)).padStart(2, '0'))
@@ -262,12 +263,12 @@ function EditModal({ block, taskName, onSave, onClose }: {
   const parsedDur   = Number(dur)
   const valid = !isNaN(parsedStart) && !isNaN(parsedDur) && parsedDur > 0
 
-  // Check for overlaps with other sessions
+  // Check for overlaps with other blocks for the same task on this day
   const parts = block.key.split(':')
   const checklistId = Number(parts[0])
   const dateStr = parts[1]
   const taskId = Number(parts[2])
-  const overlapDetected = valid && hasTimeOverlap(entries, checklistId, taskId, dateStr, parsedStart, parsedDur, block.key)
+  const overlapDetected = valid && hasTimeOverlap(sessionLog, checklistId, taskId, dateStr, parsedStart, parsedDur, block.key)
   const canSave = valid && !overlapDetected
 
   const handleDelete = async () => {
@@ -391,16 +392,47 @@ function CalendarPicker({ selected, onSelect, onClose }: {
 
 // ─── Agenda list view ─────────────────────────────────────────────────────────
 
+const IS_WEB = Platform.OS === 'web'
+
 function AgendaList({ blocks, taskNames, onPressBlock }: {
   blocks: LogBlock[]; taskNames: Record<number, string>; onPressBlock: (b: LogBlock) => void
 }) {
   const sorted = [...blocks].sort((a, b) => bStart(a) - bStart(b))
+  const name = (b: LogBlock) => taskNames[b.taskId] ?? b.taskName ?? `Task ${b.taskId}`
 
   if (sorted.length === 0) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 64 }}>
         <Text style={{ fontSize: 13, color: '#9CA3AF' }}>No sessions recorded for this day.</Text>
       </View>
+    )
+  }
+
+  // Web: compact rows (less height) since the list can get long. No client label here — the
+  // name gets the space and wraps to two lines so it's always readable.
+  if (IS_WEB) {
+    return (
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 6, gap: 4 }} showsVerticalScrollIndicator={false}>
+        {sorted.map(block => (
+          <Pressable
+            key={block.key}
+            onPress={() => onPressBlock(block)}
+            style={{
+              flexDirection: 'row', alignItems: 'center', gap: 10,
+              backgroundColor: 'white', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
+              borderLeftWidth: 3, borderLeftColor: clientColor(block.clientId),
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#374151', flexShrink: 0 }} numberOfLines={1}>
+              {fmtMinTime(bStart(block))} – {fmtMinTime(bEnd(block))}
+            </Text>
+            <Text numberOfLines={2} style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: '600', color: '#1e3a8a' }}>
+              {name(block)}
+            </Text>
+            <Text style={{ fontSize: 11, color: '#6B7280', flexShrink: 0 }}>{fmtDur(bDur(block))}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
     )
   }
 
@@ -422,8 +454,8 @@ function AgendaList({ blocks, taskNames, onPressBlock }: {
             <Text style={{ fontSize: 10, color: '#9CA3AF' }}>{fmtMinTime(bEnd(block))}</Text>
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '600', color: '#1e3a8a' }}>
-              {taskNames[block.taskId] ?? `Task ${block.taskId}`}
+            <Text style={{ fontSize: 13, fontWeight: '600', color: '#1e3a8a' }}>
+              {name(block)}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={{ fontSize: 11, color: '#6B7280' }}>{fmtDur(bDur(block))}</Text>
@@ -440,16 +472,17 @@ function AgendaList({ blocks, taskNames, onPressBlock }: {
 }
 
 export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { checklistId: number; taskNames: Record<number, string>; initialViewMode?: 'calendar' | 'agenda' }) {
-  const { entries, timerRunningKey, timerStartedAt, updateSessionTimes } = useExecuteLog()
+  const { sessionLog, currentSessionKey, timerStartedAt, updateSessionTimes } = useExecuteLog()
   const { remoteSessions, fetchTodaySessions, systemListId, addManualSession } = useSystemLog()
   const [now, setNow]           = useState(() => new Date())
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [showCalendar, setShowCalendar] = useState(false)
-  const [viewMode, setViewMode] = useState<'calendar' | 'agenda'>(initialViewMode ?? 'calendar')
+  const [viewMode, setViewMode] = useState<'calendar' | 'agenda'>(initialViewMode ?? 'agenda')
   const scrollRef               = useRef<ScrollView>(null)
   const [editingBlock, setEditingBlock] = useState<LogBlock | null>(null)
   const [addingAt, setAddingAt] = useState<number | null>(null) // minutes from midnight
   const [clientFilter, setClientFilter] = useState<string | null>(null) // clientId or UNKNOWN_CLIENT
+  const [taskFilter, setTaskFilter] = useState<number | null>(null) // taskId
   const [syncing, setSyncing]   = useState(false)
   const [, tick]                = useState(0)
 
@@ -477,29 +510,22 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
   const selectedStr = format(selectedDate, 'yyyy-MM-dd')
   const isViewingToday = selectedStr === todayStr
 
-  const allBlocks = useMemo<LogBlock[]>(() => {
-    const blocks: LogBlock[] = []
-    const seen = new Set<string>()
+  // One block per play→pause session — sessionLog ∪ remoteSessions deduped by exact key.
+  const allBlocks = useMemo<LogBlock[]>(() =>
+    collectDayBlocks(selectedStr, sessionLog, remoteSessions, currentSessionKey, timerStartedAt).map((b) => ({
+      key: b.key,
+      taskId: b.taskId,
+      startMin: minutesFromMidnight(b.startedAt),
+      durationMin: Math.max(1, b.actualSeconds / 60),
+      entry: { taskId: b.taskId, estimateMin: 0, startedAt: b.startedAt, actualSeconds: b.actualSeconds, completedAt: b.completedAt },
+      taskName: b.taskName,
+      clientId: b.clientId,
+      clientLabel: b.clientLabel,
+    })),
+    [sessionLog, remoteSessions, selectedStr, currentSessionKey, timerStartedAt])
 
-    for (const [key, entry] of Object.entries(entries)) {
-      const parts = key.split(':')
-      if (parts.length < 3 || parts[1] !== selectedStr || !entry.startedAt) continue
-      seen.add(key)
-      const isRunning = timerRunningKey === key && timerStartedAt !== null
-      const actualSec = isRunning ? entry.actualSeconds + Math.floor((Date.now() - timerStartedAt) / 1000) : entry.actualSeconds
-      // Live local entries originate from this device.
-      blocks.push({ key, taskId: entry.taskId, startMin: minutesFromMidnight(entry.startedAt), durationMin: Math.max(1, actualSec / 60), entry, clientId: clientId(), clientLabel: clientLabel() })
-    }
-
-    for (const [key, session] of Object.entries(remoteSessions)) {
-      if (seen.has(key) || !session.startedAt) continue
-      const parts = key.split(':')
-      if (parts.length < 3 || parts[1] !== selectedStr) continue
-      blocks.push({ key, taskId: session.taskId, startMin: minutesFromMidnight(session.startedAt), durationMin: Math.max(1, session.actualSeconds / 60), entry: { taskId: session.taskId, estimateMin: 0, startedAt: session.startedAt, actualSeconds: session.actualSeconds, completedAt: session.completedAt }, clientId: session.clientId, clientLabel: session.clientLabel })
-    }
-
-    return blocks
-  }, [entries, remoteSessions, selectedStr, timerRunningKey, timerStartedAt])
+  // Resolve a block's display name: explicit task name prop → carried session name → fallback.
+  const blockName = (b: LogBlock) => taskNames[b.taskId] ?? b.taskName ?? `Task ${b.taskId}`
 
   // Distinct clients present on the selected day, for the legend/filter strip.
   const clients = useMemo(() => {
@@ -513,14 +539,31 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
     return Array.from(map.values()).sort((a, b) => b.count - a.count)
   }, [allBlocks])
 
-  // Clear an active filter once that client has no sessions on the newly-selected day.
+  // Distinct tasks worked on the selected day, for the task filter strip.
+  const taskGroups = useMemo(() => {
+    const map = new Map<number, { id: number; label: string; count: number }>()
+    for (const b of allBlocks) {
+      const existing = map.get(b.taskId)
+      if (existing) { existing.count++; continue }
+      map.set(b.taskId, { id: b.taskId, label: blockName(b), count: 1 })
+    }
+    return Array.from(map.values()).sort((a, b) => b.count - a.count)
+  }, [allBlocks, taskNames])
+
+  // Clear an active filter once that client/task has no sessions on the newly-selected day.
   useEffect(() => {
     if (clientFilter && !clients.some(c => c.id === clientFilter)) setClientFilter(null)
   }, [clients, clientFilter])
+  useEffect(() => {
+    if (taskFilter != null && !taskGroups.some(t => t.id === taskFilter)) setTaskFilter(null)
+  }, [taskGroups, taskFilter])
 
   const visibleBlocks = useMemo(
-    () => clientFilter ? allBlocks.filter(b => (b.clientId ?? UNKNOWN_CLIENT) === clientFilter) : allBlocks,
-    [allBlocks, clientFilter],
+    () => allBlocks.filter(b =>
+      (!clientFilter || (b.clientId ?? UNKNOWN_CLIENT) === clientFilter) &&
+      (taskFilter == null || b.taskId === taskFilter)
+    ),
+    [allBlocks, clientFilter, taskFilter],
   )
 
   // Build per-day summary for the 7-day strip (±3 days around selected)
@@ -528,10 +571,10 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
     return Array.from({ length: 7 }, (_, i) => {
       const day = addDays(selectedDate, i - 3)
       const ds = format(day, 'yyyy-MM-dd')
-      const { sessionCount, sessionTotalSeconds } = summarizeDaySessions(ds, entries, remoteSessions, timerRunningKey, timerStartedAt)
+      const { sessionCount, sessionTotalSeconds } = summarizeDaySessions(ds, sessionLog, remoteSessions, currentSessionKey, timerStartedAt)
       return { day, ds, count: sessionCount, totalMin: sessionTotalSeconds / 60, isSelected: i === 3 }
     })
-  }, [selectedDate, entries, remoteSessions, timerRunningKey, timerStartedAt])
+  }, [selectedDate, sessionLog, remoteSessions, currentSessionKey, timerStartedAt])
 
   const clusters = useMemo(() => layoutBlocks(visibleBlocks), [visibleBlocks])
   const totalDur = visibleBlocks.reduce((s, b) => s + bDur(b), 0)
@@ -640,6 +683,35 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
         ))}
       </View>
 
+      {/* Task filter — chips per task worked that day, with session counts */}
+      {taskGroups.length > 1 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#EFEFEF', flexGrow: 0 }}
+          contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}
+        >
+          {taskGroups.map(t => {
+            const active = taskFilter === t.id
+            return (
+              <Pressable
+                key={t.id}
+                onPress={() => setTaskFilter(active ? null : t.id)}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 5,
+                  paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
+                  backgroundColor: active ? '#EEF2FF' : '#F3F4F6',
+                  borderWidth: 1, borderColor: active ? '#4772FA' : 'transparent',
+                }}
+              >
+                <Text numberOfLines={1} style={{ fontSize: 11, fontWeight: '600', color: active ? '#4772FA' : '#374151', maxWidth: 160 }}>{t.label}</Text>
+                <Text style={{ fontSize: 10, color: active ? '#6B9FFF' : '#9CA3AF' }}>{t.count}</Text>
+              </Pressable>
+            )
+          })}
+        </ScrollView>
+      )}
+
       {/* Client legend / filter — only when more than one device contributed */}
       {clients.length > 1 && (
         <ScrollView
@@ -736,14 +808,15 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
                   height: (g.endMin - g.startMin) * MIN_H - 2,
                   borderRadius: 3,
                   borderWidth: 1,
-                  borderColor: '#EBEBEB',
+                  borderColor: '#E2E2E2',
                   borderStyle: 'dashed',
+                  backgroundColor: '#E8E9EB',
                   justifyContent: 'center',
                   paddingLeft: 8,
                 }}
               >
                 {(g.endMin - g.startMin) >= 12 && (
-                  <Text style={{ fontSize: 9, color: '#D1D5DB' }}>
+                  <Text style={{ fontSize: 9, color: '#9CA3AF' }}>
                     {fmtMinTime(g.startMin)} – {fmtMinTime(g.endMin)} · {Math.round(g.endMin - g.startMin)}m · no work recorded
                   </Text>
                 )}
@@ -774,7 +847,7 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
                           <BlockTile
                             block={block}
                             onPress={() => setEditingBlock(block)}
-                            taskName={taskNames[block.taskId] ?? `Task ${block.taskId}`}
+                            taskName={blockName(block)}
                             height={blockH}
                           />
                         </View>
@@ -804,7 +877,7 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
       {editingBlock && (
         <EditModal
           block={editingBlock}
-          taskName={taskNames[editingBlock.taskId] ?? `Task ${editingBlock.taskId}`}
+          taskName={blockName(editingBlock)}
           onSave={(s, d) => updateSessionTimes(editingBlock.key, s, d)}
           onClose={() => setEditingBlock(null)}
         />

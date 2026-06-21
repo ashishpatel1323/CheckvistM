@@ -827,14 +827,14 @@ export function ExecuteControlBar({ onClose }: { onClose?: () => void }) {
 // ─── Today's sessions summary card ───────────────────────────────────────────
 
 export function TodaySessionsCard() {
-  const entries = useExecuteLog((s) => s.entries)
-  const timerRunningKey = useExecuteLog((s) => s.timerRunningKey)
+  const sessionLog = useExecuteLog((s) => s.sessionLog)
+  const currentSessionKey = useExecuteLog((s) => s.currentSessionKey)
   const timerStartedAt = useExecuteLog((s) => s.timerStartedAt)
   const remoteSessions = useSystemLog((s) => s.remoteSessions)
   const todayStr = format(new Date(), 'yyyy-MM-dd')
   const { sessionCount, sessionTotalSeconds } = useMemo(() => {
-    return summarizeDaySessions(todayStr, entries, remoteSessions, timerRunningKey, timerStartedAt)
-  }, [entries, remoteSessions, timerRunningKey, timerStartedAt, todayStr])
+    return summarizeDaySessions(todayStr, sessionLog, remoteSessions, currentSessionKey, timerStartedAt)
+  }, [sessionLog, remoteSessions, currentSessionKey, timerStartedAt, todayStr])
 
   return (
     <View style={{ marginHorizontal: 16, marginTop: 8, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', gap: 8, borderWidth: 1, borderColor: '#F1F5F9' }}>
@@ -1514,14 +1514,16 @@ export function ExecuteViewContent({ onClose, onSwitchToLog }: { onClose: () => 
     confirmSwitch, cancelSwitch, completedStreak, pendingSwitch,
   } = useExecCtx()
   const remoteSessions = useSystemLog((s) => s.remoteSessions)
+  const sessionLog = useExecuteLog((s) => s.sessionLog)
+  const currentSessionKey = useExecuteLog((s) => s.currentSessionKey)
 
   const { width } = useWindowDimensions()
   const isMobile = width < 768
 
   const todayStr = format(new Date(), 'yyyy-MM-dd')
   const { sessionCount, sessionTotalSeconds } = useMemo(() => {
-    return summarizeDaySessions(todayStr, entries, remoteSessions, timerRunningKey, timerStartedAt)
-  }, [entries, remoteSessions, timerRunningKey, timerStartedAt, todayStr])
+    return summarizeDaySessions(todayStr, sessionLog, remoteSessions, currentSessionKey, timerStartedAt)
+  }, [sessionLog, remoteSessions, currentSessionKey, timerStartedAt, todayStr])
 
   const [editingEstimate, setEditingEstimate] = useState(false)
   const [estimateDraft, setEstimateDraft] = useState('')

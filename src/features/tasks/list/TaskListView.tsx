@@ -218,8 +218,8 @@ function StatBadge({ label, value, sub }: { label: string; value: string; sub?: 
 }
 
 function SessionsStatBadge() {
-  const entries = useExecuteLog((s) => s.entries)
-  const timerRunningKey = useExecuteLog((s) => s.timerRunningKey)
+  const sessionLog = useExecuteLog((s) => s.sessionLog)
+  const currentSessionKey = useExecuteLog((s) => s.currentSessionKey)
   const timerStartedAt = useExecuteLog((s) => s.timerStartedAt)
   const remoteSessions = useSystemLog((s) => s.remoteSessions)
   const fetchTodaySessions = useSystemLog((s) => s.fetchTodaySessions)
@@ -228,8 +228,8 @@ function SessionsStatBadge() {
   useEffect(() => { fetchTodaySessions() }, [fetchTodaySessions])
 
   const { sessionCount, sessionTotalSeconds } = useMemo(() => {
-    return summarizeDaySessions(todayStr, entries, remoteSessions, timerRunningKey, timerStartedAt)
-  }, [entries, remoteSessions, timerRunningKey, timerStartedAt, todayStr])
+    return summarizeDaySessions(todayStr, sessionLog, remoteSessions, currentSessionKey, timerStartedAt)
+  }, [sessionLog, remoteSessions, currentSessionKey, timerStartedAt, todayStr])
 
   return <StatBadge label="SESSIONS" value={String(sessionCount)} sub={fmtDur(sessionTotalSeconds)} />
 }
@@ -902,7 +902,7 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
   const [showShortcuts, setShowShortcuts] = useState(false)
 const { view, setView, focusedTaskId } = useTaskView()
   const { order: tabOrder, moveTab, reorderTab } = useTabBarConfig()
-  const [logInitialMode, setLogInitialMode] = useState<'calendar' | 'agenda'>('calendar')
+  const [logInitialMode, setLogInitialMode] = useState<'calendar' | 'agenda'>('agenda')
 
   // Publish the live global-timer snapshot for the macOS menu-bar mirror (web-only).
   useMenuBarSync()
@@ -945,15 +945,15 @@ const { view, setView, focusedTaskId } = useTaskView()
   const routines = useRoutineStore((s) => s.routines)
   const checkins = useRoutineStore((s) => s.checkins)
   const getTodayCheckin = useRoutineStore((s) => s.getTodayCheckin)
-  const entries = useExecuteLog((s) => s.entries)
-  const timerRunningKey = useExecuteLog((s) => s.timerRunningKey)
+  const sessionLog = useExecuteLog((s) => s.sessionLog)
+  const currentSessionKey = useExecuteLog((s) => s.currentSessionKey)
   const timerStartedAt = useExecuteLog((s) => s.timerStartedAt)
   const remoteSessions = useSystemLog((s) => s.remoteSessions)
   const todayStr = format(new Date(), 'yyyy-MM-dd')
 
   const { sessionCount } = useMemo(() => {
-    return summarizeDaySessions(todayStr, entries, remoteSessions, timerRunningKey, timerStartedAt)
-  }, [entries, remoteSessions, timerRunningKey, timerStartedAt, todayStr])
+    return summarizeDaySessions(todayStr, sessionLog, remoteSessions, currentSessionKey, timerStartedAt)
+  }, [sessionLog, remoteSessions, currentSessionKey, timerStartedAt, todayStr])
 
   const tabBadges = useMemo(() => {
     if (!tasks) return { date: 0, execute: 0, routines: 0, log: 0 }
