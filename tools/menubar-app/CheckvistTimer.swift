@@ -254,6 +254,11 @@ func hourglassImage(_ s: CGFloat) -> CGImage? {
 final class HourglassView: NSView {
     private let glyph = CALayer()
     private(set) var size: CGFloat
+    var onClick: (() -> Void)?
+
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func mouseDown(with event: NSEvent) { onClick?() }
 
     init(size: CGFloat) {
         self.size = size
@@ -406,6 +411,12 @@ final class TimerController: NSObject {
         render()
     }
 
+    /// Click the hourglass to pull the latest snapshot immediately (don't wait for the 15s poll).
+    func forceRefresh() {
+        lastFetch = Date()
+        fetch()
+    }
+
     func fetch() {
         loadConfig()
         guard !topic.isEmpty,
@@ -551,6 +562,7 @@ final class TimerController: NSObject {
         content.layer?.masksToBounds = true
         content.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.9).cgColor
         hourglass = HourglassView(size: hgSize)
+        hourglass.onClick = { [weak self] in self?.forceRefresh() }
         content.addSubview(hourglass)
         content.addSubview(flipClock)
 
