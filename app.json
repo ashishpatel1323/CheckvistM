@@ -3,12 +3,10 @@
     "name": "Checkvist",
     "slug": "checkvist-app",
     "version": "1.0.0",
-    "runtimeVersion": {
-      "policy": "fingerprint"
-    },
+    "runtimeVersion": "2.0.0",
     "updates": {
       "url": "https://u.expo.dev/f0c7beb2-284a-4eea-b8ca-0f04229e0bb9",
-      "enabled": false,
+      "enabled": true,
       "fallbackToCacheTimeout": 0,
       "checkAutomatically": "ON_LOAD"
     },
