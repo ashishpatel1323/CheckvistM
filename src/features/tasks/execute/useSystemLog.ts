@@ -181,7 +181,7 @@ export const useSystemLog = create<SystemLogStore>()(
       },
 
       syncSession: async (key, taskName, entry) => {
-        if (!entry.startedAt || entry.actualSeconds < 5) return
+        if (!entry.startedAt || entry.actualSeconds < 10) return
 
         // Optimistic local update so Execute tab sees it immediately without waiting for fetchTodaySessions
         const optimisticSession: SyncedSession = {
