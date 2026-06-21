@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { useRoutineSystem } from './useRoutineSystem'
 import type { RoutineDef, CheckinLog } from './routineTypes'
 import { getPendingRoutineStepIds } from './routineSchedule'
@@ -55,6 +55,8 @@ interface RoutineStoreState {
   toggleStep: (routine: RoutineDef, stepId: string, date?: string) => Promise<void>
   /** Toggle a step's failed status for a given date (defaults to today). Marking failed clears any done state. */
   markStepFailed: (routine: RoutineDef, stepId: string, date?: string) => Promise<void>
+  /** Mark every still-pending step of a routine as failed for a given date (defaults to today), in one write. */
+  markAllPendingFailed: (routine: RoutineDef, date?: string) => Promise<void>
   startTimer: (routine: RoutineDef) => void
   /** Start the first routine and queue the rest to auto-start in sequence */
   startQueue: (routines: RoutineDef[]) => void
@@ -237,6 +239,36 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
       date: targetDate,
       completedStepIds,
       failedStepIds: failedStepIds.length > 0 ? failedStepIds : undefined,
+      durationSec: existing?.durationSec ?? 0,
+      stepCompletionTimes: existing?.stepCompletionTimes,
+      systemTaskId: existing?.systemTaskId,
+    }
+
+    set((s) => {
+      const arr = s.checkins[routine.taskId] ?? []
+      const others = arr.filter((c) => c.date !== targetDate)
+      return { checkins: { ...s.checkins, [routine.taskId]: [...others, log] } }
+    })
+
+    await get().upsertCheckin(log, routine.name)
+  },
+
+  markAllPendingFailed: async (routine, date?) => {
+    const targetDate = date ?? todayStr()
+    const existing = get().getCheckinForDate(routine.taskId, targetDate)
+    const completedStepIds = existing?.completedStepIds ?? []
+    const prevFailed = existing?.failedStepIds ?? []
+    const dayOfWeek = parseISO(targetDate).getDay()
+    const pendingStepIds = getPendingRoutineStepIds(routine, completedStepIds, dayOfWeek, prevFailed)
+    if (pendingStepIds.length === 0) return
+
+    const failedStepIds = [...new Set([...prevFailed, ...pendingStepIds])]
+
+    const log: CheckinLog = {
+      routineTaskId: routine.taskId,
+      date: targetDate,
+      completedStepIds,
+      failedStepIds,
       durationSec: existing?.durationSec ?? 0,
       stepCompletionTimes: existing?.stepCompletionTimes,
       systemTaskId: existing?.systemTaskId,

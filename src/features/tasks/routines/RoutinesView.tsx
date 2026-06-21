@@ -3,8 +3,8 @@ import {
   View, Text, Pressable, ScrollView, useWindowDimensions,
   ActivityIndicator, Modal, TextInput,
 } from 'react-native'
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon, Play, Flame, Zap, Clock, CalendarDays, X as XIcon } from 'lucide-react-native'
-import { format, addDays, subDays, isToday, isFuture, startOfMonth, endOfMonth, eachDayOfInterval, getDay, getDaysInMonth } from 'date-fns'
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon, Play, Flame, Zap, Clock, CalendarDays, X as XIcon, AlertTriangle } from 'lucide-react-native'
+import { format, addDays, subDays, isToday, isFuture, startOfMonth, endOfMonth, eachDayOfInterval, getDay, getDaysInMonth, parseISO } from 'date-fns'
 import { useRoutineStore } from './useRoutineStore'
 import { useRoutineSystem } from './useRoutineSystem'
 import { RoutineDetailView } from './RoutineDetailView'
@@ -542,11 +542,12 @@ interface RoutineGroupProps {
   onStartRoutine?: () => void
   onStartStep?: (stepId: string) => void
   onMarkFailed?: (stepId: string) => void
+  onMarkAllFailed?: () => void
 }
 
 function RoutineGroup({
   routine, visibleDates, selectedDate, filterMode, colWidth, circleSize,
-  onToggle, checkins, onEdit, onDelete, selectedStepId, onSelectStep, onStartRoutine, onStartStep, onMarkFailed,
+  onToggle, checkins, onEdit, onDelete, selectedStepId, onSelectStep, onStartRoutine, onStartStep, onMarkFailed, onMarkAllFailed,
 }: RoutineGroupProps) {
   const [collapsed, setCollapsed] = useState(false)
   const accentColor = ROUTINE_COLORS[routine.color]
@@ -581,6 +582,12 @@ function RoutineGroup({
 
   if (filteredSteps.length === 0) return null
 
+  const selectedPendingCount = routine.steps.filter((step) => {
+    const isDone = (checkinsByDate[selectedDs] ?? []).includes(step.id)
+    const isFailed = (failedByDate[selectedDs] ?? []).includes(step.id)
+    return getStepStatus(step, selectedDow, isDone, isFailed) === 'pending'
+  }).length
+
   return (
     <View style={{ marginBottom: 8 }}>
       {/* Group header */}
@@ -608,6 +615,20 @@ function RoutineGroup({
         }}>
           {filteredSteps.length}
         </Text>
+        {onMarkAllFailed && selectedPendingCount > 0 && (
+          <Pressable
+            onPress={(e) => { e.stopPropagation(); onMarkAllFailed() }}
+            hitSlop={8}
+            style={{
+              width: 26, height: 26, borderRadius: 13,
+              backgroundColor: FAILURE_RED + '18',
+              alignItems: 'center', justifyContent: 'center',
+              marginRight: 8,
+            }}
+          >
+            <AlertTriangle size={13} color={FAILURE_RED} />
+          </Pressable>
+        )}
         {onStartRoutine && (
           <Pressable
             onPress={(e) => { e.stopPropagation(); onStartRoutine() }}
@@ -880,7 +901,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   const { width } = useWindowDimensions()
   const isMobile = width < 768
 
-  const { routines, checkins, loading, activeTimer, loadRoutines, toggleStep, markStepFailed, startQueue, startTimer, getTodayCheckin } = useRoutineStore()
+  const { routines, checkins, loading, activeTimer, loadRoutines, toggleStep, markStepFailed, markAllPendingFailed, startQueue, startTimer, getTodayCheckin } = useRoutineStore()
   const { saveRoutineDef, deleteRoutineDef } = useRoutineSystem()
 
   const [selectedDate, setSelectedDate] = useState(() => new Date())
@@ -888,6 +909,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   const [filterMode, setFilterMode] = useState<RoutineFilterMode>('pending')
   const [editingRoutine, setEditingRoutine] = useState<RoutineDef | 'new' | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
+  const [confirmFailRoutine, setConfirmFailRoutine] = useState<{ taskId: number; date: string } | null>(null)
   const [selectedHabit, setSelectedHabit] = useState<{ routineTaskId: number; stepId: string } | null>(null)
 
   // Compute pending step counts for today per routine (excludes done and failed)
@@ -971,6 +993,11 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   const handleMarkFailed = useCallback(async (routine: RoutineDef, stepId: string, date: string) => {
     await markStepFailed(routine, stepId, date)
   }, [markStepFailed])
+
+  const handleMarkAllFailed = async (routine: RoutineDef, date: string) => {
+    setConfirmFailRoutine(null)
+    await markAllPendingFailed(routine, date)
+  }
 
   const handleSave = async (def: Omit<RoutineDef, 'taskId'>) => {
     const existingId = editingRoutine !== 'new' ? editingRoutine?.taskId : undefined
@@ -1204,6 +1231,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
                   if (step) startTimer({ ...routine, steps: [step] })
                 } : undefined}
                 onMarkFailed={(stepId) => handleMarkFailed(routine, stepId, format(selectedDate, 'yyyy-MM-dd'))}
+                onMarkAllFailed={() => setConfirmFailRoutine({ taskId: routine.taskId, date: format(selectedDate, 'yyyy-MM-dd') })}
               />
             ))}
           </ScrollView>
@@ -1283,6 +1311,54 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
                 <Text style={{ fontWeight: '600', color: '#fff' }}>Delete</Text>
               </Pressable>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Mark-all-failed confirmation */}
+      <Modal
+        visible={confirmFailRoutine !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmFailRoutine(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 340 }}>
+            {(() => {
+              if (!confirmFailRoutine) return null
+              const routine = routines.find((r) => r.taskId === confirmFailRoutine.taskId)
+              if (!routine) return null
+              const checkin = (checkins[routine.taskId] ?? []).find((c) => c.date === confirmFailRoutine.date)
+              const dow = parseISO(confirmFailRoutine.date).getDay()
+              const pendingCount = getPendingRoutineStepIds(
+                routine, checkin?.completedStepIds ?? [], dow, checkin?.failedStepIds ?? [],
+              ).length
+              return (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <AlertTriangle size={18} color={FAILURE_RED} />
+                    <Text style={{ fontSize: 17, fontWeight: '700', color: '#111' }}>Mark items as failed?</Text>
+                  </View>
+                  <Text style={{ fontSize: 14, color: '#6B7280', marginBottom: 24 }}>
+                    {pendingCount} pending item{pendingCount !== 1 ? 's' : ''} in &quot;{routine.name}&quot; will be marked as failed for {confirmFailRoutine.date === format(new Date(), 'yyyy-MM-dd') ? 'today' : confirmFailRoutine.date}. This can&apos;t be undone automatically.
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <Pressable
+                      onPress={() => setConfirmFailRoutine(null)}
+                      style={{ flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: '#F3F4F6', alignItems: 'center' }}
+                    >
+                      <Text style={{ fontWeight: '600', color: '#374151' }}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => handleMarkAllFailed(routine, confirmFailRoutine.date)}
+                      style={{ flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: FAILURE_RED, alignItems: 'center' }}
+                    >
+                      <Text style={{ fontWeight: '600', color: '#fff' }}>Mark Failed</Text>
+                    </Pressable>
+                  </View>
+                </>
+              )
+            })()}
           </View>
         </View>
       </Modal>
