@@ -335,9 +335,12 @@ export interface HabitRowProps {
   failedByDate: Record<string, string[]> // date → failedStepIds
   completionTimeByDate: Record<string, string> // date → HH:MM
   onSelect?: () => void
+  /** Tapping just the habit icon (mobile Day-view swipeable row uses this instead of full-row tap) */
+  onIconPress?: () => void
   isSelected?: boolean
   onStartStep?: () => void
   onMarkFailed?: (stepId: string) => void
+  onReset?: (stepId: string) => void
 }
 
 function HabitRow(props: HabitRowProps & { isMobile?: boolean }) {
@@ -388,12 +391,13 @@ interface RoutineGroupProps {
   onStartStep?: (stepId: string) => void
   onMarkFailed?: (stepId: string) => void
   onMarkAllFailed?: () => void
+  onReset?: (stepId: string) => void
   isMobile?: boolean
 }
 
 function RoutineGroup({
   routine, visibleDates, selectedDate, filterMode, colWidth, circleSize,
-  onToggle, checkins, onEdit, onDelete, selectedStepId, onSelectStep, onStartRoutine, onStartStep, onMarkFailed, onMarkAllFailed, isMobile,
+  onToggle, checkins, onEdit, onDelete, selectedStepId, onSelectStep, onStartRoutine, onStartStep, onMarkFailed, onMarkAllFailed, onReset, isMobile,
 }: RoutineGroupProps) {
   const [collapsed, setCollapsed] = useState(false)
   const accentColor = ROUTINE_COLORS[routine.color]
@@ -511,6 +515,7 @@ function RoutineGroup({
           isSelected={selectedStepId === step.id}
           onStartStep={onStartStep ? () => onStartStep(step.id) : undefined}
           onMarkFailed={onMarkFailed ? () => onMarkFailed(step.id) : undefined}
+          onReset={onReset ? () => onReset(step.id) : undefined}
           isMobile={isMobile}
         />
       ))}
@@ -777,7 +782,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   const { width } = useWindowDimensions()
   const isMobile = width < 768
 
-  const { routines, checkins, loading, activeTimer, loadRoutines, toggleStep, markStepFailed, markAllPendingFailed, startQueue, startTimer, getTodayCheckin } = useRoutineStore()
+  const { routines, checkins, loading, activeTimer, loadRoutines, toggleStep, markStepFailed, markAllPendingFailed, resetStep, startQueue, startTimer, getTodayCheckin } = useRoutineStore()
   const { saveRoutineDef, deleteRoutineDef } = useRoutineSystem()
 
   const [selectedDate, setSelectedDate] = useState(() => new Date())
@@ -869,6 +874,10 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   const handleMarkFailed = useCallback(async (routine: RoutineDef, stepId: string, date: string) => {
     await markStepFailed(routine, stepId, date)
   }, [markStepFailed])
+
+  const handleReset = useCallback(async (routine: RoutineDef, stepId: string, date: string) => {
+    await resetStep(routine, stepId, date)
+  }, [resetStep])
 
   const handleMarkAllFailed = async (routine: RoutineDef, date: string) => {
     setConfirmFailRoutine(null)
@@ -1108,6 +1117,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
                 } : undefined}
                 onMarkFailed={(stepId) => handleMarkFailed(routine, stepId, format(selectedDate, 'yyyy-MM-dd'))}
                 onMarkAllFailed={() => setConfirmFailRoutine({ taskId: routine.taskId, date: format(selectedDate, 'yyyy-MM-dd') })}
+                onReset={(stepId) => handleReset(routine, stepId, format(selectedDate, 'yyyy-MM-dd'))}
                 isMobile={isMobile}
               />
             ))}

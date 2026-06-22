@@ -22,7 +22,7 @@ import type { HabitRowProps } from './RoutinesView'
  */
 export function HabitRowContent({
   step, routine, visibleDates, selectedDate, colWidth, circleSize,
-  onToggle, checkinsByDate, failedByDate, completionTimeByDate, onStartStep, onMarkFailed,
+  onToggle, checkinsByDate, failedByDate, completionTimeByDate, onStartStep, onMarkFailed, onIconPress,
 }: HabitRowProps) {
   const accentColor = ROUTINE_COLORS[routine.color]
   const updateCheckinTime = useRoutineStore((s) => s.updateCheckinTime)
@@ -34,13 +34,18 @@ export function HabitRowContent({
     <>
       {/* Emoji icon + X/21 badge */}
       <View style={{ alignItems: 'center', marginRight: 10, gap: 3 }}>
-        <View style={{
-          width: 36, height: 36, borderRadius: 18,
-          backgroundColor: accentColor + '20',
-          alignItems: 'center', justifyContent: 'center',
-        }}>
+        <Pressable
+          onPress={onIconPress}
+          disabled={!onIconPress}
+          hitSlop={6}
+          style={{
+            width: 36, height: 36, borderRadius: 18,
+            backgroundColor: accentColor + '20',
+            alignItems: 'center', justifyContent: 'center',
+          }}
+        >
           <Text style={{ fontSize: 18 }}>{step.emoji}</Text>
-        </View>
+        </Pressable>
         <View style={{
           borderRadius: 10, borderWidth: 1, borderColor: accentColor + '40',
           backgroundColor: accentColor + '12',
@@ -141,7 +146,7 @@ export function HabitRowContent({
                 alignItems: 'center',
                 paddingVertical: 2,
                 borderRadius: 10,
-                backgroundColor: isSelected ? '#F3F4F6' : 'transparent',
+                backgroundColor: (isSelected && visibleDates.length > 1) ? '#F3F4F6' : 'transparent',
               }}
             >
               <HabitCircle

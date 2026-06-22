@@ -57,6 +57,8 @@ interface RoutineStoreState {
   markStepFailed: (routine: RoutineDef, stepId: string, date?: string) => Promise<void>
   /** Mark every still-pending step of a routine as failed for a given date (defaults to today), in one write. */
   markAllPendingFailed: (routine: RoutineDef, date?: string) => Promise<void>
+  /** Clear a step's done/failed status and recorded time for a given date (defaults to today), returning it to pending. */
+  resetStep: (routine: RoutineDef, stepId: string, date?: string) => Promise<void>
   startTimer: (routine: RoutineDef) => void
   /** Start the first routine and queue the rest to auto-start in sequence */
   startQueue: (routines: RoutineDef[]) => void
@@ -242,6 +244,35 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
       durationSec: existing?.durationSec ?? 0,
       stepCompletionTimes: existing?.stepCompletionTimes,
       systemTaskId: existing?.systemTaskId,
+    }
+
+    set((s) => {
+      const arr = s.checkins[routine.taskId] ?? []
+      const others = arr.filter((c) => c.date !== targetDate)
+      return { checkins: { ...s.checkins, [routine.taskId]: [...others, log] } }
+    })
+
+    await get().upsertCheckin(log, routine.name)
+  },
+
+  resetStep: async (routine, stepId, date?) => {
+    const targetDate = date ?? todayStr()
+    const existing = get().getCheckinForDate(routine.taskId, targetDate)
+    if (!existing) return
+
+    const completedStepIds = existing.completedStepIds.filter((id) => id !== stepId)
+    const failedStepIds = (existing.failedStepIds ?? []).filter((id) => id !== stepId)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { [stepId]: _removed, ...stepCompletionTimes } = existing.stepCompletionTimes ?? {}
+
+    const log: CheckinLog = {
+      routineTaskId: routine.taskId,
+      date: targetDate,
+      completedStepIds,
+      failedStepIds: failedStepIds.length > 0 ? failedStepIds : undefined,
+      durationSec: existing.durationSec ?? 0,
+      stepCompletionTimes: Object.keys(stepCompletionTimes).length > 0 ? stepCompletionTimes : undefined,
+      systemTaskId: existing.systemTaskId,
     }
 
     set((s) => {
