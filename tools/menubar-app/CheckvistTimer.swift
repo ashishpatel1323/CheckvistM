@@ -315,7 +315,7 @@ final class TimerController: NSObject {
     var snapshot: [String: Any]?
     var lastFetch = Date.distantPast
     let fetchInterval: TimeInterval = 15
-    let staleAfter: TimeInterval = 90
+    let staleAfter: TimeInterval = 150 // app heartbeats every 2 min while active; allow margin
 
     // Persisted UI prefs.
     var rightWidth: CGFloat = 200

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { Platform } from 'react-native'
 import { useExecuteLog, type ExecuteLogEntry } from '@/features/tasks/execute/useExecuteLog'
 import { useRoutineStore, type ActiveTimer } from '@/features/tasks/routines/useRoutineStore'
@@ -15,7 +15,8 @@ import { storageGetSync, storageSetSync } from '@/platform/storage'
 
 export const NTFY_SERVER = 'https://ntfy.sh'
 const TOPIC_STORAGE = 'mb_topic'
-const HEARTBEAT_MS = 60_000 // keep the latest snapshot fresh for staleness detection
+const HEARTBEAT_MS = 120_000 // liveness refresh while a timer is active (idle doesn't heartbeat)
+const MIN_POST_INTERVAL_MS = 3_000 // hard floor between any two posts, so bursts can't spam ntfy
 const IDLE_LIMIT_SEC = 5 * 60 // mirror GlobalTimerBar's idle window
 
 export interface TimerSnapshot {
@@ -122,14 +123,48 @@ export function computeTimerSnapshot(ex: ExecuteState, rt: RoutineState, idleSta
   }
 }
 
+// --- Publish liveness (for the in-app setup panel to show whether we're actually posting) ---
+
+export interface PublishStatus {
+  lastOkAt: number // epoch of the last successful POST (0 = never)
+  lastError: boolean // the most recent attempt failed (network/CORS/non-2xx)
+}
+
+let publishStatus: PublishStatus = { lastOkAt: 0, lastError: false }
+const statusListeners = new Set<() => void>()
+
+function emitStatus(next: PublishStatus) {
+  publishStatus = next
+  statusListeners.forEach((l) => l())
+}
+
+function subscribeStatus(cb: () => void): () => void {
+  statusListeners.add(cb)
+  return () => {
+    statusListeners.delete(cb)
+  }
+}
+
+/** Reactive read of the last publish result; re-renders when a POST succeeds or fails. */
+export function useMenuBarPublishStatus(): PublishStatus {
+  return useSyncExternalStore(
+    subscribeStatus,
+    () => publishStatus,
+    () => publishStatus,
+  )
+}
+
 /** Short signature of the fields that warrant an immediate publish (vs. the timed heartbeat). */
 function signature(s: TimerSnapshot): string {
   return `${s.mode}|${s.label}|${s.sublabel ?? ''}|${s.isPaused}|${s.startedAtMs}|${s.targetSec}`
 }
 
 /**
- * Mount once (alongside GlobalTimerBar). Publishes the live snapshot to the relay on every
- * meaningful change and on a 15s heartbeat. No-ops off web or when signed out / no key.
+ * Mount once (alongside GlobalTimerBar). Publishes the live snapshot on every meaningful change
+ * and, while a timer is active, on a 2-minute liveness heartbeat. Posts are throttled to at most
+ * one per MIN_POST_INTERVAL_MS so rapid step-advances can't hammer ntfy. Idle never heartbeats —
+ * the reader computes the countdown locally and falls back to "not tracking" via its own staleness
+ * window. No-ops off web or when signed out / no key.
  */
 export function useMenuBarSync(): void {
   useEffect(() => {
@@ -147,7 +182,9 @@ export function useMenuBarSync(): void {
         method: 'POST',
         body: JSON.stringify(snapshot),
         keepalive: true,
-      }).catch(() => {})
+      })
+        .then((res) => emitStatus({ lastOkAt: res.ok ? Date.now() : publishStatus.lastOkAt, lastError: !res.ok }))
+        .catch(() => emitStatus({ lastOkAt: publishStatus.lastOkAt, lastError: true }))
     }
 
     function tick() {
@@ -170,7 +207,14 @@ export function useMenuBarSync(): void {
       const snapshot = computeTimerSnapshot(ex, rt, idleStart)
       const sig = signature(snapshot)
       const now = Date.now()
-      if (sig !== lastSig || now - lastPostMs >= HEARTBEAT_MS) {
+      // Post on a meaningful change, or on the liveness heartbeat — but only while something is
+      // actively tracked. Idle needs no heartbeat: the reader derives the idle countdown from
+      // startedAtMs and falls back to "not tracking" via its own staleness window.
+      const heartbeatDue = now - lastPostMs >= HEARTBEAT_MS && snapshot.mode !== 'idle'
+      const wantPost = sig !== lastSig || heartbeatDue
+      // Throttle: never post more than once per MIN_POST_INTERVAL_MS. lastSig only advances on an
+      // actual post, so a change suppressed here is re-sent (with the freshest snapshot) next tick.
+      if (wantPost && now - lastPostMs >= MIN_POST_INTERVAL_MS) {
         lastSig = sig
         lastPostMs = now
         post(snapshot)

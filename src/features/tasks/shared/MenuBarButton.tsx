@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { View, Text, Pressable, Modal, ScrollView, Platform } from 'react-native'
 import { MonitorDot, X, Copy, Check } from 'lucide-react-native'
-import { getOrCreateMenuBarTopic, NTFY_SERVER } from '@/services/menuBarSync'
+import { getOrCreateMenuBarTopic, NTFY_SERVER, useMenuBarPublishStatus } from '@/services/menuBarSync'
+import { useAuth } from '@/auth/useAuth'
 
 // Web-only header button that reveals the macOS menu-bar (SwiftBar) setup: the per-user key plus
 // install instructions. Display-only mirror of the in-app global timer — see tools/swiftbar/.
@@ -40,6 +41,53 @@ function CopyRow({ label, value }: { label: string; value: string }) {
   )
 }
 
+function PublishStatusRow() {
+  const isAuthenticated = useAuth((s) => s.isAuthenticated)
+  const { lastOkAt, lastError } = useMenuBarPublishStatus()
+  // Re-render every second so the "Xs ago" age stays current while the panel is open.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const ageSec = lastOkAt ? Math.floor((Date.now() - lastOkAt) / 1000) : Infinity
+  // useMenuBarSync posts at least once per 60s heartbeat while active; allow buffer.
+  const active = isAuthenticated && lastOkAt > 0 && ageSec <= 90 && !lastError
+
+  let color: string
+  let dot: string
+  let message: string
+  if (!isAuthenticated) {
+    color = '#B45309'; dot = '#F59E0B'
+    message = 'Not signed in — sign in and keep this tab open to publish.'
+  } else if (lastOkAt === 0) {
+    color = '#B45309'; dot = '#F59E0B'
+    message = lastError ? 'Publish failed — check your connection.' : 'Waiting for first publish…'
+  } else if (active) {
+    color = '#166534'; dot = '#16A34A'
+    message = `Publishing · last sent ${ageSec <= 1 ? 'just now' : `${ageSec}s ago`}`
+  } else {
+    color = '#B45309'; dot = '#F59E0B'
+    message = lastError
+      ? 'Last publish failed — check your connection.'
+      : `Stale · last sent ${formatAgo(ageSec)} ago. Keep this tab open and awake.`
+  }
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F8FAFC', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 }}>
+      <View style={{ width: 9, height: 9, borderRadius: 999, backgroundColor: dot }} />
+      <Text style={{ flex: 1, fontSize: 12, color, lineHeight: 17 }}>{message}</Text>
+    </View>
+  )
+}
+
+function formatAgo(sec: number): string {
+  if (sec < 60) return `${sec}s`
+  if (sec < 3600) return `${Math.floor(sec / 60)}m`
+  return `${Math.floor(sec / 3600)}h`
+}
+
 function SetupPanel({ onClose }: { onClose: () => void }) {
   const topic = getOrCreateMenuBarTopic()
 
@@ -61,6 +109,8 @@ function SetupPanel({ onClose }: { onClose: () => void }) {
               keeps publishing (to the public ntfy.sh topic below); the menu bar shows the running task,
               routine step, or idle countdown.
             </Text>
+
+            <PublishStatusRow />
 
             <CopyRow label="Menu bar topic" value={topic} />
             <CopyRow label="ntfy server" value={NTFY_SERVER} />

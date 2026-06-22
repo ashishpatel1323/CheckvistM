@@ -22,7 +22,7 @@ import time
 import urllib.request
 
 FETCH_INTERVAL = 15  # seconds between network polls
-STALE_AFTER = 90     # seconds without a fresh snapshot before showing "not tracking"
+STALE_AFTER = 150    # seconds without a fresh snapshot before showing "not tracking"
 
 SERVER = (os.environ.get("VAR_NTFY_SERVER") or "https://ntfy.sh").rstrip("/")
 TOPIC = (os.environ.get("VAR_NTFY_TOPIC") or "").strip()

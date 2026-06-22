@@ -16,7 +16,7 @@ Browser tab  ──POST──▶  ntfy.sh/<topic>  ──GET (poll)──▶  th
 
 The topic name is the only "key" — anyone who knows it can read the snapshot, so it's randomly
 generated per user. When the tab closes, no fresh snapshots arrive and the plugin shows
-"not tracking" once the last snapshot is older than 90s (via the snapshot's `updatedAt`). It is
+"not tracking" once the last snapshot is older than 150s (via the snapshot's `updatedAt`). It is
 **display-only** and read-only — it never controls the app.
 
 > Note: ntfy.sh is a free public service. The data is non-sensitive (an activity name + elapsed

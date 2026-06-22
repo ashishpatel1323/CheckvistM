@@ -126,7 +126,7 @@ export function GlobalTimerBar({ onOpenExecute }: GlobalTimerBarProps) {
           </Text>
         </Pressable>
         <Time accent={accent} value={fmt(elapsed)} sub={estSec > 0 ? `/ ${fmt(estSec)}` : undefined} overLabel={isOverrun} />
-        {isOverrun && entry && (
+        {entry && estSec > 0 && (
           <ExtendPill color={accent} onPress={() => setEstimate(timerRunningKey, entry.estimateMin + 5)} />
         )}
         <RoundBtn color={accent} onPress={pauseExecute}><Pause size={15} color="#fff" /></RoundBtn>
@@ -159,7 +159,7 @@ export function GlobalTimerBar({ onOpenExecute }: GlobalTimerBarProps) {
           </View>
         </Pressable>
         <Time accent={accent} value={fmt(elapsed)} sub={durSec > 0 ? `/ ${fmt(durSec)}` : undefined} overLabel={isOverrun} />
-        {isOverrun && (
+        {!!step && step.durationMin > 0 && (
           <ExtendPill color={accent} onPress={() => extendStep(EXTEND_SEC)} />
         )}
         <RoundBtn color="#F3F4F6" onPress={() => (isPaused ? resumeRoutine() : pauseRoutine())}>
