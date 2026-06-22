@@ -898,7 +898,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   }
 
   // Day view on mobile gets a larger circle (single column, plenty of room)
-  const CIRCLE = (isMobile && viewMode === 'day') ? 44 : isMobile ? 22 : 26
+  const CIRCLE = (isMobile && viewMode === 'day') ? 40 : isMobile ? 22 : 26
   const COL = (isMobile && viewMode === 'day') ? 60 : isMobile ? 32 : 38
 
 

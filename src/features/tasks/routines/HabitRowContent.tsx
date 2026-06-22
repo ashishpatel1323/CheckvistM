@@ -29,6 +29,7 @@ export function HabitRowContent({
   const [editingDate, setEditingDate] = useState<string | null>(null)
   const allLogs = Object.entries(checkinsByDate).map(([date, completedStepIds]) => ({ date, completedStepIds }))
   const last21Successes = getLast21ScheduledSuccesses(step.id, step.scheduledDays, allLogs)
+  const isMobileDay = circleSize >= 40
 
   return (
     <>
@@ -52,7 +53,7 @@ export function HabitRowContent({
           paddingHorizontal: 5, paddingVertical: 1,
           alignItems: 'center', justifyContent: 'center',
         }}>
-          <Text style={{ fontSize: 9, fontWeight: '700', color: accentColor }}>
+          <Text style={{ fontSize: isMobileDay ? 10 : 9, fontWeight: '700', color: accentColor }}>
             {last21Successes}/21
           </Text>
         </View>
@@ -61,7 +62,7 @@ export function HabitRowContent({
       {/* Name + duration pill */}
       <View style={{ flex: 1, marginRight: 6 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <Text style={{ fontSize: 14, fontWeight: '600', color: '#111' }} numberOfLines={1}>
+          <Text style={{ fontSize: isMobileDay ? 16 : 14, fontWeight: '600', color: '#111' }} numberOfLines={1}>
             {step.name}
           </Text>
           {step.durationMin > 0 && (
@@ -69,7 +70,7 @@ export function HabitRowContent({
               backgroundColor: '#F3F4F6', borderRadius: 6,
               paddingHorizontal: 6, paddingVertical: 2,
             }}>
-              <Text style={{ fontSize: 10, fontWeight: '600', color: '#6B7280' }}>
+              <Text style={{ fontSize: isMobileDay ? 11 : 10, fontWeight: '600', color: '#6B7280' }}>
                 {step.durationMin}m
               </Text>
             </View>

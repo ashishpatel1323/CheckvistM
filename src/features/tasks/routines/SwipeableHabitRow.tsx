@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { View, Pressable } from 'react-native'
+import { View, Pressable, Platform } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated'
 import { Check, X as XIcon, RotateCcw } from 'lucide-react-native'
@@ -143,7 +143,9 @@ export function SwipeableHabitRow(props: HabitRowProps) {
       </Animated.View>
 
       <GestureDetector gesture={panGesture}>
-        <Animated.View style={contentAnimatedStyle}>
+        <Animated.View
+          style={[contentAnimatedStyle, Platform.OS === 'web' ? ({ touchAction: 'pan-y' } as object) : null]}
+        >
           <Pressable
             onPress={leftOpen ? closeLeftPanel : undefined}
             style={{
