@@ -35,3 +35,8 @@ android/local.properties
 ios/android/local.properties
 .env.local
 .env.sentry-build-plugin
+
+# Claude Code
+.agents/
+.continue/
+skills-lock.json

@@ -228,6 +228,13 @@ final class ResizeHandleView: NSView {
     override func mouseUp(with event: NSEvent) { onEnd?() }
 }
 
+// MARK: - Borderless window that can still take key focus (so inline controls work)
+
+final class ControlPanelWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
 // MARK: - Animated hourglass
 
 /// Render the SF Symbol "hourglass" tinted into a crisp 2× image (white by default, red on overtime).
@@ -310,7 +317,7 @@ final class HourglassView: NSView {
 
 // MARK: - Controller
 
-final class TimerController: NSObject {
+final class TimerController: NSObject, NSApplicationDelegate {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
     var server = "https://checkvist.com"
@@ -327,7 +334,7 @@ final class TimerController: NSObject {
 
     // Persisted UI prefs.
     var rightWidth: CGFloat = 200
-    var clockScale: CGFloat = 1
+    var clockScale: CGFloat = 0.5   // compact by default; resizable down to 0.4
     var showDetails = true
     var dragStartRight: CGFloat = 0
     var dragStartScale: CGFloat = 0
@@ -358,6 +365,57 @@ final class TimerController: NSObject {
     let resizeHandle = ResizeHandleView()
     let pad: CGFloat = 10
     let handleW: CGFloat = 14
+
+    // MARK: Pomodoro (self-contained, local, in-memory — no relay, no persistence)
+    enum PomoPhase { case off, work, onBreak }
+    var pomoPhase: PomoPhase = .off
+    var workSec: Double = 25 * 60
+    var breakSec: Double = 5 * 60
+    var pomoPhaseStart = Date()
+    var pomoPaused = false
+    var pomoPausedElapsed: Double = 0   // elapsed frozen at the moment of pausing
+    var pomoMenuItem: NSMenuItem!
+    var pomoPauseItem: NSMenuItem!
+
+    var pomoActive: Bool { pomoPhase != .off }
+    var pomoPhaseLen: Double { pomoPhase == .onBreak ? breakSec : workSec }
+    func pomoElapsed() -> Double {
+        pomoPaused ? pomoPausedElapsed : Date().timeIntervalSince(pomoPhaseStart)
+    }
+    func pomoRemaining() -> Double { max(0, pomoPhaseLen - pomoElapsed()) }
+
+    // Break overlay window + its live subviews.
+    var breakWindow: NSWindow?
+    let breakClock = FlipClockView()
+    let breakSubtitle = NSTextField(labelWithString: "")
+    let breakProgressTrack = NSView()
+    let breakProgressFill = NSView()
+
+    // Parallel Pomodoro countdown shown inside the flip-clock window, below the relay timer.
+    let pomoClock = FlipClockView()
+    let pomoGlyphField = NSTextField(labelWithString: "")
+    let pomoCaptionField = NSTextField(labelWithString: "")
+    let pomoWinTrack = NSView()
+    let pomoWinFill = NSView()
+
+    // Inline Pomodoro controls inside the flip-clock window (edit durations + start/stop/reset).
+    var winStartBtn: NSButton!
+    var winResetBtn: NSButton!
+    var winWorkStepper: NSStepper!
+    var winBreakStepper: NSStepper!
+    var winWorkVal: NSTextField!
+    var winBreakVal: NSTextField!
+    var winWorkLbl: NSTextField!
+    var winBreakLbl: NSTextField!
+
+    // Main "Pomodoro" window (the app's life outside the menu bar).
+    var mainWindow: NSWindow?
+    var mainPhaseField: NSTextField!
+    var mainCountdownField: NSTextField!
+    var mainWorkField: NSTextField!
+    var mainBreakField: NSTextField!
+    var mainStartBtn: NSButton!
+    var mainPauseBtn: NSButton!
 
     override init() {
         super.init()
@@ -396,7 +454,7 @@ final class TimerController: NSObject {
         token = d.string(forKey: "mb_token")
         if d.object(forKey: "mb_tokenAt") != nil { tokenAt = Date(timeIntervalSince1970: d.double(forKey: "mb_tokenAt")) }
         rightWidth = min(max(rightWidth, 120), 560)
-        clockScale = min(max(clockScale, 0.7), 2.0)
+        clockScale = min(max(clockScale, 0.4), 2.0)
     }
 
     func savePrefs() {
@@ -433,16 +491,121 @@ final class TimerController: NSObject {
         let narrower = NSMenuItem(title: "Narrower", action: #selector(narrow), keyEquivalent: "-")
         narrower.target = self; menu.addItem(narrower)
         menu.addItem(.separator())
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+
+        // ── Pomodoro ──────────────────────────────────────────────────────────
+        let openPomo = NSMenuItem(title: "Pomodoro Window…", action: #selector(showMainWindow), keyEquivalent: "o")
+        openPomo.target = self
+        menu.addItem(openPomo)
+        pomoMenuItem = NSMenuItem(title: "Start Pomodoro", action: #selector(togglePomodoro), keyEquivalent: "s")
+        pomoMenuItem.target = self
+        menu.addItem(pomoMenuItem)
+        pomoPauseItem = NSMenuItem(title: "Pause", action: #selector(togglePomoPause), keyEquivalent: "")
+        pomoPauseItem.target = self
+        pomoPauseItem.isHidden = true
+        menu.addItem(pomoPauseItem)
+
+        let workMenu = NSMenu()
+        for m in [15.0, 25.0, 50.0] {
+            let it = NSMenuItem(title: "\(Int(m)) min", action: #selector(setWorkPreset(_:)), keyEquivalent: "")
+            it.target = self; it.tag = Int(m); it.state = workSec == m * 60 ? .on : .off
+            workMenu.addItem(it)
+        }
+        let workItem = NSMenuItem(title: "Work Duration", action: nil, keyEquivalent: "")
+        workItem.submenu = workMenu
+        menu.addItem(workItem)
+
+        let breakMenu = NSMenu()
+        for m in [5.0, 10.0, 15.0] {
+            let it = NSMenuItem(title: "\(Int(m)) min", action: #selector(setBreakPreset(_:)), keyEquivalent: "")
+            it.target = self; it.tag = Int(m); it.state = breakSec == m * 60 ? .on : .off
+            breakMenu.addItem(it)
+        }
+        let breakItem = NSMenuItem(title: "Break Duration", action: nil, keyEquivalent: "")
+        breakItem.submenu = breakMenu
+        menu.addItem(breakItem)
+
+        menu.addItem(.separator())
+        let settings = NSMenuItem(title: "Relay Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
         let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         statusItem.menu = menu
+        refreshPomoMenu()
+    }
+
+    @objc func togglePomodoro() {
+        if pomoActive { stopPomodoro() } else { startPomodoro() }
+    }
+
+    @objc func setWorkPreset(_ sender: NSMenuItem) {
+        workSec = Double(sender.tag) * 60
+        refreshPomoMenu(); refreshMainWindow()
+    }
+
+    @objc func setBreakPreset(_ sender: NSMenuItem) {
+        breakSec = Double(sender.tag) * 60
+        refreshPomoMenu(); refreshMainWindow()
+    }
+
+    /// Keep menu titles, checkmarks and the pause item in sync with Pomodoro state.
+    func refreshPomoMenu() {
+        guard pomoMenuItem != nil else { return }
+        pomoMenuItem.title = pomoActive ? "Stop Pomodoro" : "Start Pomodoro"
+        pomoPauseItem.isHidden = !pomoActive || pomoPhase == .onBreak
+        pomoPauseItem.title = pomoPaused ? "Resume" : "Pause"
+        if let wm = pomoMenuItem.menu {
+            for it in wm.items where it.submenu != nil {
+                if it.title == "Work Duration" {
+                    it.submenu?.items.forEach { $0.state = workSec == Double($0.tag) * 60 ? .on : .off }
+                } else if it.title == "Break Duration" {
+                    it.submenu?.items.forEach { $0.state = breakSec == Double($0.tag) * 60 ? .on : .off }
+                }
+            }
+        }
+        refreshMainWindow()
+        refreshWinControls()
+    }
+
+    // MARK: Inline flip-clock-window controls
+
+    @objc func winWorkStepperChanged(_ s: NSStepper) {
+        workSec = Double(max(1, min(180, s.integerValue))) * 60
+        refreshPomoMenu()
+    }
+    @objc func winBreakStepperChanged(_ s: NSStepper) {
+        breakSec = Double(max(1, min(180, s.integerValue))) * 60
+        refreshPomoMenu()
+    }
+
+    /// Reset the current Pomodoro phase back to full (restart the countdown, keep the phase).
+    @objc func resetPomodoro() {
+        guard pomoActive else { return }
+        pomoPhaseStart = Date()
+        pomoPausedElapsed = 0
+        if pomoPhase == .onBreak { updateBreakWindow() }
+        updatePomoRow(); refreshMainWindow()
+    }
+
+    /// Keep the inline window controls (start/stop title, reset enabled, duration values) in sync.
+    func refreshWinControls() {
+        guard winStartBtn != nil else { return }
+        winStartBtn.title = pomoActive ? "Stop" : "Start"
+        winResetBtn.isEnabled = pomoActive
+        winWorkVal?.stringValue = String(Int(workSec / 60))
+        winBreakVal?.stringValue = String(Int(breakSec / 60))
+        winWorkStepper?.integerValue = Int(workSec / 60)
+        winBreakStepper?.integerValue = Int(breakSec / 60)
     }
 
     @objc func quit() { NSApp.terminate(nil) }
+
+    // Clicking the Dock icon (with no open windows) reopens the Pomodoro window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { showMainWindow() }
+        return true
+    }
 
     // MARK: Settings window
 
@@ -571,7 +734,343 @@ final class TimerController: NSObject {
             lastFetch = Date()
             fetch()
         }
+        pomoTick()
         render()
+    }
+
+    // MARK: Pomodoro tick + transitions
+
+    func pomoTick() {
+        guard pomoActive else { return }
+
+        // Auto phase transitions when the current phase runs out.
+        if !pomoPaused && pomoElapsed() >= pomoPhaseLen {
+            if pomoPhase == .work { enterBreak(); return }
+            else { endBreak(); return }
+        }
+
+        let remaining = pomoRemaining()
+        if pomoPhase == .work {
+            // Drive the menu-bar title (render() yields to us while a Pomodoro runs).
+            let near = remaining <= 60
+            let pauseTag = pomoPaused ? " ⏸" : ""
+            setTitle("🍅 \(fmt(remaining))\(pauseTag)", color: near && !pomoPaused ? cOver : nil)
+        } else {
+            updateBreakWindow()
+        }
+        updatePomoRow()
+        refreshMainWindow()
+    }
+
+    @objc func startPomodoro() {
+        pomoPhase = .work
+        pomoPhaseStart = Date()
+        pomoPaused = false
+        pomoPausedElapsed = 0
+        refreshPomoMenu()
+        layoutWindowContents() // grow the flip-clock window to reveal the parallel row
+        pomoTick()
+    }
+
+    @objc func stopPomodoro() {
+        pomoPhase = .off
+        pomoPaused = false
+        hideBreakWindow(animated: false)
+        refreshPomoMenu()
+        layoutWindowContents() // collapse the parallel row
+        render() // hand the menu-bar title back to the relay display
+    }
+
+    @objc func togglePomoPause() {
+        guard pomoActive else { return }
+        if pomoPaused {
+            // Resume: shift the phase start so elapsed continues from where it froze.
+            pomoPhaseStart = Date().addingTimeInterval(-pomoPausedElapsed)
+            pomoPaused = false
+        } else {
+            pomoPausedElapsed = pomoElapsed()
+            pomoPaused = true
+        }
+        refreshPomoMenu()
+        pomoTick()
+    }
+
+    func enterBreak() {
+        pomoPhase = .onBreak
+        pomoPhaseStart = Date()
+        pomoPaused = false
+        pomoPausedElapsed = 0
+        NSSound(named: "Glass")?.play()
+        showBreakWindow()
+        refreshPomoMenu()
+    }
+
+    /// End the break (auto at 0 or via the "Get back to work…" button) and start the next work session.
+    @objc func endBreak() {
+        hideBreakWindow(animated: true)
+        pomoPhase = .work
+        pomoPhaseStart = Date()
+        pomoPaused = false
+        pomoPausedElapsed = 0
+        refreshPomoMenu()
+        pomoTick()
+    }
+
+    // MARK: Break overlay window
+
+    func createBreakWindow() {
+        guard let screen = NSScreen.main else { return }
+        let win = NSWindow(contentRect: screen.frame, styleMask: .borderless,
+                           backing: .buffered, defer: false)
+        win.level = .screenSaver
+        win.isOpaque = false
+        win.backgroundColor = .clear
+        win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        win.ignoresMouseEvents = false
+
+        let content = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+        content.wantsLayer = true
+        content.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.82).cgColor
+        // Anchor the zoom at the centre of the screen.
+        content.layer?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        content.layer?.frame = content.bounds
+
+        let cx = content.bounds.midX
+        let cy = content.bounds.midY
+
+        let title = NSTextField(labelWithString: "Break")
+        title.font = .systemFont(ofSize: 22, weight: .medium)
+        title.textColor = NSColor(white: 1, alpha: 0.85)
+        title.alignment = .center
+        title.frame = NSRect(x: cx - 200, y: cy + 150, width: 400, height: 30)
+        content.addSubview(title)
+
+        // Large countdown via the existing flip-clock view, scaled up.
+        breakClock.setScale(2.2)
+        breakClock.set(seconds: Int(breakSec), color: .white, animated: false, placeholder: false)
+        let bcW = breakClock.frame.width, bcH = breakClock.frame.height
+        breakClock.frame.origin = NSPoint(x: cx - bcW / 2, y: cy - bcH / 2 + 20)
+        content.addSubview(breakClock)
+
+        breakSubtitle.font = .systemFont(ofSize: 14, weight: .regular)
+        breakSubtitle.textColor = NSColor(white: 1, alpha: 0.5)
+        breakSubtitle.alignment = .center
+        breakSubtitle.frame = NSRect(x: cx - 100, y: cy - bcH / 2 - 16, width: 200, height: 20)
+        content.addSubview(breakSubtitle)
+
+        // Progress bar (break elapsed / breakSec).
+        let barW: CGFloat = 360, barH: CGFloat = 6
+        breakProgressTrack.wantsLayer = true
+        breakProgressTrack.layer?.backgroundColor = NSColor(white: 1, alpha: 0.15).cgColor
+        breakProgressTrack.layer?.cornerRadius = barH / 2
+        breakProgressTrack.layer?.masksToBounds = true
+        breakProgressTrack.frame = NSRect(x: cx - barW / 2, y: cy - bcH / 2 - 50, width: barW, height: barH)
+        breakProgressFill.wantsLayer = true
+        breakProgressFill.layer?.backgroundColor = cIdle.cgColor
+        breakProgressFill.layer?.cornerRadius = barH / 2
+        breakProgressFill.frame = NSRect(x: 0, y: 0, width: 0, height: barH)
+        breakProgressTrack.addSubview(breakProgressFill)
+        content.addSubview(breakProgressTrack)
+
+        let btn = NSButton(title: "Get back to work…", target: self, action: #selector(endBreak))
+        btn.bezelStyle = .rounded
+        btn.keyEquivalent = "\r"
+        btn.frame = NSRect(x: cx - 110, y: cy - bcH / 2 - 110, width: 220, height: 34)
+        content.addSubview(btn)
+
+        // Exit the whole Pomodoro session from the break screen (not just skip the break).
+        let exit = NSButton(title: "Exit Pomodoro", target: self, action: #selector(exitFromBreak))
+        exit.bezelStyle = .rounded
+        exit.isBordered = false
+        exit.contentTintColor = NSColor(white: 1, alpha: 0.6)
+        exit.frame = NSRect(x: cx - 110, y: cy - bcH / 2 - 150, width: 220, height: 26)
+        content.addSubview(exit)
+
+        win.contentView = content
+        breakWindow = win
+    }
+
+    /// "Exit Pomodoro" on the break screen: stop the session entirely (zoom the overlay out first).
+    @objc func exitFromBreak() {
+        hideBreakWindow(animated: true)
+        pomoPhase = .off
+        pomoPaused = false
+        refreshPomoMenu()
+        layoutWindowContents()
+        render()
+    }
+
+    func showBreakWindow() {
+        if breakWindow == nil { createBreakWindow() }
+        else if let screen = NSScreen.main { breakWindow?.setFrame(screen.frame, display: false) }
+        updateBreakWindow()
+        breakWindow?.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Zoom in: scale the content up from a small centred copy with a fade.
+        guard let layer = breakWindow?.contentView?.layer else { return }
+        layer.removeAnimation(forKey: "zoom")
+        let scale = CABasicAnimation(keyPath: "transform.scale")
+        scale.fromValue = 0.6
+        scale.toValue = 1.0
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0.0
+        fade.toValue = 1.0
+        let group = CAAnimationGroup()
+        group.animations = [scale, fade]
+        group.duration = 0.3
+        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(group, forKey: "zoom")
+    }
+
+    func hideBreakWindow(animated: Bool) {
+        guard let win = breakWindow, win.isVisible else { return }
+        guard animated, let layer = win.contentView?.layer else { win.orderOut(nil); return }
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { win.orderOut(nil) }
+        let scale = CABasicAnimation(keyPath: "transform.scale")
+        scale.fromValue = 1.0
+        scale.toValue = 0.02
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1.0
+        fade.toValue = 0.0
+        let group = CAAnimationGroup()
+        group.animations = [scale, fade]
+        group.duration = 0.35
+        group.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        group.fillMode = .forwards
+        group.isRemovedOnCompletion = false
+        layer.add(group, forKey: "zoom")
+        CATransaction.commit()
+    }
+
+    func updateBreakWindow() {
+        guard pomoPhase == .onBreak else { return }
+        let remaining = pomoRemaining()
+        breakClock.set(seconds: Int(ceil(remaining)), color: .white, animated: false, placeholder: false)
+        breakSubtitle.stringValue = "\(Int(breakSec / 60)) min break"
+        let ratio = pomoPhaseLen > 0 ? CGFloat(pomoElapsed() / pomoPhaseLen) : 0
+        let w = breakProgressTrack.frame.width
+        breakProgressFill.frame = NSRect(x: 0, y: 0, width: max(0, min(1, ratio)) * w,
+                                         height: breakProgressTrack.frame.height)
+        // Keep the menu-bar title informative during the break too.
+        setTitle("☕️ \(fmt(remaining))", color: nil)
+    }
+
+    // MARK: Main Pomodoro window
+
+    @objc func showMainWindow() {
+        if mainWindow == nil { buildMainWindow() }
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        mainWindow?.center()
+        mainWindow?.makeKeyAndOrderFront(nil)
+        refreshMainWindow()
+    }
+
+    func buildMainWindow() {
+        let W: CGFloat = 360, H: CGFloat = 300
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: W, height: H),
+                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        win.title = "Pomodoro"
+        win.isReleasedWhenClosed = false
+        let content = win.contentView!
+
+        // Live phase + big countdown.
+        mainPhaseField = NSTextField(labelWithString: "Ready")
+        mainPhaseField.font = .systemFont(ofSize: 13, weight: .medium)
+        mainPhaseField.textColor = .secondaryLabelColor
+        mainPhaseField.alignment = .center
+        mainPhaseField.frame = NSRect(x: 20, y: H - 56, width: W - 40, height: 20)
+        content.addSubview(mainPhaseField)
+
+        mainCountdownField = NSTextField(labelWithString: "25:00")
+        mainCountdownField.font = .monospacedDigitSystemFont(ofSize: 56, weight: .semibold)
+        mainCountdownField.alignment = .center
+        mainCountdownField.frame = NSRect(x: 20, y: H - 130, width: W - 40, height: 64)
+        content.addSubview(mainCountdownField)
+
+        // Duration steppers.
+        func durationRow(_ title: String, y: CGFloat, value: Int, action: Selector) -> NSTextField {
+            let l = NSTextField(labelWithString: title)
+            l.frame = NSRect(x: 40, y: y, width: 110, height: 22)
+            content.addSubview(l)
+            let field = NSTextField(string: String(value))
+            field.frame = NSRect(x: 150, y: y, width: 56, height: 22)
+            field.alignment = .right
+            content.addSubview(field)
+            let stepper = NSStepper(frame: NSRect(x: 210, y: y, width: 19, height: 22))
+            stepper.minValue = 1; stepper.maxValue = 180; stepper.increment = 1
+            stepper.integerValue = value
+            stepper.target = self; stepper.action = action
+            content.addSubview(stepper)
+            let unit = NSTextField(labelWithString: "min")
+            unit.textColor = .secondaryLabelColor
+            unit.frame = NSRect(x: 236, y: y, width: 40, height: 22)
+            content.addSubview(unit)
+            return field
+        }
+        mainWorkField = durationRow("Work", y: 130, value: Int(workSec / 60), action: #selector(workStepperChanged(_:)))
+        mainBreakField = durationRow("Break", y: 100, value: Int(breakSec / 60), action: #selector(breakStepperChanged(_:)))
+        mainWorkField.target = self; mainWorkField.action = #selector(workFieldChanged(_:))
+        mainBreakField.target = self; mainBreakField.action = #selector(breakFieldChanged(_:))
+
+        // Controls.
+        mainStartBtn = NSButton(title: "Start", target: self, action: #selector(togglePomodoro))
+        mainStartBtn.bezelStyle = .rounded
+        mainStartBtn.keyEquivalent = "\r"
+        mainStartBtn.frame = NSRect(x: 40, y: 48, width: 130, height: 32)
+        content.addSubview(mainStartBtn)
+
+        mainPauseBtn = NSButton(title: "Pause", target: self, action: #selector(togglePomoPause))
+        mainPauseBtn.bezelStyle = .rounded
+        mainPauseBtn.frame = NSRect(x: 190, y: 48, width: 130, height: 32)
+        content.addSubview(mainPauseBtn)
+
+        let relay = NSButton(title: "Relay Settings…", target: self, action: #selector(openSettings))
+        relay.bezelStyle = .rounded
+        relay.frame = NSRect(x: 40, y: 12, width: 280, height: 28)
+        content.addSubview(relay)
+
+        mainWindow = win
+    }
+
+    @objc func workStepperChanged(_ s: NSStepper) { workSec = Double(s.integerValue) * 60; refreshPomoMenu() }
+    @objc func breakStepperChanged(_ s: NSStepper) { breakSec = Double(s.integerValue) * 60; refreshPomoMenu() }
+    @objc func workFieldChanged(_ f: NSTextField) {
+        let m = max(1, min(180, f.integerValue)); workSec = Double(m) * 60; refreshPomoMenu()
+    }
+    @objc func breakFieldChanged(_ f: NSTextField) {
+        let m = max(1, min(180, f.integerValue)); breakSec = Double(m) * 60; refreshPomoMenu()
+    }
+
+    /// Keep the main window's live fields in sync (countdown, phase, button titles, durations).
+    func refreshMainWindow() {
+        guard let win = mainWindow, win.isVisible else { return }
+        switch pomoPhase {
+        case .off:
+            mainPhaseField.stringValue = "Ready"
+            mainPhaseField.textColor = .secondaryLabelColor
+            mainCountdownField.stringValue = fmt(workSec)
+            mainCountdownField.textColor = .labelColor
+        case .work:
+            mainPhaseField.stringValue = pomoPaused ? "Work · paused" : "Work"
+            mainPhaseField.textColor = .labelColor
+            mainCountdownField.stringValue = fmt(pomoRemaining())
+            mainCountdownField.textColor = pomoRemaining() <= 60 && !pomoPaused ? cOver : .labelColor
+        case .onBreak:
+            mainPhaseField.stringValue = "Break"
+            mainPhaseField.textColor = cIdle
+            mainCountdownField.stringValue = fmt(pomoRemaining())
+            mainCountdownField.textColor = cIdle
+        }
+        mainStartBtn?.title = pomoActive ? "Stop" : "Start"
+        mainPauseBtn?.isEnabled = pomoActive && pomoPhase != .onBreak
+        mainPauseBtn?.title = pomoPaused ? "Resume" : "Pause"
+        // Reflect any duration changes made elsewhere.
+        if let f = mainWorkField, win.firstResponder != f { f.stringValue = String(Int(workSec / 60)) }
+        if let f = mainBreakField, win.firstResponder != f { f.stringValue = String(Int(breakSec / 60)) }
     }
 
     /// Click the hourglass to pull the latest snapshot immediately (don't wait for the 15s poll).
@@ -688,12 +1187,19 @@ final class TimerController: NSObject {
         if showDetails {
             rightWidth = min(max(rightWidth + dir * 40, 120), 560)
         } else {
-            clockScale = min(max(clockScale + dir * 0.15, 0.7), 2.0)
+            clockScale = min(max(clockScale + dir * 0.15, 0.4), 2.0)
             flipClock.setScale(clockScale)
             flipClock.set(seconds: lastSeconds, color: .white, animated: false, placeholder: lastPlaceholder)
+            syncPomoClockScale()
         }
         savePrefs()
         layoutWindowContents()
+    }
+
+    /// Keep the parallel Pomodoro clock the same size as the main flip clock.
+    func syncPomoClockScale() {
+        pomoClock.setScale(clockScale)
+        if pomoActive { pomoClock.set(seconds: Int(ceil(pomoRemaining())), color: .white, animated: false, placeholder: false) }
     }
 
     @objc func toggleDetails() {
@@ -734,31 +1240,93 @@ final class TimerController: NSObject {
         let hg = hgSize
         let clockW = flipClock.frame.width
         let clockH = flipClock.frame.height
-        let contentH = pad + clockH + pad
         let clockX = pad + hg + 8
-        let contentW: CGFloat = showDetails ? (clockX + clockW + 16 + rightWidth + handleW + pad)
-                                            : (clockX + clockW + handleW + pad)
+
+        // Two sections: relay timer (top) and a single Pomodoro line — countdown + controls — (bottom).
+        let showPomo = pomoActive
+        let bandH = max(24, pomoClock.frame.height)
+        let progH: CGFloat = 5, progGap: CGFloat = 4, rowGap: CGFloat = 8
+        let pomoClockW = pomoClock.frame.width
+
+        // Width of the single Pomodoro line (glyph + clock + Start/Stop + Reset + W/B steppers).
+        let lineW = (hg + 4) + 4 + pomoClockW + 12 + 60 + 6 + 54 + 14
+                  + (12 + 1 + 20 + 1 + 15) + 12 + (12 + 1 + 18 + 1 + 15)
+
+        let bandBottom = pad + (showPomo ? progH + progGap : 0)
+        let mainBottom = bandBottom + bandH + rowGap
+        let contentH = mainBottom + clockH + pad
+
+        let rowW: CGFloat = showDetails ? (clockX + clockW + 16 + rightWidth + handleW + pad)
+                                        : (clockX + clockW + handleW + pad)
+        let contentW = max(rowW, pad + lineW + pad + handleW)
 
         // Preserve top-left: keep minX, adjust y so the top edge stays put.
         let oldTopY = win.frame.maxY
         win.setFrame(NSRect(x: win.frame.minX, y: oldTopY - contentH, width: contentW, height: contentH), display: true)
 
-        hourglass.frame = NSRect(x: pad, y: (contentH - hg) / 2, width: hg, height: hg)
-        flipClock.frame.origin = NSPoint(x: clockX, y: pad)
-
+        // Relay row (top).
+        hourglass.frame = NSRect(x: pad, y: mainBottom + (clockH - hg) / 2, width: hg, height: hg)
+        flipClock.frame.origin = NSPoint(x: clockX, y: mainBottom)
         if showDetails {
             let rightX = clockX + clockW + 16
             let rowH: CGFloat = 16
-            let labelY = contentH - pad - rowH
+            let labelY = mainBottom + clockH - rowH
             captionField.frame = NSRect(x: rightX, y: labelY, width: rightWidth - 60, height: rowH)
             totalField.frame = NSRect(x: rightX + rightWidth - 58, y: labelY, width: 58, height: rowH)
             let barH: CGFloat = 6
-            progressTrack.frame = NSRect(x: rightX, y: pad + 6, width: rightWidth, height: barH)
+            progressTrack.frame = NSRect(x: rightX, y: mainBottom + 6, width: rightWidth, height: barH)
             progressTrack.layer?.cornerRadius = barH / 2
+        }
+
+        // Single Pomodoro line (glyph + countdown + controls), always visible.
+        pomoCaptionField.isHidden = true
+        var x = pad
+        func place(_ v: NSView, _ w: CGFloat, _ h: CGFloat) {
+            v.frame = NSRect(x: x, y: bandBottom + (bandH - h) / 2, width: w, height: h)
+            x += w
+        }
+        place(pomoGlyphField, hg + 4, hg); x += 4
+        place(pomoClock, pomoClockW, pomoClock.frame.height); x += 12
+        place(winStartBtn, 60, 20); x += 6
+        place(winResetBtn, 54, 20); x += 14
+        place(winWorkLbl, 12, 14); x += 1
+        place(winWorkVal, 20, 14); x += 1
+        place(winWorkStepper, 15, 22); x += 12
+        place(winBreakLbl, 12, 14); x += 1
+        place(winBreakVal, 18, 14); x += 1
+        place(winBreakStepper, 15, 22)
+
+        // Thin progress strip under the line, only while a Pomodoro runs.
+        pomoWinTrack.isHidden = !showPomo
+        if showPomo {
+            pomoWinTrack.frame = NSRect(x: pad, y: pad, width: contentW - 2 * pad - handleW, height: progH)
+            pomoWinTrack.layer?.cornerRadius = progH / 2
         }
 
         resizeHandle.frame = NSRect(x: contentW - handleW, y: 0, width: handleW, height: contentH)
         closeButton.frame = NSRect(x: contentW - handleW - 16, y: contentH - 17, width: 14, height: 14)
+    }
+
+    /// Update the single Pomodoro line (countdown + glyph + progress) inside the flip-clock window.
+    func updatePomoRow() {
+        guard progressWindow != nil else { return }
+        if !pomoActive {
+            // Idle: preview the configured work duration, dim glyph, no progress.
+            pomoClock.set(seconds: Int(workSec), color: NSColor(white: 0.7, alpha: 1), animated: false, placeholder: false)
+            pomoGlyphField.stringValue = "🍅"
+            pomoGlyphField.alphaValue = 0.45
+            return
+        }
+        let onBreak = pomoPhase == .onBreak
+        let remaining = pomoRemaining()
+        let accent: NSColor = onBreak ? cIdle : (remaining <= 60 && !pomoPaused ? cOver : cExecute)
+        pomoClock.set(seconds: Int(ceil(remaining)), color: .white, animated: !pomoPaused, placeholder: false)
+        pomoGlyphField.stringValue = onBreak ? "☕️" : "🍅"
+        pomoGlyphField.alphaValue = pomoPaused ? 0.5 : 1
+        let ratio = pomoPhaseLen > 0 ? CGFloat(pomoElapsed() / pomoPhaseLen) : 0
+        let w = pomoWinTrack.frame.width
+        pomoWinFill.frame = NSRect(x: 0, y: 0, width: max(0, min(1, ratio)) * w, height: pomoWinTrack.frame.height)
+        pomoWinFill.layer?.backgroundColor = accent.cgColor
     }
 
     func setProgress(ratio: Double, color: NSColor) {
@@ -769,7 +1337,7 @@ final class TimerController: NSObject {
     }
 
     func createProgressWindow() {
-        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 62),
+        let win = ControlPanelWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 62),
                            styleMask: .borderless, backing: .buffered, defer: false)
         win.level = .floating
         win.isOpaque = false
@@ -820,6 +1388,71 @@ final class TimerController: NSObject {
         closeButton.action = #selector(hideProgressBar)
         content.addSubview(closeButton)
 
+        // ── Single Pomodoro line (countdown + glyph), always visible ───────────
+        pomoClock.setScale(clockScale)
+        pomoClock.set(seconds: Int(workSec), color: NSColor(white: 0.7, alpha: 1), animated: false, placeholder: false)
+        content.addSubview(pomoClock)
+
+        pomoGlyphField.font = .systemFont(ofSize: 13)
+        pomoGlyphField.alignment = .center
+        pomoGlyphField.stringValue = "🍅"
+        pomoGlyphField.alphaValue = 0.45
+        content.addSubview(pomoGlyphField)
+
+        pomoCaptionField.isHidden = true // unused in the single-line layout
+
+        pomoWinTrack.wantsLayer = true
+        pomoWinTrack.layer?.backgroundColor = NSColor(white: 1, alpha: 0.15).cgColor
+        pomoWinTrack.layer?.masksToBounds = true
+        pomoWinTrack.isHidden = true
+        pomoWinFill.wantsLayer = true
+        pomoWinFill.layer?.cornerRadius = 2.5
+        pomoWinTrack.addSubview(pomoWinFill)
+        content.addSubview(pomoWinTrack)
+
+        // ── Inline Pomodoro controls row (durations + start/stop/reset) ────────
+        func ctlLabel(_ s: String) -> NSTextField {
+            let l = NSTextField(labelWithString: s)
+            l.font = .systemFont(ofSize: 10, weight: .semibold)
+            l.textColor = NSColor(white: 1, alpha: 0.6)
+            return l
+        }
+        winWorkLbl = ctlLabel("W"); content.addSubview(winWorkLbl)
+        winWorkVal = NSTextField(labelWithString: "25")
+        winWorkVal.font = .monospacedDigitSystemFont(ofSize: 11, weight: .bold)
+        winWorkVal.textColor = .white
+        winWorkVal.alignment = .right
+        content.addSubview(winWorkVal)
+        winWorkStepper = NSStepper()
+        winWorkStepper.minValue = 1; winWorkStepper.maxValue = 180; winWorkStepper.increment = 1
+        winWorkStepper.integerValue = Int(workSec / 60)
+        winWorkStepper.target = self; winWorkStepper.action = #selector(winWorkStepperChanged(_:))
+        content.addSubview(winWorkStepper)
+
+        winBreakLbl = ctlLabel("B"); content.addSubview(winBreakLbl)
+        winBreakVal = NSTextField(labelWithString: "5")
+        winBreakVal.font = .monospacedDigitSystemFont(ofSize: 11, weight: .bold)
+        winBreakVal.textColor = .white
+        winBreakVal.alignment = .right
+        content.addSubview(winBreakVal)
+        winBreakStepper = NSStepper()
+        winBreakStepper.minValue = 1; winBreakStepper.maxValue = 180; winBreakStepper.increment = 1
+        winBreakStepper.integerValue = Int(breakSec / 60)
+        winBreakStepper.target = self; winBreakStepper.action = #selector(winBreakStepperChanged(_:))
+        content.addSubview(winBreakStepper)
+
+        winStartBtn = NSButton(title: "Start", target: self, action: #selector(togglePomodoro))
+        winStartBtn.bezelStyle = .rounded
+        winStartBtn.controlSize = .small
+        winStartBtn.font = .systemFont(ofSize: 11, weight: .semibold)
+        content.addSubview(winStartBtn)
+
+        winResetBtn = NSButton(title: "Reset", target: self, action: #selector(resetPomodoro))
+        winResetBtn.bezelStyle = .rounded
+        winResetBtn.controlSize = .small
+        winResetBtn.font = .systemFont(ofSize: 11)
+        content.addSubview(winResetBtn)
+
         resizeHandle.onDrag = { [weak self] delta in self?.dragResize(delta) }
         resizeHandle.onEnd = { [weak self] in self?.savePrefs() }
         content.addSubview(resizeHandle)
@@ -827,8 +1460,11 @@ final class TimerController: NSObject {
         win.contentView = content
         progressWindow = win
         flipClock.onResize = { [weak self] in self?.layoutWindowContents() }
+        pomoClock.onResize = { [weak self] in self?.layoutWindowContents() }
 
         flipClock.set(seconds: 0, color: .white, animated: false, placeholder: true)
+        refreshWinControls()
+        updatePomoRow()
         layoutWindowContents()
         if let screen = NSScreen.main {
             let f = screen.visibleFrame
@@ -841,9 +1477,10 @@ final class TimerController: NSObject {
         if showDetails {
             rightWidth = min(max(dragStartRight + delta, 120), 560)
         } else {
-            clockScale = min(max(dragStartScale + delta / 120, 0.7), 2.0)
+            clockScale = min(max(dragStartScale + delta / 120, 0.4), 2.0)
             flipClock.setScale(clockScale)
             flipClock.set(seconds: lastSeconds, color: .white, animated: false, placeholder: lastPlaceholder)
+            syncPomoClockScale()
         }
         layoutWindowContents()
     }
@@ -857,13 +1494,20 @@ final class TimerController: NSObject {
         guard statusItem.button != nil else { return }
         let barVisible = progressWindow?.isVisible ?? false
 
+        // A running Pomodoro owns the menu-bar title (pomoTick drives it); the relay still
+        // updates the flip-clock window so it never goes blank. setBar no-ops while active.
+        func setBar(_ text: String, color: NSColor?) {
+            if pomoActive { return }
+            setTitle(text, color: color)
+        }
+
         func showClock(seconds: Int, color: NSColor, animated: Bool, placeholder: Bool) {
             lastSeconds = seconds; lastPlaceholder = placeholder
             flipClock.set(seconds: seconds, color: color, animated: animated, placeholder: placeholder)
         }
 
         guard configured else {
-            setTitle("⚙ set up timer", color: .secondaryLabelColor)
+            setBar("⚙ set up timer", color: .secondaryLabelColor)
             if barVisible {
                 showClock(seconds: 0, color: .white, animated: false, placeholder: true)
                 if showDetails {
@@ -882,7 +1526,7 @@ final class TimerController: NSObject {
         topicItem.title = "Checkvist · list \(listId) / task \(taskId)"
 
         guard fresh, let snap = snapshot else {
-            setTitle("– not tracking", color: .secondaryLabelColor)
+            setBar("– not tracking", color: .secondaryLabelColor)
             labelItem.isHidden = false; labelItem.title = "App tab closed or no fresh snapshot"
             subItem.isHidden = true; elapsedItem.isHidden = true
             if barVisible {
@@ -918,7 +1562,7 @@ final class TimerController: NSObject {
         } else {
             title = "\(icon) \(fmt(elapsed))"
         }
-        setTitle(title, color: overrun ? .systemRed : nil)
+        setBar(title, color: overrun ? .systemRed : nil)
         hourglass?.update(tint: overrun ? cOver : .white)
 
         labelItem.isHidden = false; labelItem.title = label
@@ -937,10 +1581,14 @@ final class TimerController: NSObject {
                 setProgress(ratio: target > 0 ? elapsed / target : 0, color: accent)
             }
         }
+        updatePomoRow()
     }
 }
 
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
+// .regular so the app appears in the Dock and has a real window life, not just the menu bar.
+app.setActivationPolicy(.regular)
 let controller = TimerController()
+app.delegate = controller
+controller.showMainWindow()
 app.run()
