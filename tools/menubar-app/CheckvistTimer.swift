@@ -227,8 +227,8 @@ final class ResizeHandleView: NSView {
 
 // MARK: - Animated hourglass
 
-/// Render the SF Symbol "hourglass" tinted white into a crisp 2× image.
-func hourglassImage(_ s: CGFloat) -> CGImage? {
+/// Render the SF Symbol "hourglass" tinted into a crisp 2× image (white by default, red on overtime).
+func hourglassImage(_ s: CGFloat, tint: NSColor = .white) -> CGImage? {
     let cfg = NSImage.SymbolConfiguration(pointSize: s * 0.9, weight: .semibold)
     guard let base = NSImage(systemSymbolName: "hourglass", accessibilityDescription: nil)?
         .withSymbolConfiguration(cfg) else { return nil }
@@ -243,8 +243,8 @@ func hourglassImage(_ s: CGFloat) -> CGImage? {
     NSGraphicsContext.current = ns
     let isz = base.size
     base.draw(in: NSRect(x: (s - isz.width) / 2, y: (s - isz.height) / 2, width: isz.width, height: isz.height))
-    ns.compositingOperation = .sourceAtop // recolour the template glyph to white
-    NSColor.white.setFill()
+    ns.compositingOperation = .sourceAtop // recolour the template glyph to the given tint
+    tint.setFill()
     NSBezierPath(rect: NSRect(x: 0, y: 0, width: s, height: s)).fill()
     NSGraphicsContext.restoreGraphicsState()
     return ctx.makeImage()
@@ -254,6 +254,7 @@ func hourglassImage(_ s: CGFloat) -> CGImage? {
 final class HourglassView: NSView {
     private let glyph = CALayer()
     private(set) var size: CGFloat
+    private var tint: NSColor = .white
     var onClick: (() -> Void)?
 
     override var mouseDownCanMoveWindow: Bool { false }
@@ -277,13 +278,20 @@ final class HourglassView: NSView {
         setFrameSize(NSSize(width: s, height: s))
         glyph.bounds = CGRect(x: 0, y: 0, width: s, height: s)
         glyph.position = CGPoint(x: s / 2, y: s / 2)
-        glyph.contents = hourglassImage(s)
+        glyph.contents = hourglassImage(s, tint: tint)
     }
 
     func update(size s: CGFloat) {
         guard abs(s - size) > 0.5 else { return }
         size = s
         applySize(s)
+    }
+
+    /// Recolour the glyph (e.g. red on overtime, white otherwise) without disturbing the spin animation.
+    func update(tint t: NSColor) {
+        guard !t.isEqual(tint) else { return }
+        tint = t
+        applySize(size)
     }
 
     private func startAnimation() {
@@ -697,6 +705,7 @@ final class TimerController: NSObject {
             title = "\(icon) \(fmt(elapsed))"
         }
         setTitle(title, color: overrun ? .systemRed : nil)
+        hourglass?.update(tint: overrun ? cOver : .white)
 
         labelItem.isHidden = false; labelItem.title = label
         if let sub = snap["sublabel"] as? String, !sub.isEmpty { subItem.isHidden = false; subItem.title = sub } else { subItem.isHidden = true }

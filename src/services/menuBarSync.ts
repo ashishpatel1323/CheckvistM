@@ -124,7 +124,7 @@ export function computeTimerSnapshot(ex: ExecuteState, rt: RoutineState, idleSta
 
 /** Short signature of the fields that warrant an immediate publish (vs. the timed heartbeat). */
 function signature(s: TimerSnapshot): string {
-  return `${s.mode}|${s.label}|${s.sublabel ?? ''}|${s.isPaused}|${s.startedAtMs}`
+  return `${s.mode}|${s.label}|${s.sublabel ?? ''}|${s.isPaused}|${s.startedAtMs}|${s.targetSec}`
 }
 
 /**
