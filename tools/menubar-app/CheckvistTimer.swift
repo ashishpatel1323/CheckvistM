@@ -356,6 +356,7 @@ final class TimerController: NSObject, NSApplicationDelegate {
     var settingsStatus: NSTextField!
     var hourglass: HourglassView!
     var hgSize: CGFloat { 24 * clockScale }
+    var pomoClockScale: CGFloat { max(0.32, clockScale * 0.6) } // smaller than the relay clock (per design)
     let flipClock = FlipClockView()
     let captionField = NSTextField(labelWithString: "")
     let totalField = NSTextField(labelWithString: "")
@@ -589,9 +590,19 @@ final class TimerController: NSObject, NSApplicationDelegate {
     }
 
     /// Keep the inline window controls (start/stop title, reset enabled, duration values) in sync.
+    func ctlButtonTitle(_ glyph: String, _ text: String, _ color: NSColor) -> NSAttributedString {
+        NSAttributedString(string: "\(glyph) \(text)", attributes: [
+            .foregroundColor: color,
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+        ])
+    }
+
     func refreshWinControls() {
         guard winStartBtn != nil else { return }
-        winStartBtn.title = pomoActive ? "Stop" : "Start"
+        winStartBtn.attributedTitle = pomoActive
+            ? ctlButtonTitle("◼", "Stop", cOver)
+            : ctlButtonTitle("▶", "Start", NSColor(white: 1, alpha: 0.85))
+        winResetBtn.attributedTitle = ctlButtonTitle("↺", "Reset", NSColor(white: 1, alpha: pomoActive ? 0.85 : 0.4))
         winResetBtn.isEnabled = pomoActive
         winWorkVal?.stringValue = String(Int(workSec / 60))
         winBreakVal?.stringValue = String(Int(breakSec / 60))
@@ -962,7 +973,9 @@ final class TimerController: NSObject, NSApplicationDelegate {
 
     @objc func showMainWindow() {
         if mainWindow == nil { buildMainWindow() }
-        NSApp.setActivationPolicy(.regular)
+        // Stay an accessory (no Dock icon): a .regular app's windows can't float over OTHER apps'
+        // full-screen spaces. Accessory windows with canJoinAllSpaces can. Still focusable via activate.
+        NSApp.setActivationPolicy(.accessory)
         NSApp.activate(ignoringOtherApps: true)
         mainWindow?.center()
         mainWindow?.makeKeyAndOrderFront(nil)
@@ -1198,7 +1211,7 @@ final class TimerController: NSObject, NSApplicationDelegate {
 
     /// Keep the parallel Pomodoro clock the same size as the main flip clock.
     func syncPomoClockScale() {
-        pomoClock.setScale(clockScale)
+        pomoClock.setScale(pomoClockScale)
         if pomoActive { pomoClock.set(seconds: Int(ceil(pomoRemaining())), color: .white, animated: false, placeholder: false) }
     }
 
@@ -1242,23 +1255,24 @@ final class TimerController: NSObject, NSApplicationDelegate {
         let clockH = flipClock.frame.height
         let clockX = pad + hg + 8
 
-        // Two sections: relay timer (top) and a single Pomodoro line — countdown + controls — (bottom).
-        let showPomo = pomoActive
+        // Two sections: relay timer (top) and a single Pomodoro line — glyph + countdown +
+        // ▶ Start / ↺ Reset + inline progress track + W/B steppers — (bottom).
         let bandH = max(24, pomoClock.frame.height)
-        let progH: CGFloat = 5, progGap: CGFloat = 4, rowGap: CGFloat = 8
+        let progH: CGFloat = 5, rowGap: CGFloat = 8
         let pomoClockW = pomoClock.frame.width
+        let startW: CGFloat = 62, resetW: CGFloat = 62
+        let wbW: CGFloat = (12 + 1 + 20 + 1 + 15) + 12 + (12 + 1 + 18 + 1 + 15) // W + gap + B blocks
+        let leftClusterW = (hg + 4) + 4 + pomoClockW + 12 + startW + 6 + resetW
+        let minTrack: CGFloat = 60
+        let minPomoW = pad + leftClusterW + 12 + minTrack + 12 + wbW + pad + handleW
 
-        // Width of the single Pomodoro line (glyph + clock + Start/Stop + Reset + W/B steppers).
-        let lineW = (hg + 4) + 4 + pomoClockW + 12 + 60 + 6 + 54 + 14
-                  + (12 + 1 + 20 + 1 + 15) + 12 + (12 + 1 + 18 + 1 + 15)
-
-        let bandBottom = pad + (showPomo ? progH + progGap : 0)
+        let bandBottom = pad
         let mainBottom = bandBottom + bandH + rowGap
         let contentH = mainBottom + clockH + pad
 
         let rowW: CGFloat = showDetails ? (clockX + clockW + 16 + rightWidth + handleW + pad)
                                         : (clockX + clockW + handleW + pad)
-        let contentW = max(rowW, pad + lineW + pad + handleW)
+        let contentW = max(rowW, minPomoW)
 
         // Preserve top-left: keep minX, adjust y so the top edge stays put.
         let oldTopY = win.frame.maxY
@@ -1287,21 +1301,24 @@ final class TimerController: NSObject, NSApplicationDelegate {
         }
         place(pomoGlyphField, hg + 4, hg); x += 4
         place(pomoClock, pomoClockW, pomoClock.frame.height); x += 12
-        place(winStartBtn, 60, 20); x += 6
-        place(winResetBtn, 54, 20); x += 14
+        place(winStartBtn, startW, 20); x += 6
+        place(winResetBtn, resetW, 20); x += 12
+
+        // Inline progress track filling the gap between Reset and the W/B steppers (always shown).
+        let trackX = x
+        let wbX = contentW - handleW - pad - wbW
+        let trackW = max(minTrack, wbX - 12 - trackX)
+        pomoWinTrack.isHidden = false
+        pomoWinTrack.frame = NSRect(x: trackX, y: bandBottom + (bandH - progH) / 2, width: trackW, height: progH)
+        pomoWinTrack.layer?.cornerRadius = progH / 2
+
+        x = wbX
         place(winWorkLbl, 12, 14); x += 1
         place(winWorkVal, 20, 14); x += 1
         place(winWorkStepper, 15, 22); x += 12
         place(winBreakLbl, 12, 14); x += 1
         place(winBreakVal, 18, 14); x += 1
         place(winBreakStepper, 15, 22)
-
-        // Thin progress strip under the line, only while a Pomodoro runs.
-        pomoWinTrack.isHidden = !showPomo
-        if showPomo {
-            pomoWinTrack.frame = NSRect(x: pad, y: pad, width: contentW - 2 * pad - handleW, height: progH)
-            pomoWinTrack.layer?.cornerRadius = progH / 2
-        }
 
         resizeHandle.frame = NSRect(x: contentW - handleW, y: 0, width: handleW, height: contentH)
         closeButton.frame = NSRect(x: contentW - handleW - 16, y: contentH - 17, width: 14, height: 14)
@@ -1315,6 +1332,7 @@ final class TimerController: NSObject, NSApplicationDelegate {
             pomoClock.set(seconds: Int(workSec), color: NSColor(white: 0.7, alpha: 1), animated: false, placeholder: false)
             pomoGlyphField.stringValue = "🍅"
             pomoGlyphField.alphaValue = 0.45
+            pomoWinFill.frame = NSRect(x: 0, y: 0, width: 0, height: pomoWinTrack.frame.height)
             return
         }
         let onBreak = pomoPhase == .onBreak
@@ -1344,7 +1362,7 @@ final class TimerController: NSObject, NSApplicationDelegate {
         win.backgroundColor = .clear
         win.hasShadow = true
         win.isMovableByWindowBackground = true
-        win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 62))
         content.wantsLayer = true
@@ -1389,7 +1407,7 @@ final class TimerController: NSObject, NSApplicationDelegate {
         content.addSubview(closeButton)
 
         // ── Single Pomodoro line (countdown + glyph), always visible ───────────
-        pomoClock.setScale(clockScale)
+        pomoClock.setScale(pomoClockScale)
         pomoClock.set(seconds: Int(workSec), color: NSColor(white: 0.7, alpha: 1), animated: false, placeholder: false)
         content.addSubview(pomoClock)
 
@@ -1441,16 +1459,12 @@ final class TimerController: NSObject, NSApplicationDelegate {
         winBreakStepper.target = self; winBreakStepper.action = #selector(winBreakStepperChanged(_:))
         content.addSubview(winBreakStepper)
 
-        winStartBtn = NSButton(title: "Start", target: self, action: #selector(togglePomodoro))
-        winStartBtn.bezelStyle = .rounded
-        winStartBtn.controlSize = .small
-        winStartBtn.font = .systemFont(ofSize: 11, weight: .semibold)
+        winStartBtn = NSButton(title: "", target: self, action: #selector(togglePomodoro))
+        winStartBtn.isBordered = false
         content.addSubview(winStartBtn)
 
-        winResetBtn = NSButton(title: "Reset", target: self, action: #selector(resetPomodoro))
-        winResetBtn.bezelStyle = .rounded
-        winResetBtn.controlSize = .small
-        winResetBtn.font = .systemFont(ofSize: 11)
+        winResetBtn = NSButton(title: "", target: self, action: #selector(resetPomodoro))
+        winResetBtn.isBordered = false
         content.addSubview(winResetBtn)
 
         resizeHandle.onDrag = { [weak self] delta in self?.dragResize(delta) }
@@ -1586,8 +1600,9 @@ final class TimerController: NSObject, NSApplicationDelegate {
 }
 
 let app = NSApplication.shared
-// .regular so the app appears in the Dock and has a real window life, not just the menu bar.
-app.setActivationPolicy(.regular)
+// .accessory (menu-bar agent, no Dock icon): required so the floating timer window can sit on top
+// of OTHER apps' full-screen spaces. A .regular app loses that ability.
+app.setActivationPolicy(.accessory)
 let controller = TimerController()
 app.delegate = controller
 controller.showMainWindow()
