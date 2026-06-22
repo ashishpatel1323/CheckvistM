@@ -13,7 +13,6 @@ import { ROUTINE_COLORS } from './routineTypes'
 import type { RoutineDef, RoutineStep, HabitStatus } from './routineTypes'
 import { getPendingRoutineStepIds, getStepStatus } from './routineSchedule'
 import { HabitRowContent } from './HabitRowContent'
-import { SwipeableHabitRow } from './SwipeableHabitRow'
 
 export const BLUE = '#4772FA'
 export const FAILURE_RED = '#DC2626'
@@ -347,10 +346,24 @@ function HabitRow(props: HabitRowProps & { isMobile?: boolean }) {
   const { onSelect, isSelected, routine, visibleDates, isMobile } = props
   const accentColor = ROUTINE_COLORS[routine.color]
 
-  // TickTick-style swipeable row: only the single-date "Day view" list, on mobile form factor
-  // (works on mobile web and native — gated by screen width, not platform).
+  // Mobile single-date "Day view": the row itself isn't tappable to open detail — only the
+  // habit icon (onIconPress, wired inside HabitRowContent) opens it. Each date circle handles
+  // its own tap-cycle independently, so there's no outer onPress to avoid double-handling taps.
   if (isMobile && visibleDates.length === 1) {
-    return <SwipeableHabitRow {...props} />
+    return (
+      <View
+        style={{
+          flexDirection: 'row', alignItems: 'center',
+          paddingVertical: 8, paddingHorizontal: 12,
+          backgroundColor: isSelected ? BLUE + '08' : '#fff',
+          borderBottomWidth: 1, borderBottomColor: '#F5F5F5',
+          borderLeftWidth: isSelected ? 3 : 0,
+          borderLeftColor: isSelected ? accentColor : 'transparent',
+        }}
+      >
+        <HabitRowContent {...props} />
+      </View>
+    )
   }
 
   return (
@@ -534,6 +547,7 @@ interface HabitDetailPanelProps {
 
 function HabitDetailPanel({ step, routine, checkins, selectedDate }: HabitDetailPanelProps) {
   const getLast7CompletionTimes = useRoutineStore((s) => s.getLast7CompletionTimes)
+  const toggleStep = useRoutineStore((s) => s.toggleStep)
   const [panelMonth, setPanelMonth] = useState(() => new Date())
   const accentColor = ROUTINE_COLORS[routine.color]
 
@@ -714,7 +728,12 @@ function HabitDetailPanel({ step, routine, checkins, selectedDate }: HabitDetail
               : undefined
             const badgeSize = 9
             return (
-              <View key={ds} style={{ width: `${100 / 7}%`, alignItems: 'center', justifyContent: 'center', padding: 2, paddingBottom: 4 }}>
+              <Pressable
+                key={ds}
+                disabled={future}
+                onPress={() => toggleStep(routine, step.id, ds)}
+                style={{ width: `${100 / 7}%`, alignItems: 'center', justifyContent: 'center', padding: 2, paddingBottom: 4 }}
+              >
                 <View style={{
                   width: '80%', aspectRatio: 1, borderRadius: 100,
                   backgroundColor: done ? accentColor : today ? accentColor + '20' : 'transparent',
@@ -749,7 +768,7 @@ function HabitDetailPanel({ step, routine, checkins, selectedDate }: HabitDetail
                     {fmtTime12(timeByDate[ds]).replace(' AM', 'a').replace(' PM', 'p')}
                   </Text>
                 )}
-              </View>
+              </Pressable>
             )
           })}
         </View>

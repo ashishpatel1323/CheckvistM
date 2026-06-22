@@ -22,7 +22,7 @@ import type { HabitRowProps } from './RoutinesView'
  */
 export function HabitRowContent({
   step, routine, visibleDates, selectedDate, colWidth, circleSize,
-  onToggle, checkinsByDate, failedByDate, completionTimeByDate, onStartStep, onMarkFailed, onIconPress,
+  onToggle, checkinsByDate, failedByDate, completionTimeByDate, onStartStep, onMarkFailed, onReset, onIconPress,
 }: HabitRowProps) {
   const accentColor = ROUTINE_COLORS[routine.color]
   const updateCheckinTime = useRoutineStore((s) => s.updateCheckinTime)
@@ -127,16 +127,11 @@ export function HabitRowContent({
               )
             : undefined
 
+          // Tap cycles: pending -> done -> failed -> pending. not_applicable is disabled in HabitCircle.
           const handleTap = () => {
-            if (status === 'pending' || status === 'failed') {
-              onToggle(step.id, ds)
-            }
-          }
-
-          const handleLongPress = () => {
-            if (status === 'pending' || status === 'done') {
-              onMarkFailed?.(step.id)
-            }
+            if (status === 'pending') onToggle(step.id, ds)
+            else if (status === 'done') onMarkFailed?.(step.id)
+            else if (status === 'failed') onReset?.(step.id)
           }
 
           return (
@@ -155,7 +150,6 @@ export function HabitRowContent({
                 selected={isSelected}
                 accentColor={accentColor}
                 onTap={handleTap}
-                onLongPress={handleLongPress}
                 size={circleSize}
                 rank={rank}
               />
