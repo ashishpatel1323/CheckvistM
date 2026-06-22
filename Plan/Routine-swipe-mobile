@@ -1,0 +1,81 @@
+# Routine habit rows: mobile swipe-to-done/failed + tap-to-open detail
+
+## Context
+
+Expo React Native app (`react-native` + `react-native-web`, gesture-handler, reanimated). The Routines tab (`RoutinesView.tsx`) has a 7-day grid view and a "Day" single-column view, plus a monthly-calendar "Habit Detail" panel that currently only opens on desktop (as a right sidebar). Goal: make the mobile **Day view** behave like TickTick — swipe right marks a habit done, swipe left marks it failed, tapping the row opens the existing monthly-detail view full-screen — and this must work in **mobile form factor on both web and the native app** (not gated to native-only).
+
+`react-native-gesture-handler` and `react-native-reanimated` both support `react-native-web` (Pan gesture works via pointer/touch events in browsers too), so the gating signal is **`isMobile` (screen width < 768, line 902)**, not `Platform.OS`. Note this differs from the existing `OutlineRow.tsx` convention (lines 195-237) which gates swipe with `Platform.OS !== 'web'` — that earlier pattern is intentionally NOT reused here per explicit instruction that this feature must work on mobile web too.
+
+## Scope
+
+- Swipe gestures: **Day view only**, on any platform, whenever `isMobile` (width < 768). Week view's multi-day circle grid is untouched on both web and native.
+- Swipe right → mark done (`toggleStep`); swipe left → mark failed (`markStepFailed`). Both already toggle (tap-again / long-press-again semantics inherited for free).
+- Tapping the row (not swiping) opens the existing `HabitDetailPanel` (monthly calendar) as a **full-screen modal** on mobile (web and native), matching the `RoutineDetailView.tsx` modal pattern. Desktop sidebar behavior (`!isMobile`) unchanged.
+- Visual feedback: live drag-following — row content translates with the finger/pointer (Reanimated), with a green checkmark panel fading in under right-drag and a red X panel fading in under left-drag, proportional to drag distance.
+
+## Implementation
+
+### 1. Extract `HabitRowContent` into its own file
+
+New file: `src/features/tasks/routines/HabitRowContent.tsx`. Move the current inner content of `HabitRow` (`RoutinesView.tsx` lines ~371-520: emoji+badge, name+duration, play button, `TimeEditModal`, date-circles row) into an exported `HabitRowContent` component, and export `HabitRowProps`, `BLUE`, `FAILURE_RED` from this shared file so both `RoutinesView.tsx` and the new swipe component can import without a circular dependency.
+
+`HabitRow` in `RoutinesView.tsx` becomes a thin dispatcher gated by `isMobile` + single visible date (Day view), not by platform:
+
+```tsx
+function HabitRow(props: HabitRowProps & { isMobile: boolean }) {
+  const isSwipeableDayRow = props.isMobile && props.visibleDates.length === 1
+  if (isSwipeableDayRow) return <SwipeableHabitRow {...props} />
+  return (
+    <Pressable onPress={props.onSelect} style={{ /* same style as today */ }}>
+      <HabitRowContent {...props} />
+    </Pressable>
+  )
+}
+```
+
+`isMobile` (already computed in `RoutinesView` at line 902) needs to be threaded down through `RoutineGroup` → `HabitRow` as a new prop (it isn't currently passed to either). Desktop rendering (any platform, `!isMobile`) and mobile-Week-view rendering stay byte-for-byte identical to today.
+
+### 2. New file `SwipeableHabitRow.tsx`
+
+Location: `src/features/tasks/routines/SwipeableHabitRow.tsx`. Wraps `HabitRowContent` with:
+- Two absolutely-positioned `Animated.View` background panels (accent-colored with a check icon on the left-reveal, `FAILURE_RED` with an X icon on the right-reveal), each driven by `useAnimatedStyle` opacity = `clamp(|translateX| / SWIPE_THRESHOLD, 0, 1)` gated by drag direction.
+- `Gesture.Pan()` from `react-native-gesture-handler` (works cross-platform including web), `runOnJS(true)`, `.minDistance(10)` so plain taps/clicks aren't hijacked, `.enabled(status !== 'not_applicable')`, updating a `useSharedValue` `translateX` clamped to ±96px while dragging.
+- On `onEnd`: if drag distance/velocity exceeds `SWIPE_THRESHOLD = 50` / `SWIPE_VELOCITY_THRESHOLD = 200` (same constants already used in `swipeGestures.ts` and `OutlineRow.tsx`), call `onToggle(step.id, ds)` (right) or `onMarkFailed?.(step.id)` (left). Fire haptics (`hapticSuccess`/`hapticWarning` from `@/lib/haptics`) — these are already no-ops on web (`Platform.OS === 'web'` check inside `haptics.ts` itself), so no extra guard is needed at the call site. Then `withSpring(0)` to snap back regardless of outcome.
+- `GestureDetector` wraps an `Animated.View` (translateX style) containing a plain `Pressable onPress={onSelect}` containing `HabitRowContent` — mirrors the tap+pan coexistence pattern already proven in `OutlineRow.tsx` lines 323-341, which also runs on web via `react-native-web`'s Pressable/pointer handling.
+- The existing single `HabitCircle` (Day view always has exactly one visible date) stays inside `HabitRowContent` untouched — swipe is additive; tapping the circle directly still works exactly as today, on every platform.
+
+### 3. Enable tap-to-open-detail on mobile (`RoutinesView.tsx`)
+
+- Line ~1227: change `onSelectStep={!isMobile ? (stepId) => ... : undefined}` to unconditional — always pass the handler, on every platform.
+- Lines ~1239-1260: split the "Right: detail panel" block into desktop (`!isMobile`, unchanged 45%-width sidebar) vs mobile (`isMobile`) branches, regardless of `Platform.OS`. Mobile branch wraps the same `<HabitDetailPanel .../>` content in `<Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={...}>` with a header (close button + "Habit Detail" title), copying the header style convention from `RoutineDetailView.tsx` lines 45-59 (`paddingTop: isMobile ? 52 : 20`, which already branches on `isMobile` rather than platform — confirming this component already supports the mobile-web case correctly).
+- Leave the left `ScrollView` width logic (line ~1210, `!isMobile && selectedHabit ? '55%' : flex:1`) unchanged — list stays full-width on mobile (web or native) since the detail opens as an overlay modal, not a side-by-side split.
+
+### 4. Imports
+
+- `RoutinesView.tsx`: no new platform import needed (we removed the `Platform.OS` gate in favor of `isMobile`, which is already computed). Pass `isMobile` down through `RoutineGroup`'s props into `HabitRow`.
+- `SwipeableHabitRow.tsx`: `Gesture, GestureDetector` from `react-native-gesture-handler`; `useSharedValue, useAnimatedStyle, withSpring` + default `Animated` from `react-native-reanimated`; `Check`, `X` icons from `lucide-react-native`; `hapticSuccess, hapticWarning` from `@/lib/haptics`; `getStepStatus` from `./routineSchedule`; `ROUTINE_COLORS` from `./routineTypes`; `BLUE`, `FAILURE_RED`, `HabitRowContent`, `HabitRowProps` from `./HabitRowContent`.
+
+### Edge cases (handled by inherited toggle semantics, no extra guards needed)
+- `not_applicable` (not scheduled that day): swipe gesture disabled entirely (`.enabled(false)`).
+- Already `done`, swipe right again → `toggleStep` un-marks it (same as tapping the circle again today).
+- Already `failed`, swipe left again → `markStepFailed` un-marks it (same as long-press-again today).
+- `onMarkFailed` is optional on `HabitRowProps` — guard left-swipe action with `swipeLeft && onMarkFailed`.
+- Web mouse-drag vs touch-drag: `Gesture.Pan()` via `react-native-gesture-handler`'s web support handles both pointer types uniformly — no special-casing needed, but verify in a real mobile-width browser window (not just devtools device toolbar) since some pointer-event quirks only show on actual touch devices.
+
+## Optional bonus mobile UX improvements (not required for the core ask — pick any)
+
+- **"All caught up" empty state for Only-Pending filter**: when `filterMode === 'pending'` and `totalPending === 0`, show a celebratory empty state instead of a blank screen — currently an empty `RoutineGroup` just returns `null` (line ~583).
+- **Light haptic on Day/Week and filter-mode toggle taps** (`hapticLight()` from `@/lib/haptics`) — currently these `Pressable`s (lines ~1080-1137) have no tactile feedback.
+- **Streak flame badge on the routine group header** (lines ~591-649): show a 🔥 + day-count next to the routine name using the streak data already computed via `computeStepStats`/`getLast21ScheduledSuccesses`.
+- **Pull-to-refresh** on the Day/Week list `ScrollView` (line ~1209) via `RefreshControl`, calling `loadRoutines()`.
+- **Swipe-row haptic on threshold-cross, not just on release**: fire a light haptic exactly when the drag crosses `SWIPE_THRESHOLD` so the action feels "armed" before commit, matching iOS/TickTick swipe feel.
+- **Long-press row → quick action sheet** (Edit / Mark Failed / Start Timer / Delete) reusing the existing `BottomSheet` component, as a discoverable alternative to swipe/long-press-circle.
+
+## Verification
+
+- `pnpm typecheck` and `pnpm lint` after the change.
+- Test in a real mobile-width browser session (`pnpm web`, narrow window or actual mobile browser) AND a native build (`pnpm android`/`pnpm ios`):
+  - **Day** view: swiping a row right marks it done with a green panel reveal, swiping left marks it failed with a red panel reveal, row snaps back after each gesture, haptics fire on native (silently no-op on web).
+  - Tapping a row (no drag) opens the full-screen "Habit Detail" modal with the monthly calendar; close button returns to the list. Works identically on mobile web and native.
+  - **Week** view: unchanged grid circles, tap/long-press behavior identical to before, on both platforms.
+  - Desktop/wide window (any platform): rows have no swipe behavior; clicking a row still opens the existing right-sidebar detail panel as before.
