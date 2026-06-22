@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { View, Text, Pressable, Modal, ScrollView, Platform } from 'react-native'
 import { MonitorDot, X, Copy, Check } from 'lucide-react-native'
-import { getOrCreateMenuBarTopic, NTFY_SERVER, useMenuBarPublishStatus } from '@/services/menuBarSync'
+import { getRelayCoords, CHECKVIST_SERVER, useMenuBarPublishStatus } from '@/services/menuBarSync'
 import { useAuth } from '@/auth/useAuth'
 
-// Web-only header button that reveals the macOS menu-bar (SwiftBar) setup: the per-user key plus
-// install instructions. Display-only mirror of the in-app global timer — see tools/swiftbar/.
+// Web-only header button that reveals the macOS menu-bar app setup: the private Checkvist list/task
+// that holds the live snapshot, plus install instructions. The app writes the snapshot into a hidden
+// Checkvist list using your session; the menu-bar app logs in with your own API key and polls it.
+// Display-only mirror of the in-app global timer — see tools/menubar-app/.
 
 const BLUE = '#4772FA'
 
@@ -89,7 +91,13 @@ function formatAgo(sec: number): string {
 }
 
 function SetupPanel({ onClose }: { onClose: () => void }) {
-  const topic = getOrCreateMenuBarTopic()
+  // Coords are created on the first write; re-read once a second until they appear.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+  const coords = getRelayCoords()
 
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
@@ -105,24 +113,33 @@ function SetupPanel({ onClose }: { onClose: () => void }) {
 
           <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ padding: 16, gap: 16 }}>
             <Text style={{ fontSize: 13, color: '#4B5563', lineHeight: 19 }}>
-              Mirror this app's live timer in the macOS menu bar with SwiftBar. Keep this tab open so it
-              keeps publishing (to the public ntfy.sh topic below); the menu bar shows the running task,
-              routine step, or idle countdown.
+              Mirror this app's live timer in the macOS menu bar. Keep this tab open so it keeps writing
+              the snapshot into a hidden, private Checkvist list (below); the menu-bar app logs in with
+              your own Checkvist API key and shows the running task, routine step, or idle countdown.
             </Text>
 
             <PublishStatusRow />
 
-            <CopyRow label="Menu bar topic" value={topic} />
-            <CopyRow label="ntfy server" value={NTFY_SERVER} />
+            <CopyRow label="Checkvist server" value={CHECKVIST_SERVER} />
+            {coords ? (
+              <>
+                <CopyRow label="List ID" value={String(coords.listId)} />
+                <CopyRow label="Task ID" value={String(coords.taskId)} />
+              </>
+            ) : (
+              <Text style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' }}>
+                Start a timer once to create the hidden state list — the List ID and Task ID will appear here.
+              </Text>
+            )}
 
             <View style={{ gap: 6 }}>
               <Text style={{ fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.6 }}>
                 Setup
               </Text>
               {[
-                'Install SwiftBar:  brew install swiftbar',
-                'Copy tools/swiftbar/checkvist-timer.15s.py into your SwiftBar plugins folder and make it executable.',
-                'In the plugin’s settings, set VAR_NTFY_TOPIC to the topic above (VAR_NTFY_SERVER only if self-hosting ntfy).',
+                'Build the app:  ./tools/menubar-app/build.sh  then open ~/Applications/CheckvistTimer.app',
+                'Get your API key from Checkvist → Profile → "OpenAPI key" (this is your remote key).',
+                'In the app’s menu, enter your Checkvist email + API key, then the List ID and Task ID above.',
               ].map((step, i) => (
                 <View key={i} style={{ flexDirection: 'row', gap: 8 }}>
                   <Text style={{ fontSize: 12, fontWeight: '700', color: BLUE, width: 14 }}>{i + 1}.</Text>

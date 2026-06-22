@@ -371,9 +371,15 @@ export const useRoutineStore = create<RoutineStoreState>()((set, get) => ({
   },
 
   extendStep: (sec) => {
-    const { activeTimer } = get()
+    const { activeTimer, routines } = get()
     if (!activeTimer) return
-    set({ activeTimer: { ...activeTimer, extensionSec: activeTimer.extensionSec + sec } })
+    const routine = routines.find((r) => r.taskId === activeTimer.routineTaskId)
+    const step = routine?.steps.find((s) => s.id === activeTimer.pendingStepIds[activeTimer.stepIndex])
+    const baseSec = step ? step.durationMin * 60 : 0
+    // Keep the step target at >= 60s so repeated -5 can't drive the countdown negative.
+    const minExtension = baseSec > 0 ? 60 - baseSec : 0
+    const nextExtension = Math.max(minExtension, activeTimer.extensionSec + sec)
+    set({ activeTimer: { ...activeTimer, extensionSec: nextExtension } })
   },
 
   advanceStep: async (action) => {

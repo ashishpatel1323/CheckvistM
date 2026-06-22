@@ -1,9 +1,12 @@
 import Cocoa
 
 // Native macOS menu-bar app that mirrors the Checkvist web app's global timer.
-// It polls a public ntfy.sh topic (the app publishes there) every ~15s and ticks the live
-// elapsed once a second. Display-only. Config is read from ~/.checkvist-timer.json:
-//   { "server": "https://ntfy.sh", "topic": "checkvist-timer-...." }
+// It logs into Checkvist with the user's own API key, polls a single hidden task (where the web app
+// writes the snapshot) every ~15s, and ticks the live elapsed once a second. Display-only — it never
+// writes. Config is read from ~/.checkvist-timer.json:
+//   { "server": "https://checkvist.com", "email": "you@example.com",
+//     "remoteKey": "your-openapi-key", "listId": 123456, "taskId": 7890123 }
+// The auth token is cached in UserDefaults and refreshed automatically (Checkvist tokens last ~1 day).
 //
 // A menu option toggles an always-on-top split-flap FLIP CLOCK (white digits on charcoal tiles)
 // showing the elapsed time, with a task label + progress bar on the right. The window can be made
@@ -310,8 +313,13 @@ final class HourglassView: NSView {
 final class TimerController: NSObject {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
-    var server = "https://ntfy.sh"
-    var topic = ""
+    var server = "https://checkvist.com"
+    var email = ""
+    var remoteKey = ""
+    var listId = 0
+    var taskId = 0
+    var token: String?
+    var tokenAt = Date.distantPast
     var snapshot: [String: Any]?
     var lastFetch = Date.distantPast
     let fetchInterval: TimeInterval = 15
@@ -332,6 +340,13 @@ final class TimerController: NSObject {
     var detailsMenuItem: NSMenuItem!
 
     var progressWindow: NSWindow?
+    var settingsWindow: NSWindow?
+    var fServer: NSTextField!
+    var fEmail: NSTextField!
+    var fKey: NSSecureTextField!
+    var fList: NSTextField!
+    var fTask: NSTextField!
+    var settingsStatus: NSTextField!
     var hourglass: HourglassView!
     var hgSize: CGFloat { 24 * clockScale }
     let flipClock = FlipClockView()
@@ -361,11 +376,16 @@ final class TimerController: NSObject {
         (NSHomeDirectory() as NSString).appendingPathComponent(".checkvist-timer.json")
     }
 
+    var configured: Bool { !email.isEmpty && !remoteKey.isEmpty && listId > 0 && taskId > 0 }
+
     func loadConfig() {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: configPath())),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         if let s = obj["server"] as? String, !s.isEmpty { server = s }
-        if let tp = obj["topic"] as? String { topic = tp }
+        if let e = obj["email"] as? String { email = e }
+        if let k = obj["remoteKey"] as? String { remoteKey = k }
+        if let l = obj["listId"] as? Int { listId = l } else if let s = obj["listId"] as? String { listId = Int(s) ?? 0 }
+        if let t = obj["taskId"] as? Int { taskId = t } else if let s = obj["taskId"] as? String { taskId = Int(s) ?? 0 }
     }
 
     func loadPrefs() {
@@ -373,6 +393,8 @@ final class TimerController: NSObject {
         if d.object(forKey: "mb_rightWidth") != nil { rightWidth = CGFloat(d.double(forKey: "mb_rightWidth")) }
         if d.object(forKey: "mb_clockScale") != nil { clockScale = CGFloat(d.double(forKey: "mb_clockScale")) }
         if d.object(forKey: "mb_showDetails") != nil { showDetails = d.bool(forKey: "mb_showDetails") }
+        token = d.string(forKey: "mb_token")
+        if d.object(forKey: "mb_tokenAt") != nil { tokenAt = Date(timeIntervalSince1970: d.double(forKey: "mb_tokenAt")) }
         rightWidth = min(max(rightWidth, 120), 560)
         clockScale = min(max(clockScale, 0.7), 2.0)
     }
@@ -382,6 +404,14 @@ final class TimerController: NSObject {
         d.set(Double(rightWidth), forKey: "mb_rightWidth")
         d.set(Double(clockScale), forKey: "mb_clockScale")
         d.set(showDetails, forKey: "mb_showDetails")
+    }
+
+    func setToken(_ t: String) {
+        token = t
+        tokenAt = Date()
+        let d = UserDefaults.standard
+        d.set(t, forKey: "mb_token")
+        d.set(tokenAt.timeIntervalSince1970, forKey: "mb_tokenAt")
     }
 
     func buildMenu() {
@@ -403,6 +433,9 @@ final class TimerController: NSObject {
         let narrower = NSMenuItem(title: "Narrower", action: #selector(narrow), keyEquivalent: "-")
         narrower.target = self; menu.addItem(narrower)
         menu.addItem(.separator())
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
         let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
@@ -410,6 +443,128 @@ final class TimerController: NSObject {
     }
 
     @objc func quit() { NSApp.terminate(nil) }
+
+    // MARK: Settings window
+
+    @objc func openSettings() {
+        loadConfig()
+        if settingsWindow == nil { buildSettingsWindow() }
+        fServer.stringValue = server
+        fEmail.stringValue = email
+        fKey.stringValue = remoteKey
+        fList.stringValue = listId > 0 ? String(listId) : ""
+        fTask.stringValue = taskId > 0 ? String(taskId) : ""
+        settingsStatus.stringValue = ""
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.center()
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    func buildSettingsWindow() {
+        let W: CGFloat = 460, H: CGFloat = 300
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: W, height: H),
+                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        win.title = "Checkvist Timer Settings"
+        win.isReleasedWhenClosed = false
+        let content = win.contentView!
+
+        let labelW: CGFloat = 80
+        let fieldX = 20 + labelW + 10
+        let fieldW = W - fieldX - 20
+        let rowH: CGFloat = 24
+        let gap: CGFloat = 14
+        var y = H - 48
+
+        func addRow(_ title: String, _ field: NSTextField, hint: String? = nil) {
+            let l = NSTextField(labelWithString: title)
+            l.frame = NSRect(x: 20, y: y, width: labelW, height: rowH)
+            l.alignment = .right
+            content.addSubview(l)
+            field.frame = NSRect(x: fieldX, y: y, width: fieldW, height: rowH)
+            field.placeholderString = hint
+            content.addSubview(field)
+            y -= (rowH + gap)
+        }
+
+        fServer = NSTextField(string: "")
+        fEmail = NSTextField(string: "")
+        fKey = NSSecureTextField(string: "")
+        fList = NSTextField(string: "")
+        fTask = NSTextField(string: "")
+        addRow("Server", fServer, hint: "https://checkvist.com")
+        addRow("Email", fEmail, hint: "you@example.com")
+        addRow("API key", fKey, hint: "Checkvist → Profile → OpenAPI key")
+        addRow("List ID", fList, hint: "from the app's Menu bar timer panel")
+        addRow("Task ID", fTask, hint: "from the app's Menu bar timer panel")
+
+        settingsStatus = NSTextField(labelWithString: "")
+        settingsStatus.frame = NSRect(x: 20, y: 56, width: W - 40, height: rowH)
+        settingsStatus.textColor = .secondaryLabelColor
+        settingsStatus.font = .systemFont(ofSize: 11)
+        content.addSubview(settingsStatus)
+
+        let save = NSButton(title: "Save", target: self, action: #selector(saveSettings))
+        save.bezelStyle = .rounded
+        save.keyEquivalent = "\r"
+        save.frame = NSRect(x: W - 20 - 90, y: 16, width: 90, height: 30)
+        content.addSubview(save)
+
+        let test = NSButton(title: "Test login", target: self, action: #selector(testSettings))
+        test.bezelStyle = .rounded
+        test.frame = NSRect(x: W - 20 - 90 - 10 - 100, y: 16, width: 100, height: 30)
+        content.addSubview(test)
+
+        settingsWindow = win
+    }
+
+    /// Pull the field values into the live config vars (used by both Save and Test).
+    func applyFields() {
+        let s = fServer.stringValue.trimmingCharacters(in: .whitespaces)
+        server = s.isEmpty ? "https://checkvist.com" : s
+        email = fEmail.stringValue.trimmingCharacters(in: .whitespaces)
+        remoteKey = fKey.stringValue.trimmingCharacters(in: .whitespaces)
+        listId = Int(fList.stringValue.trimmingCharacters(in: .whitespaces)) ?? 0
+        taskId = Int(fTask.stringValue.trimmingCharacters(in: .whitespaces)) ?? 0
+    }
+
+    @objc func saveSettings() {
+        applyFields()
+        let obj: [String: Any] = [
+            "server": server, "email": email, "remoteKey": remoteKey,
+            "listId": listId, "taskId": taskId,
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted]) {
+            try? data.write(to: URL(fileURLWithPath: configPath()))
+        }
+        token = nil // credentials may have changed — force a fresh login
+        settingsStatus.textColor = .secondaryLabelColor
+        settingsStatus.stringValue = configured ? "Saved — connecting…" : "Saved. Fill every field to connect."
+        forceRefresh()
+    }
+
+    @objc func testSettings() {
+        applyFields()
+        guard !email.isEmpty, !remoteKey.isEmpty else {
+            settingsStatus.textColor = .systemRed
+            settingsStatus.stringValue = "Enter email and API key first."
+            return
+        }
+        settingsStatus.textColor = .secondaryLabelColor
+        settingsStatus.stringValue = "Testing…"
+        token = nil
+        login { [weak self] tok in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if tok != nil {
+                    self.settingsStatus.textColor = .systemGreen
+                    self.settingsStatus.stringValue = "Login OK ✓"
+                } else {
+                    self.settingsStatus.textColor = .systemRed
+                    self.settingsStatus.stringValue = "Login failed — check email / API key / server."
+                }
+            }
+        }
+    }
 
     @objc func tick() {
         if Date().timeIntervalSince(lastFetch) >= fetchInterval || snapshot == nil {
@@ -427,25 +582,84 @@ final class TimerController: NSObject {
 
     func fetch() {
         loadConfig()
-        guard !topic.isEmpty,
-              let url = URL(string: "\(server)/\(topic)/json?poll=1&since=15m") else { return }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let self, let data, let text = String(data: data, encoding: .utf8) else { return }
-            var latest: [String: Any]?
-            for line in text.split(separator: "\n") {
-                guard let ld = line.data(using: .utf8),
-                      let evt = try? JSONSerialization.jsonObject(with: ld) as? [String: Any],
-                      (evt["event"] as? String) == "message",
-                      let msg = evt["message"] as? String,
-                      let md = msg.data(using: .utf8),
-                      let snap = try? JSONSerialization.jsonObject(with: md) as? [String: Any],
-                      snap["mode"] != nil else { continue }
-                latest = snap
-            }
-            if let latest {
-                DispatchQueue.main.async { self.snapshot = latest; self.render() }
-            }
+        guard configured else { return }
+        ensureToken { [weak self] tok in
+            guard let self, let tok else { return }
+            self.fetchTask(token: tok, retryOn401: true)
+        }
+    }
+
+    /// POST an x-www-form-urlencoded request and hand back the parsed JSON object (or nil).
+    func postForm(_ path: String, fields: [String: String], completion: @escaping ([String: Any]?) -> Void) {
+        guard let url = URL(string: server + path) else { completion(nil); return }
+        let allowed = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        let body = fields
+            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")" }
+            .joined(separator: "&")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body.data(using: .utf8)
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            completion(data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? nil)
         }.resume()
+    }
+
+    /// Return a usable token: reuse the cached one if fresh, else refresh it, else log in afresh.
+    func ensureToken(_ completion: @escaping (String?) -> Void) {
+        if let token, Date().timeIntervalSince(tokenAt) < 23 * 3600 { completion(token); return }
+        if let old = token {
+            postForm("/auth/refresh_token.json?version=2", fields: ["old_token": old]) { [weak self] obj in
+                if let t = obj?["token"] as? String { self?.setToken(t); completion(t) }
+                else { self?.login(completion) }
+            }
+        } else {
+            login(completion)
+        }
+    }
+
+    func login(_ completion: @escaping (String?) -> Void) {
+        guard !email.isEmpty, !remoteKey.isEmpty else { completion(nil); return }
+        postForm("/auth/login.json?version=2", fields: ["username": email, "remote_key": remoteKey]) { [weak self] obj in
+            if let t = obj?["token"] as? String { self?.setToken(t); completion(t) } else { completion(nil) }
+        }
+    }
+
+    /// GET the single relay task and decode its snapshot. On 401, drop the token and retry once.
+    func fetchTask(token tok: String, retryOn401: Bool) {
+        guard let url = URL(string: "\(server)/checklists/\(listId)/tasks/\(taskId).json?token=\(tok)") else { return }
+        var req = URLRequest(url: url)
+        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
+            guard let self else { return }
+            if let http = resp as? HTTPURLResponse, http.statusCode == 401, retryOn401 {
+                self.token = nil
+                self.ensureToken { newTok in if let newTok { self.fetchTask(token: newTok, retryOn401: false) } }
+                return
+            }
+            // Checkvist returns the task as a single-element array, not a bare object.
+            guard let data else { return }
+            let top = try? JSONSerialization.jsonObject(with: data)
+            let obj = (top as? [[String: Any]])?.first ?? (top as? [String: Any])
+            guard let content = obj?["content"] as? String,
+                  let snap = self.decodeSnapshot(content) else { return }
+            DispatchQueue.main.async { self.snapshot = snap; self.render() }
+        }.resume()
+    }
+
+    /// Strip the marker prefix and base64url-decode the snapshot JSON the web app wrote.
+    func decodeSnapshot(_ content: String) -> [String: Any]? {
+        let prefix = "CVTIMER1 "
+        guard content.hasPrefix(prefix) else { return nil }
+        var b64 = String(content.dropFirst(prefix.count))
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        while b64.count % 4 != 0 { b64 += "=" }
+        guard let data = Data(base64Encoded: b64),
+              let snap = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              snap["mode"] != nil else { return nil }
+        return snap
     }
 
     func fmt(_ sec: Double) -> String {
@@ -648,12 +862,12 @@ final class TimerController: NSObject {
             flipClock.set(seconds: seconds, color: color, animated: animated, placeholder: placeholder)
         }
 
-        guard !topic.isEmpty else {
+        guard configured else {
             setTitle("⚙ set up timer", color: .secondaryLabelColor)
             if barVisible {
                 showClock(seconds: 0, color: .white, animated: false, placeholder: true)
                 if showDetails {
-                    captionField.stringValue = "set a topic"; captionField.textColor = NSColor(white: 1, alpha: 0.75)
+                    captionField.stringValue = "add API key + IDs"; captionField.textColor = NSColor(white: 1, alpha: 0.75)
                     totalField.stringValue = ""; setProgress(ratio: 0, color: cIdle)
                 }
             }
@@ -665,7 +879,7 @@ final class TimerController: NSObject {
         let fresh = snapshot != nil && (nowMs - updatedAt) <= staleAfter * 1000
 
         topicItem.isHidden = false
-        topicItem.title = "Topic: \(topic)"
+        topicItem.title = "Checkvist · list \(listId) / task \(taskId)"
 
         guard fresh, let snap = snapshot else {
             setTitle("– not tracking", color: .secondaryLabelColor)

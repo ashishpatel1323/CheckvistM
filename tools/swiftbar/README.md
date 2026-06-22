@@ -5,23 +5,20 @@ Mirror the app's global timer — the running Execute task, the active routine s
 
 ## How it works
 
-The web app (kept open in a browser tab) publishes a live snapshot of the timer to a public
-[ntfy.sh](https://ntfy.sh) topic. This SwiftBar plugin polls the same topic and ticks the elapsed
-time locally every second. There is **no backend of our own** — ntfy is an open pub/sub service with
-CORS enabled, so the browser can publish and the plugin can read with no account or API key.
+The web app (kept open in a browser tab) writes a live snapshot of the timer into a single hidden,
+**private** Checkvist task using the session you're already logged into. This SwiftBar plugin logs
+into Checkvist with your own API key, polls that task, and ticks the elapsed time locally every
+second. There is **no third-party relay** — the data stays inside your own Checkvist account, so
+there are no message caps.
 
 ```
-Browser tab  ──POST──▶  ntfy.sh/<topic>  ──GET (poll)──▶  this plugin  ──▶  menu bar
+Browser tab ──PUT──▶ Checkvist task (hidden list) ──GET (poll, authed)──▶ this plugin ──▶ menu bar
 ```
 
-The topic name is the only "key" — anyone who knows it can read the snapshot, so it's randomly
-generated per user. When the tab closes, no fresh snapshots arrive and the plugin shows
-"not tracking" once the last snapshot is older than 150s (via the snapshot's `updatedAt`). It is
-**display-only** and read-only — it never controls the app.
-
-> Note: ntfy.sh is a free public service. The data is non-sensitive (an activity name + elapsed
-> time). If you'd rather not use the public instance you can self-host ntfy and point both the app
-> and `VAR_NTFY_SERVER` at it.
+The snapshot lives in one task whose `content` is the base64-encoded JSON. When the tab closes, no
+fresh snapshots are written and the plugin shows "not tracking" once the last snapshot is older than
+150s (via the snapshot's `updatedAt`). It is **display-only** and read-only — it never controls the
+app and never writes to Checkvist.
 
 ## Mac setup
 
@@ -37,12 +34,16 @@ generated per user. When the tab closes, no fresh snapshots arrive and the plugi
    chmod +x "$HOME/Library/Application Support/SwiftBar/Plugins/checkvist-timer.15s.py"
    ```
 
-3. In the app (web), open the **Menu bar timer** panel (the monitor icon in the header) and copy the
-   **Menu bar topic**.
+3. Get your **API key** from Checkvist → Profile → "OpenAPI key". In the web app, open the
+   **Menu bar timer** panel (the monitor icon in the header) and note the **List ID** and **Task ID**
+   (they appear after you start a timer once).
 
 4. In SwiftBar → the plugin's settings, set:
-   - `VAR_NTFY_TOPIC` → the Menu bar topic
-   - `VAR_NTFY_SERVER` → leave as `https://ntfy.sh` (only change if self-hosting ntfy)
+   - `VAR_CV_EMAIL` → your Checkvist account email
+   - `VAR_CV_KEY` → your Checkvist API key
+   - `VAR_CV_LIST` → the List ID from the panel
+   - `VAR_CV_TASK` → the Task ID from the panel
+   - `VAR_CV_SERVER` → leave as `https://checkvist.com`
 
 5. Keep the app tab open. Start an Execute task or routine and watch the menu bar update within ~15s.
 
@@ -56,10 +57,10 @@ generated per user. When the tab closes, no fresh snapshots arrive and the plugi
 
 ## Troubleshooting
 
-- **Always "not tracking"**: confirm the app tab is open and the topic matches exactly. Test the
-  topic directly (replace `TOPIC`):
+- **Always "not tracking"**: confirm the app tab is open and the IDs match the panel. Test your
+  credentials and the relay task directly (fill in the values):
   ```sh
-  NOW=$(($(date +%s)*1000))
-  curl -d '{"mode":"idle","label":"test","updatedAt":'"$NOW"'}' https://ntfy.sh/TOPIC
-  curl -s 'https://ntfy.sh/TOPIC/json?poll=1'
+  TOKEN=$(curl -s -d 'username=EMAIL&remote_key=KEY' 'https://checkvist.com/auth/login.json?version=2' | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+  curl -s "https://checkvist.com/checklists/LIST/tasks/TASK.json?token=$TOKEN"
   ```
+  The task's `content` should start with the marker `CVTIMER1` followed by a space and base64.

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { View, Text, Pressable } from 'react-native'
-import { Plus, Play, Pause, Check, SkipForward, Circle, Timer, Repeat } from 'lucide-react-native'
+import { Plus, Minus, Play, Pause, Check, SkipForward, Circle, Timer, Repeat } from 'lucide-react-native'
 import { useExecuteLog, liveSeconds } from '@/features/tasks/execute/useExecuteLog'
 import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { useOvertimeBeep } from '@/services/focusReminder'
@@ -127,7 +127,10 @@ export function GlobalTimerBar({ onOpenExecute }: GlobalTimerBarProps) {
         </Pressable>
         <Time accent={accent} value={fmt(elapsed)} sub={estSec > 0 ? `/ ${fmt(estSec)}` : undefined} overLabel={isOverrun} />
         {entry && estSec > 0 && (
-          <ExtendPill color={accent} onPress={() => setEstimate(timerRunningKey, entry.estimateMin + 5)} />
+          <>
+            <AdjustPill color={accent} delta={-5} onPress={() => setEstimate(timerRunningKey, entry.estimateMin - 5)} />
+            <AdjustPill color={accent} delta={5} onPress={() => setEstimate(timerRunningKey, entry.estimateMin + 5)} />
+          </>
         )}
         <RoundBtn color={accent} onPress={pauseExecute}><Pause size={15} color="#fff" /></RoundBtn>
       </Wrapper>
@@ -160,7 +163,10 @@ export function GlobalTimerBar({ onOpenExecute }: GlobalTimerBarProps) {
         </Pressable>
         <Time accent={accent} value={fmt(elapsed)} sub={durSec > 0 ? `/ ${fmt(durSec)}` : undefined} overLabel={isOverrun} />
         {!!step && step.durationMin > 0 && (
-          <ExtendPill color={accent} onPress={() => extendStep(EXTEND_SEC)} />
+          <>
+            <AdjustPill color={accent} delta={-5} onPress={() => extendStep(-EXTEND_SEC)} />
+            <AdjustPill color={accent} delta={5} onPress={() => extendStep(EXTEND_SEC)} />
+          </>
         )}
         <RoundBtn color="#F3F4F6" onPress={() => (isPaused ? resumeRoutine() : pauseRoutine())}>
           {isPaused ? <Play size={14} color="#374151" fill="#374151" /> : <Pause size={14} color="#374151" />}
@@ -191,7 +197,7 @@ export function GlobalTimerBar({ onOpenExecute }: GlobalTimerBarProps) {
       )}
       <Time accent={accent} value={isOverrun ? `+${fmt(overrunSec)}` : fmt(elapsedSec)} sub={isOverrun ? undefined : `/ ${fmt(idleLimitSec)}`} overLabel={isOverrun} />
       {isOverrun && (
-        <ExtendPill color={accent} onPress={() => setIdleLimitSec((l) => l + EXTEND_SEC)} />
+        <AdjustPill color={accent} delta={5} onPress={() => setIdleLimitSec((l) => l + EXTEND_SEC)} />
       )}
     </Wrapper>
   )
@@ -218,14 +224,15 @@ function Time({ accent, value, sub, overLabel }: { accent: string; value: string
   )
 }
 
-function ExtendPill({ color, onPress }: { color: string; onPress: () => void }) {
+function AdjustPill({ color, delta, onPress }: { color: string; delta: number; onPress: () => void }) {
+  const Icon = delta < 0 ? Minus : Plus
   return (
     <Pressable
       onPress={onPress}
       hitSlop={6}
       style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'white', borderRadius: 16, borderWidth: 1, borderColor: color, paddingVertical: 3, paddingHorizontal: 8 }}
     >
-      <Plus size={11} color={color} />
+      <Icon size={11} color={color} />
       <Text style={{ fontSize: 11, fontWeight: '700', color }}>5 min</Text>
     </Pressable>
   )

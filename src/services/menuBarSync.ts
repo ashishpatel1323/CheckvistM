@@ -5,18 +5,25 @@ import { useRoutineStore, type ActiveTimer } from '@/features/tasks/routines/use
 import type { RoutineDef } from '@/features/tasks/routines/routineTypes'
 import { useAuth } from '@/auth/useAuth'
 import { storageGetSync, storageSetSync } from '@/platform/storage'
+import { fetchChecklists, createChecklist, fetchTasks, createTask, updateTask } from '@/api/endpoints'
 
-// Publishes a live snapshot of the global timer (execute / routine / idle) to a public ntfy.sh
-// topic so a macOS SwiftBar plugin can mirror it in the menu bar. Web-only, read-only: it only
-// reads the existing stores and never mutates timer state. No backend/relay of our own — ntfy is
-// an open pub/sub service with CORS enabled. The topic name is the only "key" (a capability), so
-// it's randomly generated. Liveness ("app closed → not tracking") is handled by the snapshot's
-// updatedAt staleness check on the reader side. See tools/swiftbar/ for the menu-bar side.
+// Publishes a live snapshot of the global timer (execute / routine / idle) into a dedicated,
+// PRIVATE Checkvist list so a macOS menu-bar app can mirror it. Web-only, and read-only against
+// the timer stores — it never mutates timer state, only writes a housekeeping task. There is no
+// third-party relay: the snapshot lives in one hidden task whose `content` is the base64-encoded
+// JSON, written via the same authenticated Checkvist session the app already uses (so no extra
+// account and no message caps). The menu-bar reader logs into Checkvist with the user's own
+// API key and polls that task. Liveness ("app closed → not tracking") is handled by the snapshot's
+// updatedAt staleness check on the reader side. See tools/menubar-app/ for the reader.
 
-export const NTFY_SERVER = 'https://ntfy.sh'
-const TOPIC_STORAGE = 'mb_topic'
+export const CHECKVIST_SERVER = 'https://checkvist.com'
+const RELAY_LIST_NAME = '⏱ Checkvist Timer State'
+// Marks the single relay task and lets the reader find the payload. Base64url JSON follows it.
+const CONTENT_PREFIX = 'CVTIMER1 '
+const LIST_STORAGE = 'mb_list_id'
+const TASK_STORAGE = 'mb_task_id'
 const HEARTBEAT_MS = 120_000 // liveness refresh while a timer is active (idle doesn't heartbeat)
-const MIN_POST_INTERVAL_MS = 3_000 // hard floor between any two posts, so bursts can't spam ntfy
+const MIN_POST_INTERVAL_MS = 3_000 // hard floor between any two writes, so bursts can't hammer the API
 const IDLE_LIMIT_SEC = 5 * 60 // mirror GlobalTimerBar's idle window
 
 export interface TimerSnapshot {
@@ -31,17 +38,45 @@ export interface TimerSnapshot {
   updatedAt: number
 }
 
-/** Stable per-user ntfy topic (the capability), generated once and shown in-app to paste into SwiftBar. */
-export function getOrCreateMenuBarTopic(): string {
-  const existing = storageGetSync(TOPIC_STORAGE)
-  if (existing) return existing
-  const rand =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  const topic = `checkvist-timer-${rand}`
-  storageSetSync(TOPIC_STORAGE, topic)
-  return topic
+export interface RelayCoords {
+  listId: number
+  taskId: number
+}
+
+/** The reader "capability": which Checkvist list + task hold the snapshot. Null until first write. */
+export function getRelayCoords(): RelayCoords | null {
+  const listId = storageGetSync(LIST_STORAGE)
+  const taskId = storageGetSync(TASK_STORAGE)
+  if (!listId || !taskId) return null
+  return { listId: Number(listId), taskId: Number(taskId) }
+}
+
+/** UTF-8-safe base64url (no padding) — keeps the payload free of Checkvist smart-syntax characters. */
+function encodeContent(snapshot: TimerSnapshot): string {
+  const json = JSON.stringify(snapshot)
+  const b64 = btoa(unescape(encodeURIComponent(json)))
+  return CONTENT_PREFIX + b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/**
+ * Find (or lazily create) the hidden list + single task that holds the snapshot. Mirrors the
+ * useRoutineSystem pattern. Caches the ids in local storage so steady-state writes are a single PUT.
+ */
+async function ensureRelayTarget(): Promise<RelayCoords> {
+  const cached = getRelayCoords()
+  if (cached) return cached
+
+  const lists = await fetchChecklists()
+  const list = lists.find((l) => l.name === RELAY_LIST_NAME) ?? (await createChecklist(RELAY_LIST_NAME))
+
+  const tasks = await fetchTasks(list.id)
+  const task =
+    tasks.find((t) => t.content.startsWith(CONTENT_PREFIX)) ??
+    (await createTask(list.id, { content: CONTENT_PREFIX }))
+
+  storageSetSync(LIST_STORAGE, String(list.id))
+  storageSetSync(TASK_STORAGE, String(task.id))
+  return { listId: list.id, taskId: task.id }
 }
 
 interface ExecuteState {
@@ -123,11 +158,11 @@ export function computeTimerSnapshot(ex: ExecuteState, rt: RoutineState, idleSta
   }
 }
 
-// --- Publish liveness (for the in-app setup panel to show whether we're actually posting) ---
+// --- Publish liveness (for the in-app setup panel to show whether we're actually writing) ---
 
 export interface PublishStatus {
-  lastOkAt: number // epoch of the last successful POST (0 = never)
-  lastError: boolean // the most recent attempt failed (network/CORS/non-2xx)
+  lastOkAt: number // epoch of the last successful write (0 = never)
+  lastError: boolean // the most recent attempt failed (network / auth / API error)
 }
 
 let publishStatus: PublishStatus = { lastOkAt: 0, lastError: false }
@@ -145,7 +180,7 @@ function subscribeStatus(cb: () => void): () => void {
   }
 }
 
-/** Reactive read of the last publish result; re-renders when a POST succeeds or fails. */
+/** Reactive read of the last write result; re-renders when a write succeeds or fails. */
 export function useMenuBarPublishStatus(): PublishStatus {
   return useSyncExternalStore(
     subscribeStatus,
@@ -154,17 +189,17 @@ export function useMenuBarPublishStatus(): PublishStatus {
   )
 }
 
-/** Short signature of the fields that warrant an immediate publish (vs. the timed heartbeat). */
+/** Short signature of the fields that warrant an immediate write (vs. the timed heartbeat). */
 function signature(s: TimerSnapshot): string {
   return `${s.mode}|${s.label}|${s.sublabel ?? ''}|${s.isPaused}|${s.startedAtMs}|${s.targetSec}`
 }
 
 /**
- * Mount once (alongside GlobalTimerBar). Publishes the live snapshot on every meaningful change
- * and, while a timer is active, on a 2-minute liveness heartbeat. Posts are throttled to at most
- * one per MIN_POST_INTERVAL_MS so rapid step-advances can't hammer ntfy. Idle never heartbeats —
- * the reader computes the countdown locally and falls back to "not tracking" via its own staleness
- * window. No-ops off web or when signed out / no key.
+ * Mount once (alongside GlobalTimerBar). Writes the live snapshot on every meaningful change and,
+ * while a timer is active, on a 2-minute liveness heartbeat. Writes are throttled to at most one
+ * per MIN_POST_INTERVAL_MS so rapid step-advances can't hammer the Checkvist API. Idle never
+ * heartbeats — the reader computes the countdown locally and falls back to "not tracking" via its
+ * own staleness window. No-ops off web or when signed out.
  */
 export function useMenuBarSync(): void {
   useEffect(() => {
@@ -173,18 +208,28 @@ export function useMenuBarSync(): void {
     let idleStart: number | null = null
     let lastSig = ''
     let lastPostMs = 0
+    let target: RelayCoords | null = getRelayCoords()
+    let ensuring = false
+    let writing = false
 
-    function post(snapshot: TimerSnapshot) {
-      const topic = storageGetSync(TOPIC_STORAGE)
-      if (!topic) return
-      // ntfy treats the request body as the message; we publish the snapshot JSON verbatim.
-      void fetch(`${NTFY_SERVER}/${topic}`, {
-        method: 'POST',
-        body: JSON.stringify(snapshot),
-        keepalive: true,
-      })
-        .then((res) => emitStatus({ lastOkAt: res.ok ? Date.now() : publishStatus.lastOkAt, lastError: !res.ok }))
-        .catch(() => emitStatus({ lastOkAt: publishStatus.lastOkAt, lastError: true }))
+    async function write(snapshot: TimerSnapshot) {
+      if (writing) return
+      writing = true
+      try {
+        if (!target) {
+          if (ensuring) return
+          ensuring = true
+          target = await ensureRelayTarget()
+          ensuring = false
+        }
+        await updateTask(target.listId, target.taskId, { content: encodeContent(snapshot) })
+        emitStatus({ lastOkAt: Date.now(), lastError: false })
+      } catch {
+        ensuring = false
+        emitStatus({ lastOkAt: publishStatus.lastOkAt, lastError: true })
+      } finally {
+        writing = false
+      }
     }
 
     function tick() {
@@ -207,17 +252,17 @@ export function useMenuBarSync(): void {
       const snapshot = computeTimerSnapshot(ex, rt, idleStart)
       const sig = signature(snapshot)
       const now = Date.now()
-      // Post on a meaningful change, or on the liveness heartbeat — but only while something is
+      // Write on a meaningful change, or on the liveness heartbeat — but only while something is
       // actively tracked. Idle needs no heartbeat: the reader derives the idle countdown from
       // startedAtMs and falls back to "not tracking" via its own staleness window.
       const heartbeatDue = now - lastPostMs >= HEARTBEAT_MS && snapshot.mode !== 'idle'
       const wantPost = sig !== lastSig || heartbeatDue
-      // Throttle: never post more than once per MIN_POST_INTERVAL_MS. lastSig only advances on an
-      // actual post, so a change suppressed here is re-sent (with the freshest snapshot) next tick.
+      // Throttle: never write more than once per MIN_POST_INTERVAL_MS. lastSig only advances on an
+      // actual write, so a change suppressed here is re-sent (with the freshest snapshot) next tick.
       if (wantPost && now - lastPostMs >= MIN_POST_INTERVAL_MS) {
         lastSig = sig
         lastPostMs = now
-        post(snapshot)
+        void write(snapshot)
       }
     }
 
