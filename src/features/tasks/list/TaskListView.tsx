@@ -172,6 +172,7 @@ function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitVie
                 focusedId={focusedId}
                 setFocusedId={setFocusedId}
                 initialFocusId={rightPanel.taskId}
+                rootTaskId={rightPanel.taskId}
                 timerBar={<RightPanelTimerBar onClose={() => setRightPanel(null)} />}
               />
             )}

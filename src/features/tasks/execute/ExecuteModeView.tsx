@@ -1362,13 +1362,31 @@ export function ExecuteTaskList() {
                 </Pressable>
               ))}
               {onJumpToRaw && (
-                <Pressable hitSlop={8} onPress={(e) => { e.stopPropagation?.(); onJumpToRaw(t.id) }}>
-                  <AlignLeft size={12} color="#D1D5DB" />
+                <Pressable
+                  hitSlop={8}
+                  onPress={(e) => { e.stopPropagation?.(); onJumpToRaw(t.id) }}
+                  style={{
+                    width: 28, height: 28, borderRadius: 14,
+                    backgroundColor: '#EEF2FF',
+                    borderWidth: 1, borderColor: '#C7D2FE',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <AlignLeft size={16} color="#4F46E5" />
                 </Pressable>
               )}
               {onJumpToMindmap && (
-                <Pressable hitSlop={8} onPress={(e) => { e.stopPropagation?.(); onJumpToMindmap(t.id) }}>
-                  <Network size={12} color="#D1D5DB" />
+                <Pressable
+                  hitSlop={8}
+                  onPress={(e) => { e.stopPropagation?.(); onJumpToMindmap(t.id) }}
+                  style={{
+                    width: 28, height: 28, borderRadius: 14,
+                    backgroundColor: '#FEF3C7',
+                    borderWidth: 1, borderColor: '#FDE68A',
+                    alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <Network size={16} color="#B45309" />
                 </Pressable>
               )}
             </Pressable>
