@@ -5,7 +5,7 @@ import type { Calendar } from '@fullcalendar/core'
 import type { TaskNode } from '@/lib/taskTree'
 import type { UpdateTaskPayload } from '@/api/types'
 import { tasksToCalendarEvents, calibrateSlots } from '@/lib/calendarAdapter'
-import { RefreshCw } from 'lucide-react-native'
+import { RefreshCw, Maximize2, Minimize2 } from 'lucide-react-native'
 import { toApiDate } from '@/lib/dateUtils'
 import { TIME_QUADRANTS, classifyTime, type TimeBucket } from '@/features/tasks/list/EisenhowerMatrixView'
 import { classifyPriority, type PriorityBucket, BUCKET_META } from '@/features/tasks/shared/PriorityPicker'
@@ -528,6 +528,17 @@ function CalendarWeb({
         >
           <RefreshCw size={14} color="#6366F1" />
           <Text style={{ fontSize: 13, fontWeight: '600', color: '#6366F1' }}>Calibrate</Text>
+        </Pressable>
+        <Pressable
+          onPress={toggleFullScreen}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 6,
+            paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+            backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#D1D5DB',
+          }}
+        >
+          {fullScreen ? <Minimize2 size={14} color="#6B7280" /> : <Maximize2 size={14} color="#6B7280" />}
+          <Text style={{ fontSize: 13, fontWeight: '600', color: '#6B7280' }}>{fullScreen ? 'Exit' : 'Fullscreen'}</Text>
         </Pressable>
       </div>
       <div style={{ flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
