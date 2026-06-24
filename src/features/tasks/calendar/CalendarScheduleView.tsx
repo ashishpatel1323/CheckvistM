@@ -579,6 +579,30 @@ function CalendarWeb({
             )
           })}
         </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
+          <Pressable
+            onPress={calibrate}
+            style={{
+              flexDirection: 'row', alignItems: 'center', gap: 6,
+              paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+              backgroundColor: '#EEF2FF', borderWidth: 1, borderColor: '#C7D2FE',
+            }}
+          >
+            <RefreshCw size={14} color="#6366F1" />
+            <Text style={{ fontSize: 13, fontWeight: '600', color: '#6366F1' }}>Calibrate</Text>
+          </Pressable>
+          <Pressable
+            onPress={toggleFullScreen}
+            style={{
+              flexDirection: 'row', alignItems: 'center', gap: 6,
+              paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+              backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#D1D5DB',
+            }}
+          >
+            {fullScreen ? <Minimize2 size={14} color="#6B7280" /> : <Maximize2 size={14} color="#6B7280" />}
+            <Text style={{ fontSize: 13, fontWeight: '600', color: '#6B7280' }}>{fullScreen ? 'Exit' : 'Fullscreen'}</Text>
+          </Pressable>
+        </View>
       </div>
       <div style={{ flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
         <div ref={containerRef} className={`${ZOOM_HOST_CLASS} cal-inner-container`} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }} />
