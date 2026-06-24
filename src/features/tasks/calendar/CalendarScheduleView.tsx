@@ -514,32 +514,71 @@ function CalendarWeb({
 
   return (
     <div style={wrapperStyle}>
-      <div style={toolbarStyle}>
-        <TimeFilterDropdown />
-        <PriorityFilterDropdown onSelect={selectPriorityFilter} selected={selectedPriority} />
-        <View style={{ flex: 1 }} />
-        <Pressable
-          onPress={calibrate}
-          style={{
-            flexDirection: 'row', alignItems: 'center', gap: 6,
-            paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
-            backgroundColor: '#EEF2FF', borderWidth: 1, borderColor: '#C7D2FE',
-          }}
-        >
-          <RefreshCw size={14} color="#6366F1" />
-          <Text style={{ fontSize: 13, fontWeight: '600', color: '#6366F1' }}>Calibrate</Text>
-        </Pressable>
-        <Pressable
-          onPress={toggleFullScreen}
-          style={{
-            flexDirection: 'row', alignItems: 'center', gap: 6,
-            paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
-            backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#D1D5DB',
-          }}
-        >
-          {fullScreen ? <Minimize2 size={14} color="#6B7280" /> : <Maximize2 size={14} color="#6B7280" />}
-          <Text style={{ fontSize: 13, fontWeight: '600', color: '#6B7280' }}>{fullScreen ? 'Exit' : 'Fullscreen'}</Text>
-        </Pressable>
+      <div style={{ ...toolbarStyle, flexWrap: 'wrap', gap: 6 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600', marginRight: 2 }}>Time</Text>
+          {([
+            { key: 'all' as const, label: 'All time filters', color: '#6366F1' },
+            ...TIME_QUADRANTS.map((q) => ({ key: q.bucket, label: q.label, color: q.color })),
+          ]).map((opt) => {
+            const active = selectedTimeFilter === opt.key
+            return (
+              <Pressable
+                key={opt.key}
+                onPress={() => selectTimeFilter(opt.key)}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                  borderRadius: 999,
+                  backgroundColor: active ? opt.color : '#F3F4F6',
+                  borderWidth: active ? 0 : 1,
+                  borderColor: active ? 'transparent' : '#E5E7EB',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: active ? '#fff' : opt.color }} />
+                <Text style={{ fontSize: 12, fontWeight: active ? '600' : '500', color: active ? '#fff' : '#374151' }}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            )
+          })}
+        </View>
+        <View style={{ width: 1, height: 18, backgroundColor: '#E5E7EB', marginHorizontal: 4 }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600', marginRight: 2 }}>Priority</Text>
+          {([
+            { key: null as any, label: 'All priorities', color: '#6366F1' },
+            ...Object.entries(BUCKET_META).map(([key, meta]) => ({ key, label: meta.label, color: meta.color })),
+          ]).map((opt) => {
+            const active = selectedPriority === opt.key
+            const color = opt.color ?? '#6366F1'
+            return (
+              <Pressable
+                key={String(opt.key)}
+                onPress={() => selectPriorityFilter(opt.key === null ? null : (opt.key as PriorityBucket))}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                  borderRadius: 999,
+                  backgroundColor: active ? color : '#F3F4F6',
+                  borderWidth: active ? 0 : 1,
+                  borderColor: active ? 'transparent' : '#E5E7EB',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: active ? '#fff' : color }} />
+                <Text style={{ fontSize: 12, fontWeight: active ? '600' : '500', color: active ? '#fff' : '#374151' }}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            )
+          })}
+        </View>
       </div>
       <div style={{ flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
         <div ref={containerRef} className={`${ZOOM_HOST_CLASS} cal-inner-container`} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }} />
