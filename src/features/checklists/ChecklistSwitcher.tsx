@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { View, Text, Pressable, Modal } from 'react-native'
+import { View, Pressable, Modal } from 'react-native'
 import { ChevronDown, List } from 'lucide-react-native'
+import { Text } from '@/components/ui/text'
 import { useRouter } from 'expo-router'
 import { useChecklists } from './useChecklists'
 import { useActiveChecklist } from './useActiveChecklist'
@@ -33,31 +34,34 @@ export function ChecklistSwitcher() {
     <>
       <Pressable
         className="flex-row items-center gap-1.5 active:opacity-70"
+        style={{ flexShrink: 1, minWidth: 0 }}
         onPress={() => setOpen(true)}
       >
-        <View>
-          <Text style={{ fontSize: 18, fontWeight: '600', color: '#111' }} numberOfLines={1}>
+        <View style={{ flexShrink: 1, minWidth: 0 }}>
+          <Text className="text-lg font-semibold text-foreground" numberOfLines={1}>
             {active?.name ?? (isLoading ? 'Loading…' : 'Select list')}
           </Text>
-          <Text style={{ fontSize: 10, color: '#9CA3AF', lineHeight: 12 }}>
+          <Text className="text-muted-foreground" style={{ fontSize: 10, lineHeight: 12 }}>
             {process.env.EXPO_PUBLIC_GIT_COMMIT
               ? `${process.env.EXPO_PUBLIC_GIT_COMMIT} · ${fmtBuildDate(process.env.EXPO_PUBLIC_GIT_DATE)}`
               : 'dev'}
           </Text>
         </View>
-        <ChevronDown size={16} color="#666" />
+        <ChevronDown size={16} color="hsl(220 9% 63%)" />
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable className="flex-1 bg-black/30" onPress={() => setOpen(false)}>
-          <View className="mt-20 mx-4 bg-white rounded-2xl py-1"
+          <View className="mt-20 mx-4 bg-popover rounded-2xl py-1"
             style={{ shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 16, elevation: 12 }}
           >
-            {(checklists ?? []).map((checklist) => (
+            {(checklists ?? []).map((checklist) => {
+              const selected = checklist.id === activeChecklistId
+              return (
               <Pressable
                 key={checklist.id}
-                className={`flex-row items-center justify-between px-4 py-3 active:bg-gray-50 ${
-                  checklist.id === activeChecklistId ? 'bg-blue-50' : ''
+                className={`flex-row items-center justify-between px-4 py-3 active:bg-muted ${
+                  selected ? 'bg-secondary/10' : ''
                 }`}
                 onPress={() => {
                   setActiveChecklistId(checklist.id)
@@ -65,14 +69,17 @@ export function ChecklistSwitcher() {
                   router.replace(`/${checklist.id}`)
                 }}
               >
-                <Text style={{ fontSize: 15, flex: 1, color: checklist.id === activeChecklistId ? '#4772FA' : '#222', fontWeight: checklist.id === activeChecklistId ? '600' : '400' }}
+                <Text
+                  className={selected ? 'text-secondary font-semibold' : 'text-foreground'}
+                  style={{ fontSize: 15, flex: 1 }}
                   numberOfLines={1}
                 >
                   {checklist.name}
                 </Text>
-                <Text style={{ fontSize: 12, color: '#BDBDBD', marginLeft: 8 }}>{checklist.task_count}</Text>
+                <Text className="text-muted-foreground" style={{ fontSize: 12, marginLeft: 8 }}>{checklist.task_count}</Text>
               </Pressable>
-            ))}
+              )
+            })}
           </View>
         </Pressable>
       </Modal>

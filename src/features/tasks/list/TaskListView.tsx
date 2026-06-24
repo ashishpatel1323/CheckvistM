@@ -147,7 +147,7 @@ function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitVie
   const hasPanel = rightPanel !== null
 
   return (
-    <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={openRaw} onJumpToMindmap={openMindmap}>
+    <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={openRaw} onJumpToMindmap={openMindmap} onCloseSidePanel={() => { setRightPanel(null); setLastRawTaskId(null) }}>
       <View style={{ flex: 1, flexDirection: 'row' }}>
         {/* Left pane: full ExecuteViewContent with all features */}
         <View style={{ width: hasPanel ? '40%' : '100%', borderRightWidth: hasPanel ? 1 : 0, borderRightColor: '#E5E7EB' }}>
@@ -1036,7 +1036,7 @@ const { view, setView, focusedTaskId } = useTaskView()
           shadowRadius: 4,
         }}
       >
-        <View className="flex-1">
+        <View className="flex-1" style={{ minWidth: 0 }}>
           <ChecklistSwitcher />
         </View>
 

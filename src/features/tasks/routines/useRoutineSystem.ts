@@ -15,6 +15,14 @@ import { Platform } from 'react-native'
 import { fetchChecklists, createChecklist, fetchTasks, createTask, updateTask, deleteTask } from '@/api/endpoints'
 import type { RoutineDef, CheckinLog, RoutineColor, RoutineStep } from './routineTypes'
 import { useSyncState } from '@/lib/sync/syncState'
+import { refreshCounts } from '@/lib/sync/syncEngine'
+import { enqueueCheckin, enqueueRoutineSave, enqueueRoutineDelete } from '@/lib/repositories/routineRepo'
+
+/** Options passed to direct-write store methods. `fromQueue` marks a replay by syncEngine. */
+interface SyncWriteOpts {
+  /** True when invoked by the queue handler — rethrow on failure, do NOT re-enqueue. */
+  fromQueue?: boolean
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -126,9 +134,9 @@ interface RoutineSystemStore {
 
   ensureSystemList: () => Promise<number>
   fetchAll: () => Promise<{ routines: RoutineDef[]; checkinsByRoutine: Record<number, CheckinLog[]> }>
-  saveRoutineDef: (def: Omit<RoutineDef, 'taskId'>, existingTaskId?: number) => Promise<number>
-  deleteRoutineDef: (taskId: number) => Promise<void>
-  logCheckin: (log: CheckinLog, routineName: string) => Promise<void>
+  saveRoutineDef: (def: Omit<RoutineDef, 'taskId'>, existingTaskId?: number, opts?: SyncWriteOpts) => Promise<number>
+  deleteRoutineDef: (taskId: number, opts?: SyncWriteOpts) => Promise<void>
+  logCheckin: (log: CheckinLog, routineName: string, opts?: SyncWriteOpts) => Promise<void>
 }
 
 const storage = Platform.OS === 'web'
@@ -183,7 +191,7 @@ export const useRoutineSystem = create<RoutineSystemStore>()(
         return { routines, checkinsByRoutine }
       },
 
-      saveRoutineDef: async (def, existingTaskId) => {
+      saveRoutineDef: async (def, existingTaskId, opts) => {
         const systemListId = await get().ensureSystemList()
         const content = encodeRoutineDef(def)
         const isUpdate = !!existingTaskId
@@ -214,11 +222,17 @@ export const useRoutineSystem = create<RoutineSystemStore>()(
             syncedAt: Date.now(),
             status: 'failed',
           })
+          // UI path: queue for auto-retry on reconnect. Queue replay path: let the
+          // engine own retry/counts (don't re-enqueue), just surface the error.
+          if (!opts?.fromQueue) {
+            await enqueueRoutineSave({ ...def, taskId: existingTaskId ?? 0 })
+            refreshCounts()
+          }
           throw e
         }
       },
 
-      deleteRoutineDef: async (taskId) => {
+      deleteRoutineDef: async (taskId, opts) => {
         const systemListId = get().systemListId
         if (!systemListId) return
         try {
@@ -243,10 +257,13 @@ export const useRoutineSystem = create<RoutineSystemStore>()(
             syncedAt: Date.now(),
             status: 'failed',
           })
+          if (opts?.fromQueue) throw e
+          await enqueueRoutineDelete(taskId)
+          refreshCounts()
         }
       },
 
-      logCheckin: async (log, routineName) => {
+      logCheckin: async (log, routineName, opts) => {
         try {
           const systemListId = await get().ensureSystemList()
           const content = encodeCheckin(routineName, log)
@@ -284,6 +301,9 @@ export const useRoutineSystem = create<RoutineSystemStore>()(
             syncedAt: Date.now(),
             status: 'failed',
           })
+          if (opts?.fromQueue) throw e
+          await enqueueCheckin(log, routineName)
+          refreshCounts()
         }
       },
     }),

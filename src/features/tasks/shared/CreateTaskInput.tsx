@@ -63,11 +63,11 @@ export function CreateTaskInput({
   }
 
   return (
-    <View className="flex-row items-center gap-2 px-3 py-2 border-b border-gray-100">
+    <View className="flex-row items-center gap-2 px-3 py-2 border-b border-border">
       <Pressable
         onPress={submit}
         disabled={isPending || !value.trim()}
-        className="w-6 h-6 rounded-full bg-orange-500 active:bg-orange-600 items-center justify-center"
+        className="w-6 h-6 rounded-full bg-primary active:opacity-80 items-center justify-center"
         style={({ pressed }) => [{ opacity: isPending || !value.trim() ? 0.4 : pressed ? 0.8 : 1 }]}
       >
         <Plus size={14} color="white" />
@@ -78,10 +78,10 @@ export function CreateTaskInput({
         onChangeText={setValue}
         onSubmitEditing={submit}
         placeholder={placeholder}
-        placeholderTextColor="#9ca3af"
+        placeholderTextColor="hsl(220 9% 63%)"
         editable={!isPending}
         returnKeyType="done"
-        className="flex-1 text-sm text-gray-700"
+        className="flex-1 text-sm text-foreground"
         style={{ fontSize: 14 }}
       />
     </View>

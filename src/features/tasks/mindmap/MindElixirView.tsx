@@ -52,7 +52,7 @@ const SHORTCUTS: { key: string; desc: string }[] = [
   { key: 'Ctrl/Cmd+C / V / X', desc: 'Copy / Paste / Cut subtree' },
   { key: 'PageUp / PageDown', desc: 'Reorder' },
   { key: 'F', desc: 'Drill into selected' },
-  { key: 'Esc', desc: 'Drill back / Exit' },
+  { key: 'Esc', desc: 'Exit full screen / Drill back' },
   { key: 'E', desc: 'Toggle expand/collapse selected' },
   { key: 'Shift+E', desc: 'Toggle expand/collapse subtree (all descendants)' },
 ]
@@ -103,10 +103,12 @@ function MindElixirWeb({
   }, [tasks])
 
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [fullScreen, setFullScreen] = useState(false)
 
   // Refs for callbacks consumed by mind-elixir contextMenu (closures captured at init).
   const drillIntoRef = useRef<() => void>(() => {})
   const toggleExpandRef = useRef<(all: boolean) => void>(() => {})
+  const isEditingRef = useRef(false)
 
   // Init once on mount, deferred until container has nonzero size
   useEffect(() => {
@@ -130,7 +132,7 @@ function MindElixirWeb({
       const MindElixir = mod.default
       instance = new MindElixir({
         el,
-        direction: MindElixir.SIDE,
+        direction: MindElixir.RIGHT,
         editable: true,
         contextMenu: {
           focus: true,
@@ -165,6 +167,8 @@ function MindElixirWeb({
       })
       instance.init(initialData)
       instance.bus.addListener('operation', (op: any) => {
+        if (op?.name === 'beginEdit') isEditingRef.current = true
+        else if (op?.name === 'finishEdit') isEditingRef.current = false
         handle(op, () => instance?.nodeData)
       })
       if (setFocusedId) {
@@ -187,6 +191,7 @@ function MindElixirWeb({
   useEffect(() => {
     if (!instanceRef.current) return
     if (pendingRef.current > 0) return
+    if (isEditingRef.current) return
     const data = tasksToMindElixir(tasks, {
       rootTaskId: effectiveRootId,
       virtualRootLabel: rootLabel,
@@ -249,6 +254,9 @@ function MindElixirWeb({
       if (e.key.toLowerCase() === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault()
         drillIntoSelected()
+      } else if (e.key === 'Escape' && fullScreen) {
+        e.preventDefault()
+        setFullScreen(false)
       } else if (e.key === 'Escape' && drillStack.length > 0) {
         e.preventDefault()
         drillBack()
@@ -259,7 +267,7 @@ function MindElixirWeb({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [drillIntoSelected, drillBack, toggleExpand, drillStack.length])
+  }, [drillIntoSelected, drillBack, toggleExpand, drillStack.length, fullScreen])
 
   const breadcrumb = useMemo(() => {
     if (drillStack.length === 0) return null
@@ -271,8 +279,13 @@ function MindElixirWeb({
   }, [drillStack, taskTitleById])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 400, width: '100%', height: '100%', position: 'relative' }}>
-      {timerBar ? <div style={{ flex: '0 0 auto' }}>{timerBar}</div> : null}
+    <div style={fullScreen ? {
+      position: 'fixed', inset: 0, zIndex: 1000,
+      background: '#fff',
+      display: 'flex', flexDirection: 'column',
+    } : { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 400, width: '100%', height: '100%', position: 'relative' }}>
+      {/* Timer bar — full-width row of its own so the ±5 min / pause controls aren't clipped */}
+      {timerBar ? <div style={{ flexShrink: 0 }}>{timerBar}</div> : null}
 
       {/* Breadcrumb */}
       {breadcrumb && (
@@ -308,30 +321,20 @@ function MindElixirWeb({
       {/* Canvas */}
       <div
         ref={containerRef}
-        style={{ flex: '1 1 auto', minHeight: 0, width: '100%', overflow: 'hidden' }}
-      />
-
-      {/* Floating toolbar (top-right) */}
-      <div style={{
-        position: 'absolute', top: 8, right: 8, zIndex: 10,
-        display: 'flex', gap: 6,
-      }}>
-        <ToolbarButton
-          title="Drill into selected (F)"
-          onClick={drillIntoSelected}
-          bg="#EEF2FF" color="#4F46E5"
-        >⊕</ToolbarButton>
-        <ToolbarButton
-          title="Drill back (Esc)"
-          onClick={drillBack}
-          bg="#F3F4F6" color="#374151"
-          disabled={drillStack.length === 0}
-        >⊖</ToolbarButton>
-        <ToolbarButton
-          title="Keyboard shortcuts"
-          onClick={() => setShowShortcuts(true)}
-          bg="#FEF3C7" color="#B45309"
-        >?</ToolbarButton>
+        style={{ flex: '1 1 auto', minHeight: 0, width: '100%', overflow: 'hidden', position: 'relative' }}
+      >
+        {/* Floating buttons — sit just above the mind-elixir library toolbar (bottom-right) */}
+        <div style={{
+          position: 'absolute', right: 10, bottom: 56, zIndex: 10,
+          display: 'flex', gap: 6,
+        }}>
+          <HeaderButton title="Drill into selected (F)" onClick={drillIntoRef.current ?? (() => {})}>⊕</HeaderButton>
+          <HeaderButton title="Drill back (Esc)" onClick={drillBack} disabled={drillStack.length === 0}>⊖</HeaderButton>
+          <HeaderButton title="Keyboard shortcuts" onClick={() => setShowShortcuts(true)}>?</HeaderButton>
+          <HeaderButton title={fullScreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={() => setFullScreen(v => !v)}>
+            {fullScreen ? '⤡' : '⤢'}
+          </HeaderButton>
+        </div>
       </div>
 
       {/* Shortcuts modal */}
@@ -382,30 +385,30 @@ function MindElixirWeb({
   )
 }
 
-function ToolbarButton({
-  children, onClick, title, bg, color, disabled,
+function HeaderButton({
+  children, onClick, title, disabled,
 }: {
   children: React.ReactNode
   onClick: () => void
   title: string
-  bg: string
-  color: string
   disabled?: boolean
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       title={title}
       disabled={disabled}
       style={{
-        width: 32, height: 32, borderRadius: 16,
-        background: disabled ? '#F3F4F6' : bg,
-        color: disabled ? '#9CA3AF' : color,
-        border: '1px solid rgba(0,0,0,0.08)',
-        fontSize: 16, fontWeight: 700,
-        cursor: disabled ? 'not-allowed' : 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+        width: 28, height: 28, borderRadius: 8,
+        border: '1px solid #E5E7EB',
+        backgroundColor: 'white',
+        color: disabled ? '#D1D5DB' : '#6B7280',
+        fontSize: 14, fontWeight: 600,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        flexShrink: 0,
+        boxShadow: '0 1px 2px rgba(0,0,0,0.12)',
       }}
     >
       {children}

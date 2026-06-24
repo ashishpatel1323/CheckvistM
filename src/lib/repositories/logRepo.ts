@@ -20,7 +20,7 @@ registerSyncHandler('session', async (item: SyncQueueItem) => {
     entry: Parameters<typeof system.syncSession>[2]
   }
 
-  await system.syncSession(payload.sessionKey, payload.taskName, payload.entry)
+  await system.syncSession(payload.sessionKey, payload.taskName, payload.entry, { fromQueue: true })
 })
 
 // ─── Public API ───────────────────────────────────────────────────────────────

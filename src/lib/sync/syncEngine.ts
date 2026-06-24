@@ -58,7 +58,7 @@ function recordHistory(item: SyncQueueItem, status: 'synced' | 'failed'): void {
   useSyncState.getState().addHistoryItem(historyItem)
 }
 
-function refreshCounts(): void {
+export function refreshCounts(): void {
   const all = getAll()
   useSyncState.getState().refreshFromQueue(
     all.length,

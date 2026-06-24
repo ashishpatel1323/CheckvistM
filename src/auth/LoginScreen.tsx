@@ -1,9 +1,13 @@
-import { View, Text, TextInput, Pressable, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useAuth } from './useAuth'
 import { CheckSquare, LogIn } from 'lucide-react-native'
+import { Text } from '@/components/ui/text'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 
 const schema = z.object({
   email: z.string().email('Enter a valid email'),
@@ -31,42 +35,41 @@ export function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-gray-50"
+      className="flex-1 bg-muted"
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
         contentContainerClassName="flex-grow items-center justify-center p-4"
         keyboardShouldPersistTaps="handled"
       >
-        <View className="bg-white rounded-2xl w-full max-w-md p-8"
+        <Card className="w-full max-w-md p-8"
           style={{ shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 }}
         >
           {/* Header */}
           <View className="flex-row items-center gap-3 mb-8">
-            <View className="w-10 h-10 rounded-xl bg-orange-500 items-center justify-center">
+            <View className="w-10 h-10 rounded-xl bg-primary items-center justify-center">
               <CheckSquare size={20} color="white" />
             </View>
             <View>
-              <Text className="text-xl font-semibold text-gray-900">Checkvist</Text>
-              <Text className="text-sm text-gray-500">Sign in to your account</Text>
+              <Text className="text-xl font-semibold text-foreground">Checkvist</Text>
+              <Text className="text-sm text-muted-foreground">Sign in to your account</Text>
             </View>
           </View>
 
           {error && (
-            <View className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
-              <Text className="text-red-700 text-sm">{error}</Text>
+            <View className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+              <Text className="text-destructive text-sm">{error}</Text>
             </View>
           )}
 
           {/* Email */}
           <View className="mb-4">
-            <Text className="text-sm font-medium text-gray-700 mb-1">Email</Text>
+            <Text className="text-sm font-medium text-foreground mb-1">Email</Text>
             <Controller
               control={control}
               name="email"
               render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                <Input
                   placeholder="you@example.com"
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -80,19 +83,18 @@ export function LoginScreen() {
               )}
             />
             {errors.email && (
-              <Text className="mt-1 text-xs text-red-600">{errors.email.message}</Text>
+              <Text className="mt-1 text-xs text-destructive">{errors.email.message}</Text>
             )}
           </View>
 
           {/* Remote Key */}
           <View className="mb-6">
-            <Text className="text-sm font-medium text-gray-700 mb-1">Remote Key</Text>
+            <Text className="text-sm font-medium text-foreground mb-1">Remote Key</Text>
             <Controller
               control={control}
               name="remoteKey"
               render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                <Input
                   placeholder="Your Checkvist remote key"
                   secureTextEntry
                   textContentType="password"
@@ -106,30 +108,23 @@ export function LoginScreen() {
               )}
             />
             {errors.remoteKey && (
-              <Text className="mt-1 text-xs text-red-600">{errors.remoteKey.message}</Text>
+              <Text className="mt-1 text-xs text-destructive">{errors.remoteKey.message}</Text>
             )}
-            <Text className="mt-1 text-xs text-gray-400">
+            <Text className="mt-1 text-xs text-muted-foreground">
               Find your remote key at checkvist.com → Settings → Remote access
             </Text>
           </View>
 
           {/* Submit */}
-          <Pressable
-            className="w-full flex-row items-center justify-center gap-2 px-4 py-3 bg-orange-500 active:bg-orange-600 rounded-lg"
-            style={({ pressed }) => pressed ? { opacity: 0.85 } : undefined}
-            onPress={handleSubmit(onSubmit)}
-            disabled={isLoading}
-          >
+          <Button onPress={handleSubmit(onSubmit)} disabled={isLoading}>
             {isLoading ? (
               <ActivityIndicator color="white" size="small" />
             ) : (
               <LogIn size={16} color="white" />
             )}
-            <Text className="text-white font-medium text-sm">
-              {isLoading ? 'Signing in…' : 'Sign in'}
-            </Text>
-          </Pressable>
-        </View>
+            <Text>{isLoading ? 'Signing in…' : 'Sign in'}</Text>
+          </Button>
+        </Card>
       </ScrollView>
     </KeyboardAvoidingView>
   )

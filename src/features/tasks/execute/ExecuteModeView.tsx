@@ -27,6 +27,7 @@ import {
   dismissExecuteTimerNotification,
 } from '@/platform/timerNotification'
 import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
+import { CalendarScheduleView } from '@/features/tasks/calendar/CalendarScheduleView'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
 import { InlineMarkdown, stripMarkdown } from '@/components/InlineMarkdown'
@@ -375,6 +376,7 @@ interface ExecCtxValue {
   checklistId: number
   onJumpToRaw?: (taskId: number) => void
   onJumpToMindmap?: (taskId: number) => void
+  onCloseSidePanel?: () => void
 }
 
 const ExecCtx = createContext<ExecCtxValue | null>(null)
@@ -392,10 +394,11 @@ interface ProviderProps {
   checklistId: number
   onJumpToRaw?: (taskId: number) => void
   onJumpToMindmap?: (taskId: number) => void
+  onCloseSidePanel?: () => void
   children: ReactNode
 }
 
-export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpToMindmap, children }: ProviderProps) {
+export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpToMindmap, onCloseSidePanel, children }: ProviderProps) {
   const todayTasks = useMemo(() => {
     const { allNodes } = buildTaskTree(tasks)
     const groups = groupTasksByDate(allNodes)
@@ -617,7 +620,7 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
     showDatePicker, setShowDatePicker, showPriorityPicker, setShowPriorityPicker,
     togglePlay, playTask, adjust, setEstimateDirect, complete, resetCurrent, jumpTo, prevTask, nextTask, persistOrder, updateTask,
     confirmSwitch, cancelSwitch, completedStreak, pendingSwitch,
-    checklistId, onJumpToRaw, onJumpToMindmap,
+    checklistId, onJumpToRaw, onJumpToMindmap, onCloseSidePanel,
   }
 
   return <ExecCtx.Provider value={value}>{children}</ExecCtx.Provider>
@@ -845,7 +848,7 @@ export function ExecuteTaskList() {
   const {
     orderedTasks, orderedIds, setOrderedIds, currentIndex, setCurrentIndex,
     isRunning, getEntry, entries, timerRunningKey, timerStartedAt,
-    togglePlay, playTask, jumpTo, persistOrder, checklistId, onJumpToRaw, onJumpToMindmap, updateTask,
+    togglePlay, playTask, jumpTo, persistOrder, checklistId, onJumpToRaw, onJumpToMindmap, onCloseSidePanel, updateTask,
   } = useExecCtx()
 
   // Per-row date/priority picker state — local to this panel
@@ -1061,7 +1064,7 @@ export function ExecuteTaskList() {
   }
 
   // Group-by toggle
-  const [groupBy, setGroupBy] = useState<'priority' | 'time' | 'inProgress'>('priority')
+  const [groupBy, setGroupBy] = useState<'priority' | 'time' | 'inProgress' | 'calendar'>('priority')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   function toggleGroup(key: string) {
     setCollapsedGroups((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
@@ -1181,7 +1184,7 @@ export function ExecuteTaskList() {
       ) : (
         <>
           <View style={{ flex: 1, flexDirection: 'row' }}>
-            {(['priority', 'time', 'inProgress'] as const).map((v) => {
+            {(['priority', 'time', 'inProgress', 'calendar'] as const).map((v) => {
               const active = groupBy === v
               return (
                 <Pressable
@@ -1190,7 +1193,7 @@ export function ExecuteTaskList() {
                   style={{ paddingVertical: 8, paddingHorizontal: 2, marginRight: 16, borderBottomWidth: 2, borderBottomColor: active ? INDIGO : 'transparent' }}
                 >
                   <Text style={{ fontSize: 12, fontWeight: active ? '600' : '400', color: active ? INDIGO : '#6B7280' }}>
-                    {v === 'priority' ? 'By Priority' : v === 'time' ? 'By Time' : 'In Progress'}
+                    {v === 'priority' ? 'By Priority' : v === 'time' ? 'By Time' : v === 'inProgress' ? 'In Progress' : 'Calendar'}
                   </Text>
                 </Pressable>
               )
@@ -1484,6 +1487,20 @@ export function ExecuteTaskList() {
     </View>
   )
 
+  const calendarPane = (
+    <CalendarScheduleView
+      tasks={orderedTasks}
+      checklistId={checklistId}
+      getEstimateMin={(t) => getEntry(t.id)?.estimateMin ?? DEFAULT_ESTIMATE}
+      jumpTo={jumpTo}
+      playTask={playTask}
+      updateTask={updateTask}
+      onJumpToRaw={onJumpToRaw}
+      onJumpToMindmap={onJumpToMindmap}
+      onExpand={onCloseSidePanel}
+    />
+  )
+
   if (Platform.OS === 'web') {
     return (
       <>
@@ -1495,15 +1512,19 @@ export function ExecuteTaskList() {
           style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
         >
           {searchBar}
-          {columnMode && columnHeader}
-          {listContent}
+          {groupBy === 'calendar' ? calendarPane : (
+            <>
+              {columnMode && columnHeader}
+              {listContent}
+            </>
+          )}
         </div>
         {pickers}
       </>
     )
   }
 
-  return <>{searchBar}{listContent}{pickers}</>
+  return <>{searchBar}{groupBy === 'calendar' ? calendarPane : listContent}{pickers}</>
 }
 
 // ─── Full standalone view (mobile / non-split desktop) ───────────────────────

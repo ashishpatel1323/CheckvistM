@@ -14,6 +14,8 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useSyncState } from '@/lib/sync/syncState'
+import { refreshCounts } from '@/lib/sync/syncEngine'
+import { enqueueSessionSync } from '@/lib/repositories/logRepo'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Platform } from 'react-native'
 import { format, parseISO } from 'date-fns'
@@ -124,7 +126,7 @@ interface SystemLogStore {
 
   ensureSystemList: () => Promise<number>
   ensureDayTask: (systemListId: number, dateStr: string) => Promise<number>
-  syncSession: (key: string, taskName: string, entry: ExecuteLogEntry) => Promise<void>
+  syncSession: (key: string, taskName: string, entry: ExecuteLogEntry, opts?: { fromQueue?: boolean }) => Promise<void>
   deleteSession: (key: string) => Promise<void>
   fetchTodaySessions: () => Promise<void>
   /** Manually add a time block (not tied to a task), persists to Checkvist */
@@ -180,7 +182,7 @@ export const useSystemLog = create<SystemLogStore>()(
         return created.id
       },
 
-      syncSession: async (key, taskName, entry) => {
+      syncSession: async (key, taskName, entry, opts) => {
         if (!entry.startedAt || entry.actualSeconds < 10) return
 
         // Optimistic local update so Execute tab sees it immediately without waiting for fetchTodaySessions
@@ -234,6 +236,9 @@ export const useSystemLog = create<SystemLogStore>()(
             syncedAt: Date.now(),
             status: 'failed',
           })
+          if (opts?.fromQueue) throw e
+          await enqueueSessionSync(key, taskName, entry)
+          refreshCounts()
         }
       },
 

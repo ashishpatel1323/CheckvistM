@@ -24,9 +24,9 @@ registerSyncHandler('routine', async (item: SyncQueueItem) => {
   }
 
   if (payload.operation === 'save' && payload.defData) {
-    await system.saveRoutineDef(payload.defData)
+    await system.saveRoutineDef(payload.defData, undefined, { fromQueue: true })
   } else if (payload.operation === 'delete' && payload.taskId != null) {
-    await system.deleteRoutineDef(payload.taskId)
+    await system.deleteRoutineDef(payload.taskId, { fromQueue: true })
   }
 })
 
@@ -37,7 +37,7 @@ registerSyncHandler('checkin', async (item: SyncQueueItem) => {
   const payload = item.payload as { log: Parameters<typeof system.logCheckin>[0]; routineName: string }
 
   if (payload) {
-    await system.logCheckin(payload.log, payload.routineName)
+    await system.logCheckin(payload.log, payload.routineName, { fromQueue: true })
   }
 })
 

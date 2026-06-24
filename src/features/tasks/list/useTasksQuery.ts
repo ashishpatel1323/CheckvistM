@@ -5,6 +5,7 @@ import type { CheckvistTask, CreateTaskPayload, UpdateTaskPayload } from '@/api/
 import { useAuth } from '@/auth/useAuth'
 import { useSyncState } from '@/lib/sync/syncState'
 import { enqueue } from '@/lib/sync/syncQueue'
+import { refreshCounts } from '@/lib/sync/syncEngine'
 
 function isNetworkError(err: unknown): boolean {
   if (!axios.isAxiosError(err)) return false
@@ -81,7 +82,7 @@ export function useCreateTask(checklistId: number) {
       if (isNetworkError(err)) {
         const localId = `-${Date.now()}:${checklistId}`
         enqueue('task', 'create', localId, payload)
-        useSyncState.getState().refreshFromQueue()
+        refreshCounts()
         recordTaskHistory('create', 'Task queued for sync', localId, 'synced', payload.content)
       } else {
         recordTaskHistory('create', 'Task create failed', String(Date.now()), 'failed', payload.content)
@@ -124,7 +125,7 @@ export function useUpdateTask(checklistId: number) {
       if (isNetworkError(err)) {
         const localId = `${taskId}:${checklistId}`
         enqueue('task', 'update', localId, payload)
-        useSyncState.getState().refreshFromQueue()
+        refreshCounts()
         recordTaskHistory('update', 'Task update queued for sync', String(taskId), 'synced', context?.taskContent)
       } else {
         recordTaskHistory('update', 'Task update failed', String(taskId), 'failed', context?.taskContent)
@@ -161,7 +162,7 @@ export function useCloseTask(checklistId: number) {
       if (isNetworkError(err)) {
         const localId = `${taskId}:${checklistId}`
         enqueue('task', 'update', localId, { status: 1 })
-        useSyncState.getState().refreshFromQueue()
+        refreshCounts()
         recordTaskHistory('update', 'Task close queued for sync', String(taskId), 'synced', context?.taskContent)
       } else {
         recordTaskHistory('update', 'Task complete failed', String(taskId), 'failed', context?.taskContent)
@@ -198,7 +199,7 @@ export function useDeleteTask(checklistId: number) {
       if (isNetworkError(err)) {
         const localId = `${taskId}:${checklistId}`
         enqueue('task', 'delete', localId, {})
-        useSyncState.getState().refreshFromQueue()
+        refreshCounts()
         recordTaskHistory('delete', 'Task delete queued for sync', String(taskId), 'synced', context?.taskContent)
       } else {
         recordTaskHistory('delete', 'Task delete failed', String(taskId), 'failed', context?.taskContent)
