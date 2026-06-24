@@ -100,12 +100,11 @@ export function TaskRow({
         onPress={openDetail}
         onLongPress={handleLongPress}
         delayLongPress={500}
-        className={`flex-row items-center gap-3 pr-4 active:bg-gray-50 ${isNestedCopy ? 'opacity-60' : ''}`}
+        className={`flex-row items-center gap-3 pr-4 bg-card active:bg-muted ${isNestedCopy ? 'opacity-60' : ''}`}
         style={[
           {
             paddingLeft: indent + 16,
             paddingVertical: 10,
-            backgroundColor: '#fff',
             borderLeftWidth: 3,
             borderLeftColor: 'transparent',
           },
@@ -139,18 +138,18 @@ export function TaskRow({
         </Pressable>
 
         {/* Content */}
-        <Text style={{ flex: 1, fontSize: 14, color: '#1a1a1a', letterSpacing: 0.1, lineHeight: 20 }}>
+        <Text className="text-foreground" style={{ flex: 1, fontSize: 14, letterSpacing: 0.1, lineHeight: 20 }}>
           <InlineMarkdown content={task.content} />
           {hiddenDescendantCount > 0 && (
-            <Text style={{ fontSize: 12, color: '#BDBDBD' }}> · {hiddenDescendantCount} hidden</Text>
+            <Text className="text-muted-foreground" style={{ fontSize: 12 }}> · {hiddenDescendantCount} hidden</Text>
           )}
         </Text>
 
         {/* Also-in-bucket pill */}
         {showAlsoInBucketPill && bucketLabel && (
-          <View className="flex-row items-center gap-0.5 bg-gray-50 px-1.5 py-0.5 rounded">
-            <CornerUpRight size={10} color="#9ca3af" />
-            <Text className="text-gray-400" style={{ fontSize: 10 }}>{bucketLabel}</Text>
+          <View className="flex-row items-center gap-0.5 bg-muted px-1.5 py-0.5 rounded">
+            <CornerUpRight size={10} color="hsl(220 9% 63%)" />
+            <Text className="text-muted-foreground" style={{ fontSize: 10 }}>{bucketLabel}</Text>
           </View>
         )}
 
@@ -159,8 +158,8 @@ export function TaskRow({
           {/* Estimated time */}
           {task.duration && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-              <Clock size={13} color="#9ca3af" />
-              <Text style={{ fontSize: 11, fontWeight: '500', color: '#6b7280' }}>
+              <Clock size={13} color="hsl(220 9% 63%)" />
+              <Text className="text-muted-foreground" style={{ fontSize: 11, fontWeight: '500' }}>
                 {task.duration.formatted}
               </Text>
             </View>
@@ -173,8 +172,8 @@ export function TaskRow({
               hitSlop={6}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
             >
-              <MessageSquare size={13} color="#9ca3af" />
-              <Text style={{ fontSize: 11, fontWeight: '500', color: '#6b7280' }}>
+              <MessageSquare size={13} color="hsl(220 9% 63%)" />
+              <Text className="text-muted-foreground" style={{ fontSize: 11, fontWeight: '500' }}>
                 {task.comments_count}
               </Text>
             </Pressable>
@@ -209,7 +208,7 @@ export function TaskRow({
               hitSlop={8}
               style={{ opacity: 0.35 }}
             >
-              <ExternalLink size={13} color="#6B7280" />
+              <ExternalLink size={13} color="hsl(220 9% 63%)" />
             </Pressable>
           )}
         </View>

@@ -3,7 +3,8 @@
  */
 
 import { useState } from 'react'
-import { View, Text, Pressable, TextInput, ScrollView } from 'react-native'
+import { View, Pressable, TextInput, ScrollView } from 'react-native'
+import { Text as UIText } from '@/components/ui/text'
 import { X } from 'lucide-react-native'
 
 interface DurationPickerProps {
@@ -72,30 +73,30 @@ export function DurationPicker({ value, onChange, onClose }: DurationPickerProps
     <View className="bg-white rounded-t-2xl px-4 pb-6 pt-4">
       {/* Header */}
       <View className="flex-row items-center justify-between mb-4">
-        <Text className="text-lg font-semibold text-gray-900">Set Duration</Text>
+        <UIText className="text-lg font-semibold text-foreground">Set Duration</UIText>
         <Pressable onPress={onClose} hitSlop={8}>
-          <X size={20} color="#6b7280" />
+          <X size={20} className="text-muted-foreground" />
         </Pressable>
       </View>
 
       {/* Current duration display */}
       {value && (
-        <View className="bg-orange-50 rounded-lg px-3 py-2 mb-4 flex-row items-center justify-between">
-          <Text className="text-sm text-orange-600">Current: {value.formatted}</Text>
+        <View className="bg-primary/10 rounded-lg px-3 py-2 mb-4 flex-row items-center justify-between">
+          <UIText className="text-sm text-primary">Current: {value.formatted}</UIText>
           <Pressable
             onPress={() => {
               onChange(null)
               setCustomInput('')
             }}
-            className="px-2 py-1 rounded active:bg-orange-100"
+            className="px-2 py-1 rounded active:bg-primary/10"
           >
-            <Text className="text-sm text-orange-600 font-medium">Clear</Text>
+            <UIText className="text-sm text-primary font-medium">Clear</UIText>
           </Pressable>
         </View>
       )}
 
       {/* Quick duration grid */}
-      <Text className="text-xs font-semibold text-gray-600 mb-2">Quick Select</Text>
+      <UIText className="text-xs font-semibold text-muted-foreground mb-2">Quick Select</UIText>
       <ScrollView className="mb-4">
         <View className="flex-row flex-wrap gap-2">
           {QUICK_DURATIONS.map((duration) => (
@@ -104,17 +105,17 @@ export function DurationPicker({ value, onChange, onClose }: DurationPickerProps
               onPress={() => handleQuickSelect(duration)}
               className={`px-3 py-2 rounded-lg border ${
                 value?.minutes === duration.minutes
-                  ? 'bg-orange-500 border-orange-500'
-                  : 'border-gray-200 bg-gray-50 active:bg-gray-100'
+                  ? 'bg-primary border-primary'
+                  : 'border-border bg-muted active:bg-muted'
               }`}
             >
-              <Text
+              <UIText
                 className={`text-sm font-medium ${
-                  value?.minutes === duration.minutes ? 'text-white' : 'text-gray-700'
+                  value?.minutes === duration.minutes ? 'text-primary-foreground' : 'text-foreground'
                 }`}
               >
                 {duration.label}
-              </Text>
+              </UIText>
             </Pressable>
           ))}
         </View>
@@ -122,20 +123,20 @@ export function DurationPicker({ value, onChange, onClose }: DurationPickerProps
 
       {/* Custom input */}
       <View className="mb-4">
-        <Text className="text-xs font-semibold text-gray-600 mb-2">Custom (e.g., "1.5h" or "90m")</Text>
+        <UIText className="text-xs font-semibold text-muted-foreground mb-2">Custom (e.g., "1.5h" or "90m")</UIText>
         <View className="flex-row gap-2">
           <TextInput
             value={customInput}
             onChangeText={setCustomInput}
             placeholder="Enter duration"
-            placeholderTextColor="#9ca3af"
-            className="flex-1 px-3 py-2.5 border border-gray-200 rounded-lg text-sm"
+            placeholderTextColor="hsl(220 9% 63%)"
+            className="flex-1 px-3 py-2.5 border border-border rounded-lg text-sm text-foreground"
           />
           <Pressable
             onPress={handleCustomSubmit}
-            className="px-4 py-2.5 bg-orange-500 rounded-lg active:bg-orange-600 items-center justify-center"
+            className="px-4 py-2.5 bg-primary rounded-lg active:bg-primary items-center justify-center"
           >
-            <Text className="text-sm font-medium text-white">Set</Text>
+            <UIText className="text-sm font-medium text-primary-foreground">Set</UIText>
           </Pressable>
         </View>
       </View>

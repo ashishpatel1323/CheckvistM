@@ -1,30 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Platform, Text, View } from 'react-native'
+import { Platform, Text, View, Pressable, Modal } from 'react-native'
 import { format } from 'date-fns'
 import type { Calendar } from '@fullcalendar/core'
 import type { TaskNode } from '@/lib/taskTree'
 import type { UpdateTaskPayload } from '@/api/types'
 import { tasksToCalendarEvents, calibrateSlots } from '@/lib/calendarAdapter'
+import { RefreshCw } from 'lucide-react-native'
 import { toApiDate } from '@/lib/dateUtils'
 import { TIME_QUADRANTS, classifyTime, type TimeBucket } from '@/features/tasks/list/EisenhowerMatrixView'
 import { classifyPriority, type PriorityBucket, BUCKET_META } from '@/features/tasks/shared/PriorityPicker'
 import { useTimeSlotStore } from './useTimeSlotStore'
+import { colors, radii, typography } from '@/design/tokens'
 
 export interface CalendarScheduleViewProps {
-  /** Today's open tasks, in Execute order (used for index → playTask/jumpTo). */
   tasks: TaskNode[]
   checklistId: number
-  /** Per-task Execute estimate in minutes (block duration fallback). */
   getEstimateMin: (task: TaskNode) => number
-  /** Select a task in the Execute timer by index (no start). */
   jumpTo: (index: number) => void
-  /** Start the timer for a task by index (mirrors row Play button). */
   playTask: (index: number) => void
   updateTask: (args: { taskId: number; payload: UpdateTaskPayload }) => void
   onJumpToRaw?: (taskId: number) => void
   onJumpToMindmap?: (taskId: number) => void
-  /** Called when the user expands to full screen — closes the Execute right panel. */
   onExpand?: () => void
+  searchQuery?: string
 }
 
 function minutesOf(d: Date): number {
@@ -37,17 +35,11 @@ const TIME_SCALE_OPTIONS = [
   { value: 15, label: '15 minutes', description: '' },
   { value: 10, label: '10 minutes', description: '' },
   { value: 6, label: '6 minutes', description: '' },
-  { value: 5, label: '5 minutes', description: 'Most space for details' }
+  { value: 5, label: '5 minutes', description: 'Most space for details' },
 ] as const
 const ZOOM_HOST_CLASS = 'cal-zoom-host'
-/** Height (px) of one 30-min slot at 10-minute scale. Scaled by the time scale. */
 const BASE_SLOT_PX = 24
 
-/**
- * Force the time-grid row height via injected CSS. This is the supported way to "zoom" a
- * FullCalendar timeGrid — overriding `.fc-timegrid-slot` height with `!important` makes the
- * rows (and therefore the events) taller; the grid's own scroller handles overflow.
- */
 function applyZoomCss(timeScale: number): void {
   if (typeof document === 'undefined') return
   let style = document.getElementById('cal-zoom-css')
@@ -56,8 +48,6 @@ function applyZoomCss(timeScale: number): void {
     style.id = 'cal-zoom-css'
     document.head.appendChild(style)
   }
-  // Calculate pixel height: at 10-minute scale, 30-min slot is BASE_SLOT_PX
-  // Scale inversely: smaller timeScale = taller slots
   const px = BASE_SLOT_PX * (10 / timeScale)
   style.textContent =
     `.${ZOOM_HOST_CLASS} .fc-timegrid-slot { height: ${px}px !important; }` +
@@ -76,7 +66,7 @@ export function CalendarScheduleView(props: CalendarScheduleViewProps) {
 }
 
 function CalendarWeb({
-  tasks, getEstimateMin, jumpTo, playTask, updateTask, onJumpToRaw, onJumpToMindmap, onExpand,
+  tasks, getEstimateMin, jumpTo, playTask, updateTask, onJumpToRaw, onJumpToMindmap, onExpand, searchQuery,
 }: CalendarScheduleViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const instanceRef = useRef<Calendar | null>(null)
@@ -84,6 +74,7 @@ function CalendarWeb({
   const [selectedBucket, setSelectedBucket] = useState<TimeBucket | null>(null)
   const [selectedPriority, setSelectedPriority] = useState<PriorityBucket | null>(null)
   const [timeScale, setTimeScale] = useState(10)
+  const [selectedTimeFilter, setSelectedTimeFilter] = useState<TimeBucket | 'all'>('all')
 
   const slots = useTimeSlotStore((s) => s.slots)
   const setSlot = useTimeSlotStore((s) => s.setSlot)
@@ -101,8 +92,25 @@ function CalendarWeb({
   function selectPriority(p: PriorityBucket | null) {
     setSelectedPriority((prev) => (prev === p ? null : p))
   }
+  function selectTimeFilter(t: TimeBucket | 'all') {
+    setSelectedTimeFilter((prev) => (prev === t ? 'all' : t))
+  }
+  function selectPriorityFilter(p: PriorityBucket | null) {
+    setSelectedPriority((prev) => (prev === p ? null : p))
+  }
 
-  // Latest props for handlers captured at calendar init (closures).
+  const filteredTasks = useMemo(() => {
+    let visible = tasks
+    if (selectedTimeFilter !== 'all') {
+      visible = visible.filter((t) => classifyTime(t as any) === selectedTimeFilter)
+    }
+    if (searchQuery?.trim()) {
+      const q = searchQuery.trim().toLowerCase()
+      visible = visible.filter((t) => t.content.toLowerCase().includes(q))
+    }
+    return visible
+  }, [tasks, selectedTimeFilter, searchQuery])
+
   const tasksRef = useRef(tasks); tasksRef.current = tasks
   const jumpToRef = useRef(jumpTo); jumpToRef.current = jumpTo
   const playTaskRef = useRef(playTask); playTaskRef.current = playTask
@@ -112,17 +120,15 @@ function CalendarWeb({
   const onJumpToMindmapRef = useRef(onJumpToMindmap); onJumpToMindmapRef.current = onJumpToMindmap
 
   const events = useMemo(() => {
-    let visible = tasks
+    let visible = filteredTasks
     if (selectedBucket !== null) {
-      visible = visible.filter((t) => classifyTime(t) === selectedBucket)
+      visible = visible.filter((t) => classifyTime(t as any) === selectedBucket)
     }
     if (selectedPriority !== null) {
       visible = visible.filter((t) => classifyPriority(t.priority) === selectedPriority)
     }
     return tasksToCalendarEvents(visible, slots, getEstimateMin)
-  }, [tasks, slots, getEstimateMin, selectedBucket, selectedPriority])
-  const eventsRef = useRef(events)
-  eventsRef.current = events
+  }, [filteredTasks, slots, getEstimateMin, selectedBucket, selectedPriority])
 
   function persistPlacement(taskId: number, start: Date, end: Date) {
     const duration = Math.max(5, Math.round((end.getTime() - start.getTime()) / 60000))
@@ -132,7 +138,6 @@ function CalendarWeb({
       durationMinutes: duration,
       source: 'manual',
     })
-    // Keep the day-level due date synced to Checkvist; time-of-day stays local.
     updateTaskRef.current({ taskId, payload: { due_date: toApiDate(start) } })
   }
 
@@ -140,39 +145,37 @@ function CalendarWeb({
     return tasksRef.current.findIndex((t) => t.id === taskId)
   }
 
-  // Builds the small CTA buttons appended to each event (FullCalendar eventContent is DOM).
   function buildCtaRow(taskId: number): HTMLElement {
     const row = document.createElement('div')
     row.style.cssText = 'display:flex;gap:4px;align-items:center;'
-    
+
     const mk = (iconSvg: string, title: string, onClick: () => void) => {
       const b = document.createElement('button')
       b.title = title
-      b.style.cssText = 'cursor:pointer;border:none;border-radius:4px;background:rgba(255,255,255,0.25);color:#fff;padding:4px;display:flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;'
+      b.style.cssText = `cursor:pointer;border:none;border-radius:${radii.sm}px;background:rgba(255,255,255,0.22);color:#fff;padding:4px;display:flex;align-items:center;justify-content:center;min-width:26px;min-height:26px;transition:background 120ms ease;`
       b.innerHTML = iconSvg
+      b.onmouseenter = () => { b.style.background = 'rgba(255,255,255,0.38)' }
+      b.onmouseleave = () => { b.style.background = 'rgba(255,255,255,0.22)' }
       b.onclick = (e) => { e.stopPropagation(); onClick() }
       return b
     }
-    
-    // Play icon (lucide Play)
+
     const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>`
-    // Network icon (lucide Network for Mindmap)
     const networkIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="12" x2="7" y2="17"/><line x1="12" y1="12" x2="17" y2="17"/><circle cx="7" cy="20" r="3"/><circle cx="17" cy="20" r="3"/></svg>`
-    // AlignLeft icon (lucide AlignLeft for Raw)
     const alignLeftIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>`
-    
+
     row.appendChild(mk(playIcon, 'Start', () => { const i = idxOf(taskId); if (i >= 0) playTaskRef.current(i) }))
     if (onJumpToMindmapRef.current) row.appendChild(mk(networkIcon, 'Mindmap', () => onJumpToMindmapRef.current?.(taskId)))
     if (onJumpToRawRef.current) row.appendChild(mk(alignLeftIcon, 'Raw', () => onJumpToRawRef.current?.(taskId)))
     return row
   }
 
-  // Init once on mount, deferred until the container has nonzero size.
   useEffect(() => {
-    if (!containerRef.current) return
+    const el = containerRef.current
+    if (!el) return
     let cancelled = false
     let instance: Calendar | null = null
-    const el = containerRef.current
+
     const waitForSize = () => new Promise<void>((resolve) => {
       if (el.clientWidth > 0 && el.clientHeight > 0) return resolve()
       const ro = new ResizeObserver(() => {
@@ -180,6 +183,7 @@ function CalendarWeb({
       })
       ro.observe(el)
     })
+
     ;(async () => {
       await waitForSize()
       if (cancelled) return
@@ -190,36 +194,36 @@ function CalendarWeb({
       ])
       if (cancelled) return
       applyZoomCss(timeScale)
+
+      const now = new Date()
       instance = new Calendar(el, {
         plugins: [timeGridPlugin, interactionPlugin],
         initialView: 'timeGridDay',
         headerToolbar: false,
-        slotMinTime: '04:00:00',
+        slotMinTime: '06:00:00',
         slotMaxTime: '22:00:00',
         allDaySlot: false,
         nowIndicator: true,
         editable: true,
         eventResizableFromStart: true,
-        // Fill the pane; row height (zoom) is forced via injected CSS on .fc-timegrid-slot.
         height: '100%',
-        expandRows: true,
         slotDuration: `00:${String(timeScale).padStart(2, '0')}:00`,
         events,
         eventContent: (arg) => {
           const taskId = arg.event.extendedProps.taskId as number
           const nlp = arg.event.extendedProps.source === 'nlp'
+          const bg = (arg.event.backgroundColor as string) || '#E8632A'
+
           const wrap = document.createElement('div')
-          wrap.style.cssText = 'padding:4px 6px;overflow:hidden;display:flex;align-items:center;gap:6px;min-height:44px;'
-          
-          const ctaRow = buildCtaRow(taskId)
-          wrap.appendChild(ctaRow)
-          
+          wrap.style.cssText = `padding:3px 6px;overflow:hidden;display:flex;align-items:center;gap:4px;min-height:26px;background:${bg};border-radius:4px;`
+
           const title = document.createElement('div')
-          title.style.cssText = 'font-size:11px;line-height:1.3;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex:1;background-color:rgba(0,0,0,0.6);padding:2px 6px;border-radius:3px;color:#fff;'
+          title.style.cssText = 'font-size:12px;line-height:1.3;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex:1;color:#fff;font-weight:500;text-shadow:0 1px 2px rgba(0,0,0,0.4);'
           title.textContent = (nlp ? '✦ ' : '') + arg.event.title
           title.title = arg.event.title
-          
+
           wrap.appendChild(title)
+          wrap.appendChild(buildCtaRow(taskId))
           return { domNodes: [wrap] }
         },
         eventClick: (info) => {
@@ -237,7 +241,12 @@ function CalendarWeb({
       })
       instance.render()
       instanceRef.current = instance
+
+      requestAnimationFrame(() => {
+        try { instance?.scrollToTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:00`) } catch {}
+      })
     })()
+
     return () => {
       cancelled = true
       try { instance?.destroy() } catch {}
@@ -246,33 +255,23 @@ function CalendarWeb({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Update events when tasks/slots change using mutation APIs to preserve handlers
   useEffect(() => {
     const inst = instanceRef.current
     if (!inst) return
-    
-    // Get current events in calendar
     const currentEvents = inst.getEvents()
     const currentTaskIds = new Set(currentEvents.map((e: any) => e.extendedProps?.taskId))
     const newTaskIds = new Set(events.map((e: any) => e.extendedProps?.taskId))
-    
+
     inst.batchRendering(() => {
-      // Remove events that are no longer in the new list
       for (const event of currentEvents) {
-        if (!newTaskIds.has(event.extendedProps?.taskId)) {
-          event.remove()
-        }
+        if (!newTaskIds.has(event.extendedProps?.taskId)) event.remove()
       }
-      // Add new events that aren't in the current list
       for (const event of events) {
-        if (!currentTaskIds.has(event.extendedProps?.taskId)) {
-          inst.addEvent(event)
-        }
+        if (!currentTaskIds.has(event.extendedProps?.taskId)) inst.addEvent(event)
       }
     })
   }, [events])
 
-  // Recompute size after the fullscreen layout flips.
   useEffect(() => {
     const inst = instanceRef.current
     if (!inst) return
@@ -280,24 +279,18 @@ function CalendarWeb({
     return () => cancelAnimationFrame(id)
   }, [fullScreen])
 
-  // Scale row height on time scale change.
   useEffect(() => {
     applyZoomCss(timeScale)
     const inst = instanceRef.current
     if (!inst) return
-    // Update slotDuration to match timeScale
     inst.setOption('slotDuration', `00:${String(timeScale).padStart(2, '0')}:00`)
-    // Trigger a re-render by toggling a harmless option
     const currentHeight = inst.getOption('height')
     inst.setOption('height', '99%')
     requestAnimationFrame(() => {
-      try {
-        inst.setOption('height', currentHeight)
-      } catch {}
+      try { inst.setOption('height', currentHeight) } catch {}
     })
   }, [timeScale])
 
-  // Esc exits fullscreen.
   useEffect(() => {
     if (!fullScreen) return
     function onKey(e: KeyboardEvent) {
@@ -316,113 +309,275 @@ function CalendarWeb({
 
   const wrapperStyle: React.CSSProperties = fullScreen
     ? { position: 'fixed', inset: 0, zIndex: 1000, background: '#fff', display: 'flex', flexDirection: 'column' }
-    : { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, width: '100%', height: '100%' }
+    : { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, width: '100%', overflowX: 'hidden' }
 
   const btnStyle: React.CSSProperties = {
     background: '#fff', border: '1px solid #D1D5DB', borderRadius: 6,
     padding: '3px 9px', cursor: 'pointer', fontSize: 13, color: '#374151',
   }
 
-  return (
-    <div style={wrapperStyle}>
-      <div style={{
-        flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-        padding: '6px 12px', borderBottom: '1px solid #E5E7EB', background: '#FAFAFA',
-      }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
-          {format(new Date(), 'EEEE, MMM d')}
-        </span>
-        {/* Duration-bucket legend — same colors as By Time; click to filter */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
-            onClick={() => { selectBucket(null); selectPriority(null) }}
-            title="Show all items"
-            style={{
-              display: 'flex', alignItems: 'center', gap: 3, fontSize: 11,
-              border: 'none', background: 'transparent', cursor: 'pointer', padding: 0,
-              color: selectedBucket === null && selectedPriority === null ? '#4772FA' : '#6B7280',
-              fontWeight: selectedBucket === null && selectedPriority === null ? '600' : '400',
-            }}
-          >
-            All
-          </button>
-          {TIME_QUADRANTS.map((q) => {
-            const selected = selectedBucket === q.bucket
-            return (
-              <button
-                key={q.bucket}
-                onClick={() => selectBucket(q.bucket)}
-                title={`Show only ${q.label}`}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 3, fontSize: 11,
-                  border: 'none', background: 'transparent', cursor: 'pointer', padding: 0,
-                  color: selected ? '#4772FA' : '#6B7280',
-                  fontWeight: selected ? '600' : '400',
-                }}
-              >
-                <span style={{ width: 9, height: 9, borderRadius: '50%', background: selected ? q.color : '#D1D5DB' }} />
-                {q.label}
-              </button>
-            )
-          })}
-        </div>
-        {/* Priority filter buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {(Object.keys(BUCKET_META) as PriorityBucket[]).map((bucket) => {
-            const meta = BUCKET_META[bucket]
-            const selected = selectedPriority === bucket
-            return (
-              <button
-                key={bucket}
-                onClick={() => selectPriority(bucket)}
-                title={`Show only ${meta.label} priority`}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 3, fontSize: 11,
-                  border: 'none', background: 'transparent', cursor: 'pointer', padding: 0,
-                  color: selected ? '#4772FA' : '#6B7280',
-                  fontWeight: selected ? '600' : '400',
-                }}
-              >
-                <span style={{ width: 9, height: 9, borderRadius: '50%', background: selected ? meta.color : '#D1D5DB' }} />
-                {meta.label}
-              </button>
-            )
-          })}
-        </div>
-        <span style={{ fontSize: 11, color: '#9CA3AF' }}>✦ NLP</span>
-        <div style={{ flex: 1 }} />
-        {/* Time scale: Outlook-style selector for slot height */}
-        <select
-          value={timeScale}
-          onChange={(e) => setTimeScale(Number(e.target.value))}
+  const toolbarStyle: React.CSSProperties = {
+    flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10,
+    flexWrap: 'wrap', padding: '8px 12px',
+    borderBottom: `1px solid ${colors.border}`, background: colors.bgSecondary,
+    width: '100%',
+  }
+
+  function TimeFilterDropdown() {
+    const [open, setOpen] = useState(false)
+    const anchorRef = useRef<View>(null)
+    const [anchorPos, setAnchorPos] = useState<{ top: number; left: number }>({ top: 48, left: 12 })
+
+    const options: { key: TimeBucket | 'all'; label: string; sublabel?: string; color: string }[] = [
+      { key: 'all', label: 'All time filters', color: '#6366F1' },
+      ...TIME_QUADRANTS.map((q) => ({
+        key: q.bucket,
+        label: q.label,
+        sublabel: q.sublabel,
+        color: q.color,
+      })),
+    ]
+
+    const currentLabel = options.find((o) => o.key === selectedTimeFilter)?.label ?? 'All time filters'
+    const currentColor = options.find((o) => o.key === selectedTimeFilter)?.color ?? '#6366F1'
+
+    function handleOpen() {
+      if (Platform.OS === 'web') {
+        const domNode = (anchorRef.current as any) as HTMLElement | null
+        if (domNode && typeof domNode.getBoundingClientRect === 'function') {
+          const r = domNode.getBoundingClientRect()
+          setAnchorPos({ top: r.bottom + 4, left: r.left })
+        }
+      } else {
+        anchorRef.current?.measureInWindow((x: number, y: number) => {
+          setAnchorPos({ top: y + 28, left: x })
+        })
+      }
+      setOpen(true)
+    }
+
+    const menuItems = options.map((opt) => (
+      <Pressable
+        key={opt.key}
+        onPress={() => { selectTimeFilter(opt.key); setOpen(false) }}
+        style={{
+          paddingHorizontal: 14, paddingVertical: 9,
+          backgroundColor: selectedTimeFilter === opt.key ? '#EEF2FF' : 'transparent',
+          flexDirection: 'row', alignItems: 'center', gap: 8,
+        }}
+      >
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: opt.color }} />
+        <View>
+          <Text style={{ fontSize: 13, color: selectedTimeFilter === opt.key ? '#4772FA' : '#374151', fontWeight: selectedTimeFilter === opt.key ? '600' : '400' }}>
+            {opt.label}
+          </Text>
+          {opt.sublabel ? (
+            <Text style={{ fontSize: 11, color: selectedTimeFilter === opt.key ? '#4772FA' : '#6B7280', fontWeight: '400' }}>
+              {opt.sublabel}
+            </Text>
+          ) : null}
+        </View>
+      </Pressable>
+    ))
+
+    const btnBg = selectedTimeFilter === 'all' ? '#F3F4F6' : '#EEF2FF'
+    const btnColor = selectedTimeFilter === 'all' ? '#374151' : currentColor
+
+    return (
+      <View ref={anchorRef}>
+        <Pressable
+          onPress={handleOpen}
           style={{
-            border: '1px solid #D1D5DB',
-            borderRadius: 6,
-            padding: '3px 8px',
-            fontSize: 12,
-            cursor: 'pointer',
-            background: '#fff',
-            color: '#374151',
+            flexDirection: 'row', alignItems: 'center', gap: 4,
+            paddingHorizontal: 10, paddingVertical: 5,
+            backgroundColor: btnBg, borderRadius: 8,
           }}
         >
-          {TIME_SCALE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}{opt.description ? ` - ${opt.description}` : ''}
-            </option>
-          ))}
-        </select>
-        <button onClick={calibrate} title="Spread tasks from now to 10 PM" style={btnStyle}>
-          ⟳ Calibrate
-        </button>
-        <button
-          onClick={toggleFullScreen}
-          title={fullScreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
-          style={btnStyle}
+          <Text style={{ fontSize: 12, fontWeight: '600', color: btnColor }}>{currentLabel}</Text>
+          <Text style={{ fontSize: 10, color: '#6B7280' }}>▼</Text>
+        </Pressable>
+
+        <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
+          <Pressable style={{ flex: 1 }} onPress={() => setOpen(false)}>
+            <View
+              style={{
+                position: 'absolute',
+                top: anchorPos.top,
+                left: anchorPos.left,
+                backgroundColor: '#fff', borderRadius: 10,
+                shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 16, elevation: 20,
+                paddingVertical: 4, minWidth: 140, zIndex: 999,
+              }}
+            >
+              {menuItems}
+            </View>
+          </Pressable>
+        </Modal>
+      </View>
+    )
+  }
+
+  function PriorityFilterDropdown({ onSelect, selected }: { onSelect: (p: PriorityBucket | null) => void, selected: PriorityBucket | null }) {
+    const [open, setOpen] = useState(false)
+    const anchorRef = useRef<View>(null)
+    const [anchorPos, setAnchorPos] = useState<{ top: number; left: number }>({ top: 48, left: 12 })
+
+    const options: { key: PriorityBucket | null; label: string; sublabel?: string; color: string }[] = [
+      { key: null, label: 'All priorities', color: '#6366F1' },
+      ...Object.entries(BUCKET_META).map(([key, meta]) => ({
+        key: key as PriorityBucket,
+        label: meta.label,
+        sublabel: meta.sublabel,
+        color: meta.color,
+      })),
+    ]
+
+    const current = options.find((o) => o.key === selected) ?? options[0]
+    const currentLabel2 = options.find((o) => o.key === selected)?.label ?? 'All priorities'
+    const currentColor2 = options.find((o) => o.key === selected)?.color ?? '#6366F1'
+
+    function handleOpen() {
+      if (Platform.OS === 'web') {
+        const domNode = (anchorRef.current as any) as HTMLElement | null
+        if (domNode && typeof domNode.getBoundingClientRect === 'function') {
+          const r = domNode.getBoundingClientRect()
+          setAnchorPos({ top: r.bottom + 4, left: r.left })
+        }
+      } else {
+        anchorRef.current?.measureInWindow((x: number, y: number) => {
+          setAnchorPos({ top: y + 28, left: x })
+        })
+      }
+      setOpen(true)
+    }
+
+    const menuItems = options.map((opt) => (
+      <Pressable
+        key={opt.key ?? 'all'}
+        onPress={() => { onSelect(opt.key as PriorityBucket | null); setOpen(false) }}
+        style={{
+          paddingHorizontal: 14, paddingVertical: 9,
+          backgroundColor: selected === opt.key ? '#EEF2FF' : 'transparent',
+          flexDirection: 'row', alignItems: 'center', gap: 8,
+        }}
+      >
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: opt.color }} />
+        <View>
+          <Text style={{ fontSize: 13, color: selected === opt.key ? '#4772FA' : '#374151', fontWeight: selected === opt.key ? '600' : '400' }}>
+            {opt.label}
+          </Text>
+          {opt.sublabel ? (
+            <Text style={{ fontSize: 11, color: selected === opt.key ? '#4772FA' : '#6B7280', fontWeight: '400' }}>
+              {opt.sublabel}
+            </Text>
+          ) : null}
+        </View>
+      </Pressable>
+    ))
+
+    const btnBg = selected ? '#EEF2FF' : '#F3F4F6'
+    const btnColor = selected ? currentColor2 : '#374151'
+
+    return (
+      <View ref={anchorRef}>
+        <Pressable
+          onPress={handleOpen}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 4,
+            paddingHorizontal: 10, paddingVertical: 5,
+            backgroundColor: btnBg, borderRadius: 8,
+          }}
         >
-          {fullScreen ? '⤡ Exit' : '⤢ Full screen'}
-        </button>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: btnColor }}>{currentLabel2}</Text>
+          <Text style={{ fontSize: 10, color: '#6B7280' }}>▼</Text>
+        </Pressable>
+
+        <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
+          <Pressable style={{ flex: 1 }} onPress={() => setOpen(false)}>
+            <View
+              style={{
+                position: 'absolute',
+                top: anchorPos.top,
+                left: anchorPos.left,
+                backgroundColor: '#fff', borderRadius: 10,
+                shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 16, elevation: 20,
+                paddingVertical: 4, minWidth: 150, zIndex: 999,
+              }}
+            >
+              {menuItems}
+            </View>
+          </Pressable>
+        </Modal>
+      </View>
+    )
+  }
+
+  return (
+    <div style={wrapperStyle}>
+      <div style={toolbarStyle}>
+        <TimeFilterDropdown />
+        <PriorityFilterDropdown onSelect={selectPriorityFilter} selected={selectedPriority} />
+        <View style={{ flex: 1 }} />
+        <Pressable
+          onPress={calibrate}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 6,
+            paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+            backgroundColor: '#EEF2FF', borderWidth: 1, borderColor: '#C7D2FE',
+          }}
+        >
+          <RefreshCw size={14} color="#6366F1" />
+          <Text style={{ fontSize: 13, fontWeight: '600', color: '#6366F1' }}>Calibrate</Text>
+        </Pressable>
       </div>
-      <div ref={containerRef} className={ZOOM_HOST_CLASS} style={{ flex: '1 1 auto', minHeight: 0, width: '100%', overflow: 'hidden' }} />
+      <div style={{ flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
+        <div ref={containerRef} className={`${ZOOM_HOST_CLASS} cal-inner-container`} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }} />
+      </div>
+    </div>
+  )
+}
+
+function FilterPillGroup({ label, options, allSelected, onClearAll }: {
+  label: string
+  options: { key: string; label: string; color: string; selected: boolean; onClick: () => void }[]
+  allSelected: boolean
+  onClearAll: () => void
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} title={label}>
+      <button
+        onClick={onClearAll}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+          fontSize: 11, lineHeight: '16px',
+          border: 'none', background: 'transparent', cursor: 'pointer', padding: '3px 6px',
+          color: allSelected ? colors.primary : colors.textSecondary,
+          fontWeight: allSelected ? '600' : '400', borderRadius: radii.sm,
+        }}
+      >
+        All
+      </button>
+      {options.map((opt) => (
+        <button
+          key={opt.key}
+          onClick={opt.onClick}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            fontSize: 11, lineHeight: '16px',
+            border: `1px solid ${opt.selected ? colors.border : 'transparent'}`,
+            background: opt.selected ? colors.bgPrimary : colors.bgTertiary,
+            cursor: 'pointer', padding: '3px 8px',
+            color: opt.selected ? colors.textPrimary : colors.textSecondary,
+            fontWeight: opt.selected ? '600' : '400', borderRadius: radii.pill,
+          }}
+        >
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: opt.selected ? opt.color : colors.textTertiary,
+          }} />
+          {opt.label}
+        </button>
+      ))}
     </div>
   )
 }

@@ -148,15 +148,15 @@ function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitVie
 
   return (
     <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={openRaw} onJumpToMindmap={openMindmap} onCloseSidePanel={() => { setRightPanel(null); setLastRawTaskId(null) }}>
-      <View style={{ flex: 1, flexDirection: 'row' }}>
+      <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden' }}>
         {/* Left pane: full ExecuteViewContent with all features */}
-        <View style={{ width: hasPanel ? '40%' : '100%', borderRightWidth: hasPanel ? 1 : 0, borderRightColor: '#E5E7EB' }}>
+        <View style={{ width: hasPanel ? '40%' : '100%', minWidth: 0, overflow: 'hidden', borderRightWidth: hasPanel ? 1 : 0, borderRightColor: '#E5E7EB' }}>
           <ExecuteViewContent onClose={onClose} />
         </View>
 
         {/* Right panel: timer bar embedded inside raw/mindmap toolbars */}
         {hasPanel && (
-          <View style={{ flex: 1, flexDirection: 'column' }}>
+          <View style={{ flex: 1, minWidth: 0, overflow: 'hidden', flexDirection: 'column' }}>
             {rightPanel.type === 'raw' && (
               <RawView
                 checklistId={checklistId}
@@ -1225,17 +1225,17 @@ const { view, setView, focusedTaskId } = useTaskView()
 
           {isError && (
             <View className="flex-1 items-center justify-center p-8">
-              <Text className="text-red-600 font-medium">Failed to load tasks</Text>
-              <Text className="text-gray-400 text-sm mt-1">Check your connection and try again</Text>
+              <Text className="text-destructive font-medium">Failed to load tasks</Text>
+              <Text className="text-muted-foreground text-sm mt-1">Check your connection and try again</Text>
             </View>
           )}
 
           {isEmpty && (
             <View className="flex-1 items-center justify-center gap-3" style={{ paddingBottom: tabBarH }}>
-              <View className="w-12 h-12 rounded-full bg-gray-100 items-center justify-center">
+              <View className="w-12 h-12 rounded-full bg-muted items-center justify-center">
                 <Plus size={24} color="#9ca3af" />
               </View>
-              <Text className="text-sm text-gray-400">No open tasks. Create one!</Text>
+              <Text className="text-sm text-muted-foreground">No open tasks. Create one!</Text>
             </View>
           )}
 

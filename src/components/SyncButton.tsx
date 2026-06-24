@@ -4,10 +4,11 @@
  */
 
 import { useState, useCallback, useRef } from 'react'
-import { Pressable, View, Text } from 'react-native'
+import { Pressable, View } from 'react-native'
 import { CheckCircle2, AlertCircle, Clock, Loader } from 'lucide-react-native'
 import { useSyncState } from '@/lib/sync/syncState'
 import { run, isRunning } from '@/lib/sync/syncEngine'
+import { Text } from '@/components/ui/text'
 import { SyncHistoryPopover } from './SyncHistoryPopover'
 
 interface SyncButtonProps {
@@ -105,7 +106,7 @@ export function SyncButton({ onRefetch }: SyncButtonProps) {
         })}
       >
         {cfg.icon(13, cfg.iconColor)}
-        <Text style={{ fontSize: 12, fontWeight: '500', color: cfg.color }}>
+        <Text className="text-xs font-medium" style={{ color: cfg.color }}>
           {cfg.label}
         </Text>
       </Pressable>

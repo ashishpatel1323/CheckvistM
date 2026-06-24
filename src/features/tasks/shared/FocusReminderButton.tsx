@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { View, Text, Pressable, Modal, Switch, ScrollView } from 'react-native'
+import { View, Pressable, Modal, Switch, ScrollView } from 'react-native'
+import { Text as UIText } from '@/components/ui/text'
 import { Bell, BellOff, X, Play } from 'lucide-react-native'
 import {
   useFocusReminderSettings,
@@ -20,20 +21,20 @@ const VOLUME_PRESETS = [
 // ── Small primitives ───────────────────────────────────────────────────────────
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <View style={{ marginBottom: 18 }}>
-      <Text style={{ fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
+    <View className="mb-4.5">
+      <UIText className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
         {title}
-      </Text>
-      <View style={{ gap: 10 }}>{children}</View>
+      </UIText>
+      <View className="gap-2.5">{children}</View>
     </View>
   )
 }
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 28 }}>
-      <Text style={{ fontSize: 13, color: '#111827', flexShrink: 1, paddingRight: 8 }}>{label}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>{children}</View>
+    <View className="flex-row items-center justify-between min-h-7">
+      <UIText className="text-[13px] text-foreground flex-shrink pr-2">{label}</UIText>
+      <View className="flex-row items-center gap-1.5">{children}</View>
     </View>
   )
 }
@@ -44,19 +45,19 @@ function Chips<T extends string | number>({ options, value, onChange }: {
   onChange: (v: T) => void
 }) {
   return (
-    <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+    <View className="flex-row gap-1 flex-wrap justify-end">
       {options.map((o) => {
         const selected = o.value === value
         return (
           <Pressable
             key={String(o.value)}
             onPress={() => onChange(o.value)}
-            style={{
-              paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8,
-              backgroundColor: selected ? BLUE : '#F1F5F9',
-            }}
+            className="px-2.5 py-1 rounded-md"
+            style={{ backgroundColor: selected ? BLUE : '#F1F5F9' }}
           >
-            <Text style={{ fontSize: 12, fontWeight: '600', color: selected ? 'white' : '#475569' }}>{o.label}</Text>
+            <UIText className="text-xs font-semibold" style={{ color: selected ? 'white' : '#475569' }}>
+              {o.label}
+            </UIText>
           </Pressable>
         )
       })}
@@ -75,7 +76,7 @@ function PreviewButton({ sound, volume }: { sound: SoundName; volume: number }) 
     <Pressable
       onPress={() => previewSound(sound, volume)}
       hitSlop={8}
-      style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' }}
+      className="w-6.5 h-6.5 rounded-full bg-secondary/10 items-center justify-center"
     >
       <Play size={13} color={BLUE} />
     </Pressable>
@@ -93,17 +94,18 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
         onPress={onClose}
       >
-        <Pressable
-          onPress={(e) => e.stopPropagation()}
-          style={{ backgroundColor: 'white', borderRadius: 16, width: 360, maxWidth: '100%', maxHeight: '85%', overflow: 'hidden' }}
-        >
-          {/* Header */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
-            <Text style={{ fontSize: 16, fontWeight: '700', color: '#0F172A' }}>Focus Reminders</Text>
-            <Pressable onPress={onClose} hitSlop={8}><X size={18} color="#94A3B8" /></Pressable>
-          </View>
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            className="bg-background rounded-2xl w-90 max-w-full max-h-[85%] overflow-hidden"
+            style={{ maxWidth: '100%' }}
+          >
+            {/* Header */}
+            <View className="flex-row items-center justify-between px-4.5 py-3.5 border-b border-border">
+              <UIText className="text-base font-bold text-foreground">Focus Reminders</UIText>
+              <Pressable onPress={onClose} hitSlop={8}><X size={18} className="text-muted-foreground" /></Pressable>
+            </View>
 
-          <ScrollView style={{ paddingHorizontal: 18 }} contentContainerStyle={{ paddingVertical: 16 }}>
+          <ScrollView className="px-4.5" contentContainerStyle={{ paddingVertical: 16 }}>
             {/* Global */}
             <Section title="Global">
               <Row label="Enable all reminders">
@@ -232,11 +234,8 @@ export function FocusReminderButton() {
       <Pressable
         hitSlop={8}
         onPress={() => setOpen(true)}
-        style={{
-          flexDirection: 'row', alignItems: 'center', gap: 3,
-          paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8,
-          backgroundColor: masterEnabled ? '#EEF2FF' : 'transparent',
-        }}
+        className="flex-row items-center gap-0.75 px-1.5 py-0.75 rounded-md"
+        style={{ backgroundColor: masterEnabled ? '#EEF2FF' : 'transparent' }}
       >
         {masterEnabled ? <Bell size={16} color={BLUE} /> : <BellOff size={16} color="#9CA3AF" />}
       </Pressable>

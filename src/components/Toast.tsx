@@ -1,5 +1,6 @@
 import { useEffect, createContext, useContext, useState } from 'react'
 import { View, Text, Pressable, Platform } from 'react-native'
+import { Text as UIText } from '@/components/ui/text'
 import { create } from 'zustand'
 import { CheckCircle, XCircle, Info, X } from 'lucide-react-native'
 
@@ -46,14 +47,14 @@ const iconColor: Record<ToastType, string> = {
 
 const bgClass: Record<ToastType, string> = {
   success: 'bg-green-50 border-green-200',
-  error: 'bg-red-50 border-red-200',
-  info: 'bg-blue-50 border-blue-200',
+  error: 'bg-destructive/10 border-destructive/30',
+  info: 'bg-secondary/10 border-secondary/30',
 }
 
 const textClass: Record<ToastType, string> = {
   success: 'text-green-800',
-  error: 'text-red-800',
-  info: 'text-blue-800',
+  error: 'text-destructive',
+  info: 'text-secondary',
 }
 
 function ToastItem({ toast }: { toast: Toast }) {
@@ -71,9 +72,9 @@ function ToastItem({ toast }: { toast: Toast }) {
       style={{ shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 }}
     >
       <Icon size={16} color={iconColor[toast.type]} />
-      <Text className={`text-sm font-medium flex-1 ${textClass[toast.type]}`}>{toast.message}</Text>
+      <UIText className={`text-sm font-medium flex-1 ${textClass[toast.type]}`}>{toast.message}</UIText>
       <Pressable onPress={() => removeToast(toast.id)}>
-        <X size={14} color="#9ca3af" />
+        <X size={14} className="text-muted-foreground" />
       </Pressable>
     </View>
   )

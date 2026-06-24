@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
-import { View, Text, Pressable, ScrollView, Platform, Modal } from 'react-native'
+import { View, Pressable, ScrollView, Platform, Modal } from 'react-native'
+import { Text as UIText } from '@/components/ui/text'
 import { ChevronDown, ChevronRight, ChevronUp, CalendarArrowUp } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import type { GroupedTasks, DateGroup } from '@/lib/dateSort'
@@ -128,11 +129,11 @@ function PrioritySubSection({
           width: 9, height: 9, borderRadius: 5,
           backgroundColor: meta.color,
         }} />
-        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text style={{ fontSize: 14, fontWeight: '700', color: meta.color, letterSpacing: 0.2 }}>
+        <View className="flex-row items-center gap-2">
+          <UIText className="text-sm font-bold" style={{ color: meta.color, letterSpacing: 0.2 }}>
             {meta.label.toUpperCase()}
-          </Text>
-          <Text style={{ fontSize: 11, color: meta.color, opacity: 0.65 }}>{meta.sublabel}</Text>
+          </UIText>
+          <UIText className="text-[11px]" style={{ color: meta.color, opacity: 0.65 }}>{meta.sublabel}</UIText>
         </View>
         {/* Calibrate button — only on HIGH bucket when there are excess items */}
         {bucket === 'high' && tasks.length > MAX_HIGH && (
@@ -145,12 +146,12 @@ function PrioritySubSection({
               backgroundColor: meta.color,
             }}
           >
-            <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff', letterSpacing: 0.3 }}>
+            <UIText className="text-[10px] font-bold text-white" style={{ letterSpacing: 0.3 }}>
               Calibrate
-            </Text>
+            </UIText>
           </Pressable>
         )}
-        <Text style={{ fontSize: 13, color: '#9CA3AF', marginRight: 4 }}>{tasks.length}</Text>
+          <UIText className="text-xs mr-1" style={{ color: '#9CA3AF' }}>{tasks.length}</UIText>
         {collapsed
           ? <ChevronRight size={14} color="#9CA3AF" />
           : <ChevronDown size={14} color="#9CA3AF" />}
@@ -276,9 +277,9 @@ function DateGroupCard({
           gap: 8,
         }}
       >
-        <Text style={{ fontSize: 15, fontWeight: '700', color: accent }}>
+        <UIText className="text-base font-bold" style={{ color: accent }}>
           {group.label}
-        </Text>
+        </UIText>
         {/* Move-all-to-today CTA — overdue card only */}
         {isOverdue && group.tasks.length > 0 && (
           <Pressable
@@ -295,15 +296,15 @@ function DateGroupCard({
             }}
           >
             <CalendarArrowUp size={11} color="#fff" />
-            <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff', letterSpacing: 0.3 }}>
+            <UIText className="text-[10px] font-bold text-white" style={{ letterSpacing: 0.3 }}>
               Move to Today
-            </Text>
+            </UIText>
           </Pressable>
         )}
         <View style={{ flex: 1 }} />
-        <Text style={{ fontSize: 13, color: '#9CA3AF', marginRight: 4 }}>
+        <UIText className="text-xs mr-1" style={{ color: '#9CA3AF' }}>
           {group.tasks.length}
-        </Text>
+        </UIText>
         {collapsed
           ? <ChevronRight size={16} color="#9CA3AF" />
           : <ChevronDown size={16} color="#9CA3AF" />}
@@ -348,29 +349,27 @@ function DateGroupCard({
             }}
             onPress={() => {}}
           >
-            <Text style={{ fontSize: 17, fontWeight: '700', color: '#111', marginBottom: 10 }}>
-              Move overdue to Today
-            </Text>
-            <Text style={{ fontSize: 14.5, color: '#555', lineHeight: 22, marginBottom: 24 }}>
+            <UIText className="text-base font-bold text-foreground mb-2.5">Move overdue to Today</UIText>
+            <UIText className="text-sm text-muted-foreground mb-6" style={{ lineHeight: 22 }}>
               All {group.tasks.filter((t) => t.due).length} dated overdue task
               {group.tasks.filter((t) => t.due).length === 1 ? '' : 's'} will be rescheduled to today.
-            </Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, borderTopWidth: 1, borderTopColor: '#F0F0F0', paddingVertical: 8 }}>
+            </UIText>
+            <View className="flex-row justify-end gap-2 border-t border-border py-2">
               <Pressable
                 onPress={() => setShowMoveDialog(false)}
                 disabled={moving}
-                style={{ paddingVertical: 8, paddingHorizontal: 16 }}
+                className="px-4 py-2"
               >
-                <Text style={{ fontSize: 15, color: '#4772FA', fontWeight: '500', opacity: moving ? 0.4 : 1 }}>Cancel</Text>
+                <UIText className="text-sm font-medium" style={{ color: '#4772FA', opacity: moving ? 0.4 : 1 }}>Cancel</UIText>
               </Pressable>
               <Pressable
                 onPress={moveAllToToday}
                 disabled={moving}
-                style={{ paddingVertical: 8, paddingHorizontal: 16 }}
+                className="px-4 py-2"
               >
-                <Text style={{ fontSize: 15, color: '#4772FA', fontWeight: '700', opacity: moving ? 0.4 : 1 }}>
+                <UIText className="text-sm font-bold" style={{ color: '#4772FA', opacity: moving ? 0.4 : 1 }}>
                   {moving ? 'Moving…' : 'Move'}
-                </Text>
+                </UIText>
               </Pressable>
             </View>
           </Pressable>

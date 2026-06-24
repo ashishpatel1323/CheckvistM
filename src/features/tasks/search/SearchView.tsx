@@ -52,7 +52,7 @@ function ResultRow({ task, checklistId, query, checklistName }: ResultRowProps) 
   return (
     <Pressable
       onPress={() => router.push(`/${checklistId}/tasks/${task.id}`)}
-      className="flex-row items-center gap-3 px-4 py-3 bg-white active:bg-gray-50"
+      className="flex-row items-center gap-3 px-4 py-3 bg-white active:bg-muted"
       style={{ borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}
     >
       <Pressable onPress={handleCheck} hitSlop={8}>
@@ -63,7 +63,7 @@ function ResultRow({ task, checklistId, query, checklistName }: ResultRowProps) 
       </Pressable>
 
       <View className="flex-1 gap-0.5">
-        <Text className="text-sm text-gray-800" numberOfLines={2}>
+        <Text className="text-sm text-foreground" numberOfLines={2}>
           {parts.map((p, i) =>
             p.match
               ? <Text key={i} style={{ backgroundColor: '#fde68a', color: '#78350f', fontWeight: '600' }}>{p.part}</Text>
@@ -71,7 +71,7 @@ function ResultRow({ task, checklistId, query, checklistName }: ResultRowProps) 
           )}
         </Text>
         <View className="flex-row items-center gap-2">
-          <Text className="text-xs text-gray-400">{checklistName}</Text>
+          <Text className="text-xs text-muted-foreground">{checklistName}</Text>
           {task.due && (
             <Text className={`text-xs font-medium ${dateColorClass}`}>{humanizeDueDate(task.due)}</Text>
           )}
@@ -89,7 +89,7 @@ function ResultRow({ task, checklistId, query, checklistName }: ResultRowProps) 
         {task.children.length > 0 && (
           <View className="flex-row items-center gap-0.5">
             <ChevronRight size={12} color="#9ca3af" />
-            <Text className="text-xs text-gray-400">{task.children.length}</Text>
+            <Text className="text-xs text-muted-foreground">{task.children.length}</Text>
           </View>
         )}
       </View>
@@ -120,7 +120,7 @@ export function SearchView({ checklistId }: SearchViewProps) {
     : undefined
 
   return (
-    <View className="flex-1 bg-gray-50">
+    <View className="flex-1 bg-muted">
       {/* Search bar */}
       <View
         className="flex-row items-center gap-3 mx-4 mt-4 mb-3 px-4 py-3 bg-white rounded-2xl"
@@ -132,14 +132,14 @@ export function SearchView({ checklistId }: SearchViewProps) {
           onChangeText={setQuery}
           placeholder="Search tasks…"
           placeholderTextColor="#9ca3af"
-          className="flex-1 text-sm text-gray-800"
+          className="flex-1 text-sm text-foreground"
           style={[{ fontSize: 15 }, inputStyle]}
           autoFocus={false}
           returnKeyType="search"
         />
         {query.length > 0 && (
           <Pressable onPress={() => setQuery('')} hitSlop={8}>
-            <View className="w-5 h-5 rounded-full bg-gray-200 items-center justify-center">
+            <View className="w-5 h-5 rounded-full bg-muted items-center justify-center">
               <X size={12} color="#6b7280" />
             </View>
           </Pressable>
@@ -152,8 +152,8 @@ export function SearchView({ checklistId }: SearchViewProps) {
           <View className="w-16 h-16 rounded-full items-center justify-center" style={{ backgroundColor: '#fff7ed' }}>
             <Search size={28} color={ORANGE} />
           </View>
-          <Text className="text-base font-semibold text-gray-700">Search your tasks</Text>
-          <Text className="text-sm text-gray-400 text-center px-8">
+          <Text className="text-base font-semibold text-foreground">Search your tasks</Text>
+          <Text className="text-sm text-muted-foreground text-center px-8">
             Type to find tasks by name across{'\n'}
             <Text className="font-medium" style={{ color: ORANGE }}>{checklistName}</Text>
           </Text>
@@ -163,11 +163,11 @@ export function SearchView({ checklistId }: SearchViewProps) {
       {/* No results */}
       {query.trim().length > 0 && results.length === 0 && (
         <View className="flex-1 items-center justify-center gap-3 pb-20">
-          <View className="w-16 h-16 rounded-full items-center justify-center bg-gray-100">
+          <View className="w-16 h-16 rounded-full items-center justify-center bg-muted">
             <Search size={28} color="#9ca3af" />
           </View>
-          <Text className="text-base font-semibold text-gray-600">No results</Text>
-          <Text className="text-sm text-gray-400">No tasks match "{query}"</Text>
+          <Text className="text-base font-semibold text-muted-foreground">No results</Text>
+          <Text className="text-sm text-muted-foreground">No tasks match "{query}"</Text>
         </View>
       )}
 
@@ -180,11 +180,11 @@ export function SearchView({ checklistId }: SearchViewProps) {
         >
           {/* Results header */}
           <View className="flex-row items-center px-4 pb-2">
-            <Text className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+            <Text className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Tasks
             </Text>
-            <View className="ml-2 px-1.5 py-0.5 rounded-full bg-gray-200">
-              <Text className="text-xs font-medium text-gray-500">{results.length}</Text>
+            <View className="ml-2 px-1.5 py-0.5 rounded-full bg-muted">
+              <Text className="text-xs font-medium text-muted-foreground">{results.length}</Text>
             </View>
           </View>
 

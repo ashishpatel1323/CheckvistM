@@ -1,4 +1,5 @@
-import { View, Text, Pressable } from 'react-native'
+import { View, Pressable } from 'react-native'
+import { Text as UIText } from '@/components/ui/text'
 
 interface PriorityPickerProps {
   value: number
@@ -37,9 +38,9 @@ export function priorityRowBg(priority: number): string | undefined {
 }
 
 export function priorityBadgeClass(priority: number): string {
-  if (priority <= 0) return 'text-gray-400 bg-gray-100'
+  if (priority <= 0) return 'text-muted-foreground bg-muted'
   const bucket = classifyPriority(priority)
-  if (bucket === 'high')   return 'text-red-600 bg-red-100'
+  if (bucket === 'high')   return 'text-destructive bg-destructive/10'
   if (bucket === 'medium') return 'text-amber-600 bg-amber-100'
   if (bucket === 'low')    return 'text-green-600 bg-green-100'
   return 'text-violet-600 bg-violet-100'
@@ -51,38 +52,40 @@ export function priorityDisplay(priority: number): string {
 
 export function PriorityPicker({ value, onChange }: PriorityPickerProps) {
   return (
-    <View style={{ gap: 10, padding: 12 }}>
+    <View className="gap-2.5 p-3">
       {BUCKETS.map((bucket) => {
         const meta = BUCKET_META[bucket]
         return (
           <View key={bucket}>
             {/* Group label + sublabel */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: meta.color, letterSpacing: 0.4, textTransform: 'uppercase' }}>
+            <View className="flex-row items-center gap-1.5 mb-1.5">
+              <UIText className="text-[11px] font-bold uppercase tracking-wide" style={{ color: meta.color }}>
                 {meta.label}
-              </Text>
-              <Text style={{ fontSize: 10, color: meta.color, opacity: 0.65 }}>
+              </UIText>
+              <UIText className="text-[10px]" style={{ color: meta.color, opacity: 0.65 }}>
                 {meta.sublabel}
-              </Text>
+              </UIText>
             </View>
-            {/* Priority chips */}
-            <View style={{ flexDirection: 'row', gap: 8 }}>
+            {/* Priority chips (data palette — keep dynamic bg/border via style) */}
+            <View className="flex-row gap-2">
               {meta.priorities.map((p) => (
                 <Pressable
                   key={p}
                   onPress={() => onChange(p)}
+                  className="items-center justify-center"
                   style={{
-                    width: 40, height: 36, borderRadius: 8,
+                    width: 40,
+                    height: 36,
+                    borderRadius: 8,
                     backgroundColor: meta.bg,
-                    alignItems: 'center', justifyContent: 'center',
                     borderWidth: value === p ? 2 : 0,
                     borderColor: meta.color,
                     transform: [{ scale: value === p ? 1.08 : 1 }],
                   }}
                 >
-                  <Text style={{ color: meta.color, fontSize: 12, fontWeight: 'bold' }}>
+                  <UIText className="text-xs font-bold" style={{ color: meta.color }}>
                     P{p}
-                  </Text>
+                  </UIText>
                 </Pressable>
               ))}
             </View>

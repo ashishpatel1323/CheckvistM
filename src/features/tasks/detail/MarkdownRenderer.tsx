@@ -19,9 +19,9 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
 
   if (Platform.OS === 'web') {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return <div className={`prose prose-sm max-w-none text-gray-700 ${className}`} {...{ dangerouslySetInnerHTML: { __html: html } } as any} />
+    return <div className={`prose prose-sm max-w-none text-foreground ${className}`} {...{ dangerouslySetInnerHTML: { __html: html } } as any} />
   }
 
   // Native: render as plain text with stripped markdown
-  return <Text className={`text-sm text-gray-700 ${className}`}>{stripMarkdown(content)}</Text>
+  return <Text className={`text-sm text-foreground ${className}`}>{stripMarkdown(content)}</Text>
 }

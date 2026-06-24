@@ -1493,11 +1493,12 @@ export function ExecuteTaskList() {
       checklistId={checklistId}
       getEstimateMin={(t) => getEntry(t.id)?.estimateMin ?? DEFAULT_ESTIMATE}
       jumpTo={jumpTo}
-      playTask={playTask}
+      playTask={(index) => playTask(index)}
       updateTask={updateTask}
       onJumpToRaw={onJumpToRaw}
       onJumpToMindmap={onJumpToMindmap}
       onExpand={onCloseSidePanel}
+      searchQuery={searchQuery}
     />
   )
 

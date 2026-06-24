@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { View, Text, Pressable, Modal } from 'react-native'
+import { View, Pressable, Modal } from 'react-native'
+import { Text as UIText } from '@/components/ui/text'
 import { ChevronDown, ChevronRight } from 'lucide-react-native'
 import type { GroupedTasks } from '@/lib/dateSort'
 import { toApiDate } from '@/lib/dateUtils'
@@ -68,15 +69,11 @@ export function TaskGroup({ group, checklistId, isMobile, focusedId }: TaskGroup
           style={{ gap: 8 }}
         >
           {/* Accent dot */}
-          <View style={{
-            width: 8, height: 8, borderRadius: 4,
-            backgroundColor: isOverdue ? '#E53935' : colors.accent,
-            opacity: isOverdue ? 1 : 0.7,
-          }} />
+          <View className="w-2 h-2 rounded-full" style={{ backgroundColor: isOverdue ? '#E53935' : colors.accent, opacity: isOverdue ? 1 : 0.7 }} />
 
-          <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: isOverdue ? '#E53935' : '#6B7280', flex: 1 }}>
+          <UIText className="text-[11px] font-bold uppercase tracking-wider flex-1" style={{ color: isOverdue ? '#E53935' : '#6B7280' }}>
             {group.label}
-          </Text>
+          </UIText>
 
           {isOverdue && (
             <Pressable
@@ -84,36 +81,28 @@ export function TaskGroup({ group, checklistId, isMobile, focusedId }: TaskGroup
               className="flex-row items-center gap-0.5"
               onPress={(e) => { e.stopPropagation?.(); setShowPostponeDialog(true) }}
             >
-              <Text style={{ color: '#4772FA', fontSize: 12, fontWeight: '500' }}>Postpone all</Text>
+              <UIText className="text-xs font-medium" style={{ color: '#4772FA' }}>Postpone all</UIText>
             </Pressable>
           )}
 
-          <View style={{ backgroundColor: isOverdue ? '#FEE2E2' : '#F3F4F6', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
-            <Text style={{ fontSize: 11, fontWeight: '600', color: isOverdue ? '#E53935' : '#9CA3AF' }}>
+          <View className={`rounded-[10px] px-1.75 py-0.5 ${isOverdue ? 'bg-destructive/10' : 'bg-muted'}`}>
+            <UIText className="text-[11px] font-semibold" style={{ color: isOverdue ? '#E53935' : '#9CA3AF' }}>
               {group.tasks.length}
-            </Text>
+            </UIText>
           </View>
 
           <ChevronDown
             size={14}
-            color="#9CA3AF"
+            className="text-muted-foreground"
             style={{ transform: [{ rotate: collapsed ? '-90deg' : '0deg' }] }}
           />
         </Pressable>
 
         {!collapsed && (
-          <View
-            style={{
-              backgroundColor: '#fff',
-              borderRadius: 12,
-              overflow: 'hidden',
-              borderWidth: 1,
-              borderColor: '#F0F0F0',
-            }}
-          >
+          <View className="bg-background rounded-xl border border-border overflow-hidden">
             {group.tasks.map((task, i) => (
               <View key={task.id}>
-                {i > 0 && <View style={{ height: 1, backgroundColor: '#F5F5F5', marginLeft: 48 }} />}
+                {i > 0 && <View className="h-px bg-border ml-12" />}
                 <TaskRow task={task} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} />
               </View>
             ))}
@@ -129,39 +118,30 @@ export function TaskGroup({ group, checklistId, isMobile, focusedId }: TaskGroup
         onRequestClose={() => setShowPostponeDialog(false)}
       >
         <Pressable
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }}
+          className="flex-1 bg-black/45 items-center justify-center px-8"
           onPress={() => setShowPostponeDialog(false)}
         >
           <Pressable
-            style={{
-              backgroundColor: '#fff',
-              borderRadius: 16,
-              paddingTop: 24,
-              paddingHorizontal: 24,
-              paddingBottom: 8,
-              width: '100%',
-              shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 20, elevation: 16,
-            }}
+            className="bg-background rounded-2xl pt-6 px-6 pb-2 w-full"
+            style={{ shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 20, elevation: 16 }}
             onPress={() => {}}
           >
-            <Text style={{ fontSize: 17, fontWeight: '700', color: '#111', marginBottom: 10 }}>
-              Postpone to Today
-            </Text>
-            <Text style={{ fontSize: 14.5, color: '#555', lineHeight: 22, marginBottom: 24 }}>
+            <UIText className="text-base font-bold text-foreground mb-2.5">Postpone to Today</UIText>
+            <UIText className="text-sm text-muted-foreground mb-6" style={{ lineHeight: 22 }}>
               All overdue tasks in this list will be rescheduled to today.
-            </Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, borderTopWidth: 1, borderTopColor: '#F0F0F0', paddingVertical: 8 }}>
+            </UIText>
+            <View className="flex-row justify-end gap-2 border-t border-border py-2">
               <Pressable
                 onPress={() => setShowPostponeDialog(false)}
-                style={{ paddingVertical: 8, paddingHorizontal: 16 }}
+                className="px-4 py-2"
               >
-                <Text style={{ fontSize: 15, color: '#4772FA', fontWeight: '500' }}>Cancel</Text>
+                <UIText className="text-sm font-medium" style={{ color: '#4772FA' }}>Cancel</UIText>
               </Pressable>
               <Pressable
                 onPress={handlePostpone}
-                style={{ paddingVertical: 8, paddingHorizontal: 16 }}
+                className="px-4 py-2"
               >
-                <Text style={{ fontSize: 15, color: '#4772FA', fontWeight: '700' }}>Postpone</Text>
+                <UIText className="text-sm font-bold" style={{ color: '#4772FA' }}>Postpone</UIText>
               </Pressable>
             </View>
           </Pressable>

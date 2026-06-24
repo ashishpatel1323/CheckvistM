@@ -13,10 +13,10 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   render() {
     if (this.state.error) {
       return (
-        <ScrollView className="flex-1 p-4 bg-red-50">
-          <Text className="font-bold text-red-700 text-base mb-2">Render Error</Text>
-          <Text className="text-red-600 text-sm font-mono">{this.state.error.message}</Text>
-          <Text className="text-red-400 text-xs mt-2 font-mono">{this.state.error.stack}</Text>
+        <ScrollView className="flex-1 p-4 bg-destructive/10">
+          <Text className="font-bold text-destructive text-base mb-2">Render Error</Text>
+          <Text className="text-destructive text-sm font-mono">{this.state.error.message}</Text>
+          <Text className="text-destructive text-xs mt-2 font-mono">{this.state.error.stack}</Text>
         </ScrollView>
       )
     }

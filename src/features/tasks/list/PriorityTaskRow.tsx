@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { View, Text, Pressable, Platform } from 'react-native'
+import { View, Pressable, Platform } from 'react-native'
+import { Text as UIText } from '@/components/ui/text'
 import { useRouter } from 'expo-router'
 import { Calendar } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
@@ -86,16 +87,9 @@ export function PriorityTaskRow({
         onPress={() => router.push(`/${checklistId}/tasks/${task.id}`)}
         onLongPress={() => { hapticMedium(); setContextMenuOpen(true) }}
         delayLongPress={500}
-        style={{
-          flexDirection: 'row',
-          alignItems: 'flex-start',
-          paddingHorizontal: 14,
-          paddingVertical: 10,
-          borderBottomWidth: isLast ? 0 : 1,
-          borderBottomColor: '#F3F4F6',
-          backgroundColor: isFocused ? '#F5F8FF' : '#FFFFFF',
-          gap: 10,
-        }}
+        className={`flex-row items-start px-3.5 py-2.5 gap-2.5 ${
+          isLast ? '' : 'border-b border-border'
+        } ${isFocused ? 'bg-secondary/10' : 'bg-background'}`}
       >
         {/* Square checkbox */}
         <Pressable
@@ -120,36 +114,27 @@ export function PriorityTaskRow({
         </Pressable>
 
         {/* Title + meta chips */}
-        <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-          <Text
+        <View className="flex-1 min-w-0 gap-1">
+          <UIText
             numberOfLines={2}
-            style={{
-              fontSize: 14,
-              color: task.status === 1 ? '#9CA3AF' : '#111827',
-              textDecorationLine: task.status === 1 ? 'line-through' : 'none',
-              fontWeight: '400',
-              lineHeight: 20,
-            }}
+            className={`text-sm ${task.status === 1 ? 'text-muted-foreground line-through' : 'text-foreground'}`}
+            style={{ lineHeight: 20 }}
           >
             {task.content}
-          </Text>
+          </UIText>
 
           {/* Meta row: date · duration · priority · tags */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <View className="flex-row items-center gap-1.5 flex-wrap">
             {/* Due date */}
             <Pressable
               onPress={(e) => { e.stopPropagation?.(); setShowDatePicker(true) }}
               hitSlop={6}
-              style={{
-                flexDirection: 'row', alignItems: 'center', gap: 2,
-                borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2,
-                backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB',
-              }}
+              className="flex-row items-center gap-1 rounded px-1.25 py-0.5 border border-border bg-muted"
             >
               <Calendar size={9} color={task.due ? dateColor : '#9CA3AF'} />
-              <Text style={{ fontSize: 10, fontWeight: '500', color: task.due ? dateColor : '#9CA3AF' }}>
+              <UIText className="text-[10px] font-medium" style={{ color: task.due ? dateColor : '#9CA3AF' }}>
                 {task.due ? humanizeDueDate(task.due) : 'Date'}
-              </Text>
+              </UIText>
             </Pressable>
 
             {/* Duration */}
@@ -157,11 +142,11 @@ export function PriorityTaskRow({
               <Pressable
                 onPress={(e) => { e.stopPropagation?.(); setShowDurationPicker(true) }}
                 hitSlop={6}
-                style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: '#EEF2FF' }}
+                className="px-1.25 py-0.5 rounded bg-secondary/10"
               >
-                <Text style={{ fontSize: 10, fontWeight: '600', color: '#4772FA' }}>
+                <UIText className="text-[10px] font-semibold" style={{ color: '#4772FA' }}>
                   {task.duration.formatted}
-                </Text>
+                </UIText>
               </Pressable>
             )}
 
@@ -169,24 +154,23 @@ export function PriorityTaskRow({
             <Pressable
               onPress={(e) => { e.stopPropagation?.(); setShowPriorityPicker(true) }}
               hitSlop={6}
+              className="px-1.25 py-0.5 rounded"
               style={{
-                paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
                 backgroundColor: task.priority > 0 && task.priority <= 10 ? priorityRowBg(task.priority) : '#F5F3FF',
               }}
             >
-              <Text style={{
-                fontSize: 10, fontWeight: '700',
+              <UIText className="text-[10px] font-bold" style={{
                 color: task.priority > 0 && task.priority <= 10 ? priorityTextColor(task.priority) : '#7c3aed',
               }}>
                 {task.priority > 0 && task.priority <= 10 ? priorityDisplay(task.priority) : 'TBD'}
-              </Text>
+              </UIText>
             </Pressable>
 
             {/* Tags */}
             {task.tags_as_text ? (
-              <Text numberOfLines={1} style={{ fontSize: 10, fontWeight: '500', color: '#4772FA', flexShrink: 1 }}>
+              <UIText numberOfLines={1} className="text-[10px] font-medium flex-shrink" style={{ color: '#4772FA' }}>
                 {task.tags_as_text.split(/\s+/).filter(Boolean).map((t) => (t.startsWith('#') ? t : `#${t}`)).join(' ')}
-              </Text>
+              </UIText>
             ) : null}
           </View>
         </View>

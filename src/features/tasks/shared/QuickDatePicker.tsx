@@ -1,5 +1,6 @@
 import { useState, type ForwardRefExoticComponent } from 'react'
-import { View, Text, Pressable } from 'react-native'
+import { View, Pressable } from 'react-native'
+import { Text as UIText } from '@/components/ui/text'
 import {
   CalendarDays, Sunrise, RotateCw, Calendar, CalendarPlus,
   XSquare, ChevronLeft, ChevronRight, type LucideProps,
@@ -76,11 +77,11 @@ export function QuickDatePicker({ taskId, onSelect, onClose, isMobile, bare }: Q
             tile.action()
             if (tile.label !== 'Pick date') onClose()
           }}
-          className="items-center gap-1.5 p-3 rounded-xl bg-gray-50 active:bg-orange-50"
+          className="items-center gap-1.5 p-3 rounded-xl bg-muted active:bg-primary/10"
           style={{ width: '30%' }}
         >
           <tile.Icon size={20} color={ORANGE} />
-          <Text className="text-xs text-gray-500 font-medium text-center">{tile.label}</Text>
+          <UIText className="text-xs text-muted-foreground font-medium text-center">{tile.label}</UIText>
         </Pressable>
       ))}
     </View>
@@ -92,17 +93,17 @@ export function QuickDatePicker({ taskId, onSelect, onClose, isMobile, bare }: Q
   const calendar = (
     <View>
       <View className="flex-row items-center justify-between mb-3">
-        <Pressable onPress={() => setMonth((m) => subMonths(m, 1))} className="p-1.5 rounded-lg active:bg-gray-100">
-          <ChevronLeft size={18} color="#374151" />
+        <Pressable onPress={() => setMonth((m) => subMonths(m, 1))} className="p-1.5 rounded-lg active:bg-muted">
+        <ChevronLeft size={18} className="text-foreground" />
         </Pressable>
-        <Text className="text-sm font-semibold text-gray-800">{format(month, 'MMMM yyyy')}</Text>
-        <Pressable onPress={() => setMonth((m) => addMonths(m, 1))} className="p-1.5 rounded-lg active:bg-gray-100">
-          <ChevronRight size={18} color="#374151" />
+        <UIText className="text-sm font-semibold text-foreground">{format(month, 'MMMM yyyy')}</UIText>
+        <Pressable onPress={() => setMonth((m) => addMonths(m, 1))} className="p-1.5 rounded-lg active:bg-muted">
+          <ChevronRight size={18} className="text-foreground" />
         </Pressable>
       </View>
       <View className="flex-row mb-1">
         {WEEKDAYS.map((d, i) => (
-          <Text key={i} className="flex-1 text-center text-xs font-medium text-gray-400">{d}</Text>
+          <UIText key={i} className="flex-1 text-center text-xs font-medium text-muted-foreground">{d}</UIText>
         ))}
       </View>
       <View className="flex-row flex-wrap">
@@ -122,9 +123,9 @@ export function QuickDatePicker({ taskId, onSelect, onClose, isMobile, bare }: Q
                 className="items-center justify-center rounded-full"
                 style={{ width: 32, height: 32, backgroundColor: isTod ? ORANGE : 'transparent' }}
               >
-                <Text style={{ fontSize: 14, fontWeight: isTod ? '700' : '400', color: isTod ? 'white' : inMonth ? '#111827' : '#D1D5DB' }}>
+                <UIText className={`text-sm ${isTod ? 'font-bold text-white' : inMonth ? 'font-normal text-foreground' : 'font-normal text-muted-foreground'}`}>
                   {format(day, 'd')}
-                </Text>
+                </UIText>
               </View>
             </Pressable>
           )
@@ -132,9 +133,9 @@ export function QuickDatePicker({ taskId, onSelect, onClose, isMobile, bare }: Q
       </View>
       <Pressable
         onPress={() => setShowCalendar(false)}
-        className="mt-3 py-2.5 rounded-xl bg-gray-50 items-center active:bg-gray-100"
+        className="mt-3 py-2.5 rounded-xl bg-muted items-center active:bg-muted"
       >
-        <Text className="text-sm font-medium text-gray-500">Back</Text>
+        <UIText className="text-sm font-medium text-muted-foreground">Back</UIText>
       </Pressable>
     </View>
   )
@@ -153,10 +154,10 @@ export function QuickDatePicker({ taskId, onSelect, onClose, isMobile, bare }: Q
   // Bare: no outer container (embedded inside a parent popover)
   if (bare) {
     return (
-      <View style={{ padding: 12, width: 264 }}>
-        <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">
+      <View className="p-3 w-64">
+        <UIText className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-1">
           {title}
-        </Text>
+        </UIText>
         {content}
       </View>
     )
@@ -164,12 +165,12 @@ export function QuickDatePicker({ taskId, onSelect, onClose, isMobile, bare }: Q
 
   // Desktop popover (standalone, rendered inside a portal by caller)
   return (
-    <View className="bg-white rounded-2xl border border-gray-100 p-3 w-64"
+    <View className="bg-background rounded-2xl border border-border p-3 w-64"
       style={{ shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, elevation: 10 }}
     >
-      <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">
+      <UIText className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-1">
         {title}
-      </Text>
+      </UIText>
       {content}
     </View>
   )

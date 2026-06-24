@@ -1,4 +1,5 @@
-import { View, Text, Pressable } from 'react-native'
+import { View, Pressable } from 'react-native'
+import { Text as UIText } from '@/components/ui/text'
 import { Pencil, Trash2 } from 'lucide-react-native'
 import { useRoutineStore } from './useRoutineStore'
 import { ROUTINE_COLORS } from './routineTypes'
@@ -26,24 +27,13 @@ export function RoutineCard({ routine, onPress, onEdit, onDelete }: RoutineCardP
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => ({
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        marginHorizontal: 16,
-        marginVertical: 6,
-        shadowColor: '#000',
-        shadowOpacity: 0.07,
-        shadowRadius: 8,
-        elevation: 3,
-        flexDirection: 'row',
-        overflow: 'hidden',
-        opacity: pressed ? 0.92 : 1,
-      })}
+      className="bg-background rounded-2xl mx-4 my-1.5 overflow-hidden flex-row"
+      style={{ shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, elevation: 3 }}
     >
       {/* Left accent bar */}
       <View style={{ width: 4, backgroundColor: accentColor }} />
 
-      <View style={{ flex: 1, padding: 14 }}>
+      <View className="flex-1 p-3.5">
         {/* 7-day streak strip */}
         <View style={{ flexDirection: 'row', gap: 4, marginBottom: 8 }}>
           {streak7.map((day, i) => (
@@ -61,28 +51,28 @@ export function RoutineCard({ routine, onPress, onEdit, onDelete }: RoutineCardP
         </View>
 
         {/* Duration + step count */}
-        <Text style={{ fontSize: 12, fontWeight: '600', color: accentColor, marginBottom: 2 }}>
-          {totalMin} min{' · '}{routine.steps.length} step{routine.steps.length !== 1 ? 's' : ''}
-        </Text>
+        <UIText className="text-xs font-semibold mb-0.5" style={{ color: accentColor }}>
+          {totalMin} min · {routine.steps.length} step{routine.steps.length !== 1 ? 's' : ''}
+        </UIText>
 
         {/* Routine name */}
-        <Text style={{ fontSize: 17, fontWeight: '700', color: '#111', marginBottom: 2 }}>
+        <UIText className="text-base font-bold text-foreground mb-0.5">
           {routine.name}
-        </Text>
+        </UIText>
 
         {/* Trigger */}
         {!!routine.trigger && (
-          <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 6 }}>
+          <UIText className="text-xs text-muted-foreground mb-1.5">
             {routine.trigger}
-          </Text>
+          </UIText>
         )}
 
         {/* Step emoji preview */}
         {previewSteps.length > 0 && (
-          <Text style={{ fontSize: 13, color: '#9CA3AF' }} numberOfLines={1}>
+          <UIText className="text-sm text-muted-foreground" numberOfLines={1}>
             {previewSteps.map((s) => `${s.emoji} ${s.name}`).join(' / ')}
             {routine.steps.length > 4 ? ` +${routine.steps.length - 4}` : ''}
-          </Text>
+          </UIText>
         )}
 
         {/* Today's progress bar */}
@@ -100,9 +90,9 @@ export function RoutineCard({ routine, onPress, onEdit, onDelete }: RoutineCardP
       </View>
 
       {/* Action buttons */}
-      <View style={{ justifyContent: 'space-between', padding: 10, paddingTop: 14 }}>
+      <View className="justify-between p-2.5 pt-3.5">
         <Pressable onPress={onEdit} hitSlop={8}>
-          <Pencil size={16} color="#9CA3AF" />
+          <Pencil size={16} className="text-muted-foreground" />
         </Pressable>
         <Pressable onPress={onDelete} hitSlop={8}>
           <Trash2 size={16} color="#EF4444" />

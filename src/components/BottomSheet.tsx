@@ -35,14 +35,14 @@ export function BottomSheet({ open, onClose, title, children }: BottomSheetProps
         >
           {/* Handle */}
           <View className="items-center pt-3 pb-1">
-            <View className="w-10 h-1 bg-gray-300 rounded-full" />
+            <View className="w-10 h-1 bg-muted rounded-full" />
           </View>
 
           {/* Header */}
           {title && (
-            <View className="flex-row items-center justify-between px-4 py-2 border-b border-gray-100">
-              <Text className="font-semibold text-gray-800">{title}</Text>
-              <Pressable onPress={onClose} className="p-1 rounded-lg active:bg-gray-100">
+            <View className="flex-row items-center justify-between px-4 py-2 border-b border-border">
+              <Text className="font-semibold text-foreground">{title}</Text>
+              <Pressable onPress={onClose} className="p-1 rounded-lg active:bg-muted">
                 <X size={20} color="#9ca3af" />
               </Pressable>
             </View>

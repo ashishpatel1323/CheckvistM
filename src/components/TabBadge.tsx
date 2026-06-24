@@ -1,4 +1,5 @@
-import { View, Text, Platform, type StyleProp, type ViewStyle } from 'react-native'
+import { View, Platform, type StyleProp, type ViewStyle } from 'react-native'
+import { Text as UIText } from '@/components/ui/text'
 
 export function TabBadge({
   count,
@@ -41,9 +42,9 @@ export function TabBadge({
         style,
       ]}
     >
-      <Text style={{ fontSize, fontWeight: '700', color: 'white' }}>
+      <UIText className="font-bold text-white" style={{ fontSize }}>
         {displayCount}
-      </Text>
+      </UIText>
     </View>
   )
 }

@@ -164,9 +164,9 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
   if (!task) {
     return (
       <View className="flex-1 items-center justify-center">
-        <Text className="text-gray-400">Task not found</Text>
+        <Text className="text-muted-foreground">Task not found</Text>
         <Pressable onPress={() => router.back()} className="mt-2">
-          <Text className="text-orange-500 text-sm">Go back</Text>
+          <Text className="text-primary text-sm">Go back</Text>
         </Pressable>
       </View>
     )
@@ -175,8 +175,8 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
   return (
     <View className="flex-1 bg-white">
       {/* Header */}
-      <View className="flex-row items-center gap-2 px-4 py-3 border-b border-gray-100" style={{ paddingTop: 52 }}>
-        <Pressable onPress={() => router.back()} hitSlop={8} className="p-1.5 rounded-lg active:bg-gray-100">
+      <View className="flex-row items-center gap-2 px-4 py-3 border-b border-border" style={{ paddingTop: 52 }}>
+        <Pressable onPress={() => router.back()} hitSlop={8} className="p-1.5 rounded-lg active:bg-muted">
           <ArrowLeft size={20} color="#6b7280" />
         </Pressable>
         <View className="flex-1" />
@@ -195,7 +195,7 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
             className="flex-row items-center gap-1 mb-3"
           >
             <ChevronRight size={14} color="#f97316" style={{ transform: [{ rotate: '180deg' }] }} />
-            <Text className="text-sm text-orange-500 font-medium flex-1" numberOfLines={1}>
+            <Text className="text-sm text-primary font-medium flex-1" numberOfLines={1}>
               {parentTask.content}
             </Text>
           </Pressable>
@@ -207,7 +207,7 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
           onChangeText={setEditedContent}
           onBlur={saveContent}
           multiline
-          className="text-xl font-semibold text-gray-900 mb-3"
+          className="text-xl font-semibold text-foreground mb-3"
           style={{ fontSize: 20, lineHeight: 28 }}
           placeholder="Task title"
         />
@@ -218,11 +218,11 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
           <Pressable
             onPress={() => { setShowDatePicker(true); setShowPriorityPicker(false); setShowDurationPicker(false) }}
             className={`flex-row items-center gap-1.5 px-3 py-1 rounded-full border ${
-              task.due ? dueDateColorClass(task.due) : 'border-gray-200 bg-gray-50'
+              task.due ? dueDateColorClass(task.due) : 'border-border bg-muted'
             }`}
           >
             <Calendar size={14} color={task.due ? undefined : '#9ca3af'} />
-            <Text className={`text-sm font-medium ${task.due ? dueDateColorClass(task.due) : 'text-gray-400'}`}>
+            <Text className={`text-sm font-medium ${task.due ? dueDateColorClass(task.due) : 'text-muted-foreground'}`}>
               {humanizeDueDate(task.due)}
             </Text>
           </Pressable>
@@ -242,18 +242,18 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
           <Pressable
             onPress={() => { setShowDurationPicker(true); setShowDatePicker(false); setShowPriorityPicker(false) }}
             className={`flex-row items-center gap-1.5 px-3 py-1 rounded-full border ${
-              task.duration ? 'border-purple-200 bg-purple-50' : 'border-gray-200 bg-gray-50'
+              task.duration ? 'border-purple-200 bg-purple-50' : 'border-border bg-muted'
             }`}
           >
             <Timer size={14} color={task.duration ? '#a855f7' : '#9ca3af'} />
-            <Text className={`text-sm font-medium ${task.duration ? 'text-purple-600' : 'text-gray-400'}`}>
+            <Text className={`text-sm font-medium ${task.duration ? 'text-purple-600' : 'text-muted-foreground'}`}>
               {task.duration?.formatted ?? 'No time'}
             </Text>
           </Pressable>
 
           {/* Status */}
-          <View className={`px-3 py-1 rounded-full ${task.status === 1 ? 'bg-green-100' : 'bg-gray-100'}`}>
-            <Text className={`text-xs font-medium ${task.status === 1 ? 'text-green-700' : 'text-gray-600'}`}>
+          <View className={`px-3 py-1 rounded-full ${task.status === 1 ? 'bg-green-100' : 'bg-muted'}`}>
+            <Text className={`text-xs font-medium ${task.status === 1 ? 'text-green-700' : 'text-muted-foreground'}`}>
               {task.status === 1 ? 'Done' : 'Open'}
             </Text>
           </View>
@@ -263,8 +263,8 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
         {task.tags_as_text && (
           <View className="flex-row flex-wrap gap-1 mb-4">
             {task.tags_as_text.split(',').map((tag) => (
-              <View key={tag.trim()} className="px-2 py-0.5 bg-blue-50 rounded-full">
-                <Text className="text-xs text-blue-600">#{tag.trim()}</Text>
+              <View key={tag.trim()} className="px-2 py-0.5 bg-secondary/10 rounded-full">
+                <Text className="text-xs text-secondary">#{tag.trim()}</Text>
               </View>
             ))}
           </View>
@@ -272,7 +272,7 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
 
         {/* Markdown body */}
         {task.content && (
-          <View className="border border-gray-100 rounded-xl p-3 bg-gray-50 mb-4">
+          <View className="border border-border rounded-xl p-3 bg-muted mb-4">
             <MarkdownRenderer content={task.content} />
           </View>
         )}
@@ -281,9 +281,9 @@ export function TaskDetailView({ checklistId, taskId }: TaskDetailViewProps) {
         {taskNode && <SubTaskTree parentTask={taskNode} checklistId={checklistId} />}
 
         {/* Footer */}
-        <View className="pt-4 mt-4 border-t border-gray-100">
-          <Text className="text-xs text-gray-400">Created {timeAgo(task.created_at)}</Text>
-          <Text className="text-xs text-gray-400 mt-0.5">Updated {timeAgo(task.updated_at)}</Text>
+        <View className="pt-4 mt-4 border-t border-border">
+          <Text className="text-xs text-muted-foreground">Created {timeAgo(task.created_at)}</Text>
+          <Text className="text-xs text-muted-foreground mt-0.5">Updated {timeAgo(task.updated_at)}</Text>
         </View>
       </ScrollView>
 

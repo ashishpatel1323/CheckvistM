@@ -26,7 +26,7 @@ function SubTaskNode({ task, checklistId, depth = 0 }: SubTaskNodeProps) {
     <>
       <Pressable
         onPress={() => router.push(`/${checklistId}/tasks/${task.id}`)}
-        className="flex-row items-center gap-2 py-1.5 rounded-lg active:bg-gray-50"
+        className="flex-row items-center gap-2 py-1.5 rounded-lg active:bg-muted"
         style={{ paddingLeft: indent + 8 }}
       >
         <Pressable
@@ -38,7 +38,7 @@ function SubTaskNode({ task, checklistId, depth = 0 }: SubTaskNodeProps) {
         >
           <ChevronRight
             size={12}
-            color="#9ca3af"
+            color="hsl(220 9% 63%)"
             style={{ transform: [{ rotate: expanded ? '90deg' : '0deg' }] }}
           />
         </Pressable>
@@ -58,7 +58,7 @@ function SubTaskNode({ task, checklistId, depth = 0 }: SubTaskNodeProps) {
           )}
         </Pressable>
 
-        <Text className="flex-1 text-sm text-gray-700" numberOfLines={1}>{task.content}</Text>
+        <Text className="flex-1 text-sm text-foreground" numberOfLines={1}>{task.content}</Text>
         <Text className={`text-xs font-bold px-1 py-0.5 rounded ${priorityBadgeClass(task.priority)}`}>
           {priorityDisplay(task.priority)}
         </Text>
@@ -85,7 +85,7 @@ export function SubTaskTree({ parentTask, checklistId }: SubTaskTreeProps) {
 
   return (
     <View className="mt-4">
-      <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+      <Text className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
         Sub-tasks ({parentTask.children.length})
       </Text>
 
@@ -98,7 +98,7 @@ export function SubTaskTree({ parentTask, checklistId }: SubTaskTreeProps) {
       )}
 
       {showAdd ? (
-        <View className="border border-gray-200 rounded-xl overflow-hidden">
+        <View className="border border-border rounded-xl overflow-hidden">
           <CreateTaskInput
             checklistId={checklistId}
             parentId={parentTask.id}
@@ -107,12 +107,12 @@ export function SubTaskTree({ parentTask, checklistId }: SubTaskTreeProps) {
             onCreated={() => setShowAdd(false)}
           />
           <Pressable onPress={() => setShowAdd(false)} className="py-1.5 items-center">
-            <Text className="text-xs text-gray-400">Cancel</Text>
+            <Text className="text-xs text-muted-foreground">Cancel</Text>
           </Pressable>
         </View>
       ) : (
         <Pressable onPress={() => setShowAdd(true)}>
-          <Text className="text-sm text-orange-500 font-medium">+ Add sub-task</Text>
+          <Text className="text-sm text-primary font-medium">+ Add sub-task</Text>
         </Pressable>
       )}
     </View>
