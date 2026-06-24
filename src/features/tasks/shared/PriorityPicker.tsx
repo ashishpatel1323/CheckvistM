@@ -10,7 +10,7 @@ interface PriorityPickerProps {
 
 export type PriorityBucket = 'high' | 'medium' | 'low' | 'tbd'
 
-const BUCKET_META: Record<PriorityBucket, { label: string; sublabel: string; color: string; bg: string; bgLight: string; priorities: number[] }> = {
+export const BUCKET_META: Record<PriorityBucket, { label: string; sublabel: string; color: string; bg: string; bgLight: string; priorities: number[] }> = {
   high:   { label: 'High',   sublabel: 'P1–P3 · Urgent & Important',    color: '#b91c1c', bg: '#fee2e2', bgLight: '#FEF2F2', priorities: [1, 2, 3] },
   medium: { label: 'Medium', sublabel: 'P4–P6 · Important, Not Urgent', color: '#b45309', bg: '#fef3c7', bgLight: '#FFFBEB', priorities: [4, 5, 6] },
   low:    { label: 'Low',    sublabel: 'P7–P8 · Delegate',              color: '#15803d', bg: '#dcfce7', bgLight: '#F0FDF4', priorities: [7, 8] },

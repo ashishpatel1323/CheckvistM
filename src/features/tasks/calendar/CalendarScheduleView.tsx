@@ -7,6 +7,7 @@ import type { UpdateTaskPayload } from '@/api/types'
 import { tasksToCalendarEvents, calibrateSlots } from '@/lib/calendarAdapter'
 import { toApiDate } from '@/lib/dateUtils'
 import { TIME_QUADRANTS, classifyTime, type TimeBucket } from '@/features/tasks/list/EisenhowerMatrixView'
+import { classifyPriority, type PriorityBucket, BUCKET_META } from '@/features/tasks/shared/PriorityPicker'
 import { useTimeSlotStore } from './useTimeSlotStore'
 
 export interface CalendarScheduleViewProps {
@@ -30,9 +31,16 @@ function minutesOf(d: Date): number {
   return d.getHours() * 60 + d.getMinutes()
 }
 
-const ZOOM_LEVELS = [1, 2, 4, 8] as const
+const TIME_SCALE_OPTIONS = [
+  { value: 60, label: '60 minutes', description: 'Least space for details' },
+  { value: 30, label: '30 minutes', description: '' },
+  { value: 15, label: '15 minutes', description: '' },
+  { value: 10, label: '10 minutes', description: '' },
+  { value: 6, label: '6 minutes', description: '' },
+  { value: 5, label: '5 minutes', description: 'Most space for details' }
+] as const
 const ZOOM_HOST_CLASS = 'cal-zoom-host'
-/** Height (px) of one 30-min slot at 1x. Scaled by the zoom level. */
+/** Height (px) of one 30-min slot at 10-minute scale. Scaled by the time scale. */
 const BASE_SLOT_PX = 24
 
 /**
@@ -40,7 +48,7 @@ const BASE_SLOT_PX = 24
  * FullCalendar timeGrid — overriding `.fc-timegrid-slot` height with `!important` makes the
  * rows (and therefore the events) taller; the grid's own scroller handles overflow.
  */
-function applyZoomCss(zoom: number): void {
+function applyZoomCss(timeScale: number): void {
   if (typeof document === 'undefined') return
   let style = document.getElementById('cal-zoom-css')
   if (!style) {
@@ -48,7 +56,9 @@ function applyZoomCss(zoom: number): void {
     style.id = 'cal-zoom-css'
     document.head.appendChild(style)
   }
-  const px = BASE_SLOT_PX * zoom
+  // Calculate pixel height: at 10-minute scale, 30-min slot is BASE_SLOT_PX
+  // Scale inversely: smaller timeScale = taller slots
+  const px = BASE_SLOT_PX * (10 / timeScale)
   style.textContent =
     `.${ZOOM_HOST_CLASS} .fc-timegrid-slot { height: ${px}px !important; }` +
     `.${ZOOM_HOST_CLASS} .fc-timegrid-slot-lane { height: ${px}px !important; }`
@@ -71,8 +81,9 @@ function CalendarWeb({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const instanceRef = useRef<Calendar | null>(null)
   const [fullScreen, setFullScreen] = useState(false)
-  const [hiddenBuckets, setHiddenBuckets] = useState<Set<TimeBucket>>(new Set())
-  const [zoom, setZoom] = useState(1)
+  const [selectedBucket, setSelectedBucket] = useState<TimeBucket | null>(null)
+  const [selectedPriority, setSelectedPriority] = useState<PriorityBucket | null>(null)
+  const [timeScale, setTimeScale] = useState(10)
 
   const slots = useTimeSlotStore((s) => s.slots)
   const setSlot = useTimeSlotStore((s) => s.setSlot)
@@ -84,12 +95,11 @@ function CalendarWeb({
       return next
     })
   }
-  function toggleBucket(b: TimeBucket) {
-    setHiddenBuckets((prev) => {
-      const s = new Set(prev)
-      s.has(b) ? s.delete(b) : s.add(b)
-      return s
-    })
+  function selectBucket(b: TimeBucket | null) {
+    setSelectedBucket((prev) => (prev === b ? null : b))
+  }
+  function selectPriority(p: PriorityBucket | null) {
+    setSelectedPriority((prev) => (prev === p ? null : p))
   }
 
   // Latest props for handlers captured at calendar init (closures).
@@ -102,9 +112,17 @@ function CalendarWeb({
   const onJumpToMindmapRef = useRef(onJumpToMindmap); onJumpToMindmapRef.current = onJumpToMindmap
 
   const events = useMemo(() => {
-    const visible = tasks.filter((t) => !hiddenBuckets.has(classifyTime(t)))
+    let visible = tasks
+    if (selectedBucket !== null) {
+      visible = visible.filter((t) => classifyTime(t) === selectedBucket)
+    }
+    if (selectedPriority !== null) {
+      visible = visible.filter((t) => classifyPriority(t.priority) === selectedPriority)
+    }
     return tasksToCalendarEvents(visible, slots, getEstimateMin)
-  }, [tasks, slots, getEstimateMin, hiddenBuckets])
+  }, [tasks, slots, getEstimateMin, selectedBucket, selectedPriority])
+  const eventsRef = useRef(events)
+  eventsRef.current = events
 
   function persistPlacement(taskId: number, start: Date, end: Date) {
     const duration = Math.max(5, Math.round((end.getTime() - start.getTime()) / 60000))
@@ -125,18 +143,27 @@ function CalendarWeb({
   // Builds the small CTA buttons appended to each event (FullCalendar eventContent is DOM).
   function buildCtaRow(taskId: number): HTMLElement {
     const row = document.createElement('div')
-    row.style.cssText = 'display:flex;gap:3px;margin-top:2px;'
-    const mk = (label: string, title: string, onClick: () => void) => {
+    row.style.cssText = 'display:flex;gap:4px;align-items:center;'
+    
+    const mk = (iconSvg: string, title: string, onClick: () => void) => {
       const b = document.createElement('button')
-      b.textContent = label
       b.title = title
-      b.style.cssText = 'cursor:pointer;border:none;border-radius:4px;background:rgba(255,255,255,0.25);color:#fff;font-size:11px;line-height:1;padding:2px 5px;'
+      b.style.cssText = 'cursor:pointer;border:none;border-radius:4px;background:rgba(255,255,255,0.25);color:#fff;padding:4px;display:flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;'
+      b.innerHTML = iconSvg
       b.onclick = (e) => { e.stopPropagation(); onClick() }
       return b
     }
-    row.appendChild(mk('▶', 'Start', () => { const i = idxOf(taskId); if (i >= 0) playTaskRef.current(i) }))
-    if (onJumpToMindmapRef.current) row.appendChild(mk('⧉', 'Mindmap', () => onJumpToMindmapRef.current?.(taskId)))
-    if (onJumpToRawRef.current) row.appendChild(mk('≡', 'Raw', () => onJumpToRawRef.current?.(taskId)))
+    
+    // Play icon (lucide Play)
+    const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>`
+    // Network icon (lucide Network for Mindmap)
+    const networkIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="12" x2="7" y2="17"/><line x1="12" y1="12" x2="17" y2="17"/><circle cx="7" cy="20" r="3"/><circle cx="17" cy="20" r="3"/></svg>`
+    // AlignLeft icon (lucide AlignLeft for Raw)
+    const alignLeftIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>`
+    
+    row.appendChild(mk(playIcon, 'Start', () => { const i = idxOf(taskId); if (i >= 0) playTaskRef.current(i) }))
+    if (onJumpToMindmapRef.current) row.appendChild(mk(networkIcon, 'Mindmap', () => onJumpToMindmapRef.current?.(taskId)))
+    if (onJumpToRawRef.current) row.appendChild(mk(alignLeftIcon, 'Raw', () => onJumpToRawRef.current?.(taskId)))
     return row
   }
 
@@ -162,7 +189,7 @@ function CalendarWeb({
         import('@fullcalendar/interaction').then((m) => m.default),
       ])
       if (cancelled) return
-      applyZoomCss(zoom)
+      applyZoomCss(timeScale)
       instance = new Calendar(el, {
         plugins: [timeGridPlugin, interactionPlugin],
         initialView: 'timeGridDay',
@@ -176,19 +203,23 @@ function CalendarWeb({
         // Fill the pane; row height (zoom) is forced via injected CSS on .fc-timegrid-slot.
         height: '100%',
         expandRows: true,
-        slotDuration: '00:30:00',
+        slotDuration: `00:${String(timeScale).padStart(2, '0')}:00`,
         events,
         eventContent: (arg) => {
           const taskId = arg.event.extendedProps.taskId as number
           const nlp = arg.event.extendedProps.source === 'nlp'
           const wrap = document.createElement('div')
-          wrap.style.cssText = 'padding:1px 4px;overflow:hidden;'
+          wrap.style.cssText = 'padding:4px 6px;overflow:hidden;display:flex;align-items:center;gap:6px;min-height:44px;'
+          
+          const ctaRow = buildCtaRow(taskId)
+          wrap.appendChild(ctaRow)
+          
           const title = document.createElement('div')
-          title.style.cssText = 'font-size:11px;line-height:1.3;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;'
+          title.style.cssText = 'font-size:11px;line-height:1.3;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex:1;background-color:rgba(0,0,0,0.6);padding:2px 6px;border-radius:3px;color:#fff;'
           title.textContent = (nlp ? '✦ ' : '') + arg.event.title
           title.title = arg.event.title
+          
           wrap.appendChild(title)
-          wrap.appendChild(buildCtaRow(taskId))
           return { domNodes: [wrap] }
         },
         eventClick: (info) => {
@@ -215,13 +246,29 @@ function CalendarWeb({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Re-feed events when tasks/slots change.
+  // Update events when tasks/slots change using mutation APIs to preserve handlers
   useEffect(() => {
     const inst = instanceRef.current
     if (!inst) return
+    
+    // Get current events in calendar
+    const currentEvents = inst.getEvents()
+    const currentTaskIds = new Set(currentEvents.map((e: any) => e.extendedProps?.taskId))
+    const newTaskIds = new Set(events.map((e: any) => e.extendedProps?.taskId))
+    
     inst.batchRendering(() => {
-      inst.removeAllEvents()
-      for (const e of events) inst.addEvent(e)
+      // Remove events that are no longer in the new list
+      for (const event of currentEvents) {
+        if (!newTaskIds.has(event.extendedProps?.taskId)) {
+          event.remove()
+        }
+      }
+      // Add new events that aren't in the current list
+      for (const event of events) {
+        if (!currentTaskIds.has(event.extendedProps?.taskId)) {
+          inst.addEvent(event)
+        }
+      }
     })
   }, [events])
 
@@ -233,14 +280,22 @@ function CalendarWeb({
     return () => cancelAnimationFrame(id)
   }, [fullScreen])
 
-  // Scale row height on zoom change.
+  // Scale row height on time scale change.
   useEffect(() => {
-    applyZoomCss(zoom)
+    applyZoomCss(timeScale)
     const inst = instanceRef.current
     if (!inst) return
-    const id = requestAnimationFrame(() => { try { inst.updateSize() } catch {} })
-    return () => cancelAnimationFrame(id)
-  }, [zoom])
+    // Update slotDuration to match timeScale
+    inst.setOption('slotDuration', `00:${String(timeScale).padStart(2, '0')}:00`)
+    // Trigger a re-render by toggling a harmless option
+    const currentHeight = inst.getOption('height')
+    inst.setOption('height', '99%')
+    requestAnimationFrame(() => {
+      try {
+        inst.setOption('height', currentHeight)
+      } catch {}
+    })
+  }, [timeScale])
 
   // Esc exits fullscreen.
   useEffect(() => {
@@ -277,47 +332,85 @@ function CalendarWeb({
         <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
           {format(new Date(), 'EEEE, MMM d')}
         </span>
-        {/* Duration-bucket legend — same colors as By Time; click toggles a filter */}
+        {/* Duration-bucket legend — same colors as By Time; click to filter */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => { selectBucket(null); selectPriority(null) }}
+            title="Show all items"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 3, fontSize: 11,
+              border: 'none', background: 'transparent', cursor: 'pointer', padding: 0,
+              color: selectedBucket === null && selectedPriority === null ? '#4772FA' : '#6B7280',
+              fontWeight: selectedBucket === null && selectedPriority === null ? '600' : '400',
+            }}
+          >
+            All
+          </button>
           {TIME_QUADRANTS.map((q) => {
-            const hidden = hiddenBuckets.has(q.bucket)
+            const selected = selectedBucket === q.bucket
             return (
               <button
                 key={q.bucket}
-                onClick={() => toggleBucket(q.bucket)}
-                title={hidden ? `Show ${q.label}` : `Hide ${q.label}`}
+                onClick={() => selectBucket(q.bucket)}
+                title={`Show only ${q.label}`}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 3, fontSize: 11,
                   border: 'none', background: 'transparent', cursor: 'pointer', padding: 0,
-                  color: hidden ? '#C4C4C4' : '#6B7280',
-                  textDecoration: hidden ? 'line-through' : 'none',
+                  color: selected ? '#4772FA' : '#6B7280',
+                  fontWeight: selected ? '600' : '400',
                 }}
               >
-                <span style={{ width: 9, height: 9, borderRadius: '50%', background: hidden ? '#D1D5DB' : q.color }} />
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: selected ? q.color : '#D1D5DB' }} />
                 {q.label}
+              </button>
+            )
+          })}
+        </div>
+        {/* Priority filter buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {(Object.keys(BUCKET_META) as PriorityBucket[]).map((bucket) => {
+            const meta = BUCKET_META[bucket]
+            const selected = selectedPriority === bucket
+            return (
+              <button
+                key={bucket}
+                onClick={() => selectPriority(bucket)}
+                title={`Show only ${meta.label} priority`}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 3, fontSize: 11,
+                  border: 'none', background: 'transparent', cursor: 'pointer', padding: 0,
+                  color: selected ? '#4772FA' : '#6B7280',
+                  fontWeight: selected ? '600' : '400',
+                }}
+              >
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: selected ? meta.color : '#D1D5DB' }} />
+                {meta.label}
               </button>
             )
           })}
         </div>
         <span style={{ fontSize: 11, color: '#9CA3AF' }}>✦ NLP</span>
         <div style={{ flex: 1 }} />
-        {/* Zoom: taller hour rows so dense days stay readable */}
-        <div style={{ display: 'flex', border: '1px solid #D1D5DB', borderRadius: 6, overflow: 'hidden' }}>
-          {ZOOM_LEVELS.map((z) => (
-            <button
-              key={z}
-              onClick={() => setZoom(z)}
-              title={`${z}× row height`}
-              style={{
-                border: 'none', cursor: 'pointer', fontSize: 12, padding: '3px 8px',
-                background: zoom === z ? '#6366F1' : '#fff',
-                color: zoom === z ? '#fff' : '#374151',
-              }}
-            >
-              {z}×
-            </button>
+        {/* Time scale: Outlook-style selector for slot height */}
+        <select
+          value={timeScale}
+          onChange={(e) => setTimeScale(Number(e.target.value))}
+          style={{
+            border: '1px solid #D1D5DB',
+            borderRadius: 6,
+            padding: '3px 8px',
+            fontSize: 12,
+            cursor: 'pointer',
+            background: '#fff',
+            color: '#374151',
+          }}
+        >
+          {TIME_SCALE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}{opt.description ? ` - ${opt.description}` : ''}
+            </option>
           ))}
-        </div>
+        </select>
         <button onClick={calibrate} title="Spread tasks from now to 10 PM" style={btnStyle}>
           ⟳ Calibrate
         </button>
