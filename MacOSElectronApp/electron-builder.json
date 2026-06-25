@@ -1,0 +1,15 @@
+{
+  "appId": "tech.zeta.checkvist.macos",
+  "productName": "Checkvist",
+  "directories": { "output": "MacOSElectronApp/release" },
+  "extraMetadata": { "main": "MacOSElectronApp/dist/main.js" },
+  "files": [
+    "MacOSElectronApp/dist/**/*",
+    "dist/**/*",
+    "package.json"
+  ],
+  "mac": {
+    "category": "public.app-category.productivity",
+    "target": ["dmg"]
+  }
+}

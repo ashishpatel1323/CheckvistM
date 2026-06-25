@@ -11,6 +11,7 @@ import { VirtualTaskList } from './VirtualTaskList'
 import { PriorityDateView } from './PriorityDateView'
 import { GlobalTimerBar } from './GlobalTimerBar'
 import { useMenuBarSync } from '@/services/menuBarSync'
+import { useDesktopMainBridge } from './useDesktopMainBridge'
 import { FlatTaskList } from './FlatTaskList'
 import { MindMapView } from './MindMapView'
 import { SearchView } from '@/features/tasks/search/SearchView'
@@ -907,6 +908,8 @@ const { view, setView, focusedTaskId } = useTaskView()
 
   // Publish the live global-timer snapshot for the macOS menu-bar mirror (web-only).
   useMenuBarSync()
+  // MacOSElectronApp: execute control actions dispatched from the floating window (no-op elsewhere).
+  useDesktopMainBridge()
 
   const [showMoreSheet, setShowMoreSheet] = useState(false)
   const [customizing, setCustomizing] = useState(false)

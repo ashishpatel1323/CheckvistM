@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* MacOSElectronApp: frameless-window drag regions. Applied via RNW `dataSet` props
+   (data-cv-drag / data-cv-no-drag). Inert outside Electron. */
+[data-cv-drag] { -webkit-app-region: drag; }
+[data-cv-no-drag] { -webkit-app-region: no-drag; }
+
 /* ── Design tokens (single source of truth for web + native) ───────────────
    Consumed via tailwind.config.js as hsl(var(--token)). Flip a value here and
    the whole app (web + native) restyles. Brand primary = orange #E8632A,

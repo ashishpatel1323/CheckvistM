@@ -3,6 +3,7 @@ import { View, Text, Pressable } from 'react-native'
 import { Plus, Minus, Play, Pause, Check, SkipForward, Circle, Timer, Repeat } from 'lucide-react-native'
 import { useExecuteLog, liveSeconds } from '@/features/tasks/execute/useExecuteLog'
 import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
+import { useIdleTimer } from './useIdleTimer'
 import { useOvertimeBeep } from '@/services/focusReminder'
 
 // One global timer, present on every tab, with three mutually-exclusive states — each its
@@ -55,20 +56,13 @@ export function GlobalTimerBar({ onOpenExecute }: GlobalTimerBarProps) {
   const mode: 'execute' | 'routine' | 'idle' =
     timerRunningKey != null ? 'execute' : activeTimer != null ? 'routine' : 'idle'
 
-  // ── Idle window bookkeeping ──────────────────────────────────────────────────
-  const [idleStart, setIdleStart] = useState<number | null>(mode === 'idle' ? Date.now() : null)
-  const [idleLimitSec, setIdleLimitSec] = useState(IDLE_LIMIT_SEC)
+  // ── Idle window bookkeeping (shared store — single source of truth for main + floating) ──
+  const idleStart = useIdleTimer((s) => s.startedAt)
+  const idleLimitSec = useIdleTimer((s) => s.limitSec)
 
   useEffect(() => {
-    if (mode !== 'idle') {
-      setIdleStart(null)
-    } else {
-      setIdleStart((prev) => {
-        if (prev != null) return prev
-        setIdleLimitSec(IDLE_LIMIT_SEC)
-        return Date.now()
-      })
-    }
+    if (mode !== 'idle') useIdleTimer.getState().clear()
+    else useIdleTimer.getState().ensureStarted()
   }, [mode])
 
   // ── 1 s ticker so live elapsed advances in every state ───────────────────────
@@ -197,7 +191,7 @@ export function GlobalTimerBar({ onOpenExecute }: GlobalTimerBarProps) {
       )}
       <Time accent={accent} value={isOverrun ? `+${fmt(overrunSec)}` : fmt(elapsedSec)} sub={isOverrun ? undefined : `/ ${fmt(idleLimitSec)}`} overLabel={isOverrun} />
       {isOverrun && (
-        <AdjustPill color={accent} delta={5} onPress={() => setIdleLimitSec((l) => l + EXTEND_SEC)} />
+        <AdjustPill color={accent} delta={5} onPress={() => useIdleTimer.getState().extend(EXTEND_SEC)} />
       )}
     </Wrapper>
   )

@@ -6,6 +6,8 @@ import type { RoutineDef } from '@/features/tasks/routines/routineTypes'
 import { useAuth } from '@/auth/useAuth'
 import { storageGetSync, storageSetSync } from '@/platform/storage'
 import { fetchChecklists, createChecklist, fetchTasks, createTask, updateTask } from '@/api/endpoints'
+import { publishSnapshot as publishDesktopSnapshot } from '@/platform/desktopBridge'
+import { useIdleTimer } from '@/features/tasks/list/useIdleTimer'
 
 // Publishes a live snapshot of the global timer (execute / routine / idle) into a dedicated,
 // PRIVATE Checkvist list so a macOS menu-bar app can mirror it. Web-only, and read-only against
@@ -95,7 +97,12 @@ interface RoutineState {
  * Build the menu-bar snapshot from the two timer stores plus the locally-tracked idle start.
  * Pure — mirrors the mode/elapsed math in GlobalTimerBar so the menu bar matches the in-app bar.
  */
-export function computeTimerSnapshot(ex: ExecuteState, rt: RoutineState, idleStart: number | null): TimerSnapshot {
+export function computeTimerSnapshot(
+  ex: ExecuteState,
+  rt: RoutineState,
+  idleStart: number | null,
+  idleLimitSec: number = IDLE_LIMIT_SEC,
+): TimerSnapshot {
   const now = Date.now()
   const mode: TimerSnapshot['mode'] =
     ex.timerRunningKey != null ? 'execute' : rt.activeTimer != null ? 'routine' : 'idle'
@@ -151,9 +158,9 @@ export function computeTimerSnapshot(ex: ExecuteState, rt: RoutineState, idleSta
     label: 'Nothing is being tracked',
     baseSec: 0,
     startedAtMs,
-    targetSec: IDLE_LIMIT_SEC,
+    targetSec: idleLimitSec,
     isPaused: false,
-    isOverrun: elapsed >= IDLE_LIMIT_SEC,
+    isOverrun: elapsed >= idleLimitSec,
     updatedAt: now,
   }
 }
@@ -205,7 +212,6 @@ export function useMenuBarSync(): void {
   useEffect(() => {
     if (Platform.OS !== 'web') return
 
-    let idleStart: number | null = null
     let lastSig = ''
     let lastPostMs = 0
     let target: RelayCoords | null = getRelayCoords()
@@ -245,11 +251,22 @@ export function useMenuBarSync(): void {
       const rt: RoutineState = { activeTimer: rtStore.activeTimer, routines: rtStore.routines }
       const mode = ex.timerRunningKey != null ? 'execute' : rt.activeTimer != null ? 'routine' : 'idle'
 
-      // Track the idle window start the same way GlobalTimerBar does.
-      if (mode !== 'idle') idleStart = null
-      else if (idleStart == null) idleStart = Date.now()
+      // Idle start + limit come from the shared useIdleTimer store (single source of truth for the
+      // main bar AND the floating window). GlobalTimerBar drives ensure/clear; ensure here too so
+      // the snapshot is correct even on the first idle tick before its effect runs.
+      const idle = useIdleTimer.getState()
+      if (mode !== 'idle') idle.clear()
+      else idle.ensureStarted()
+      const idleNow = useIdleTimer.getState()
 
-      const snapshot = computeTimerSnapshot(ex, rt, idleStart)
+      const snapshot = computeTimerSnapshot(ex, rt, idleNow.startedAt, idleNow.limitSec)
+
+      // MacOSElectronApp: push the live snapshot to the in-process IPC hub every tick (cheap,
+      // in-memory) so the floating window mirrors this window with no lag. No-op off Electron.
+      // This is ADDITIVE — the Checkvist relay write below is left exactly as-is so the existing
+      // Swift menu-bar app keeps working.
+      publishDesktopSnapshot(snapshot)
+
       const sig = signature(snapshot)
       const now = Date.now()
       // Write on a meaningful change, or on the liveness heartbeat — but only while something is

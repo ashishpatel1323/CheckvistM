@@ -1,6 +1,6 @@
 import '../src/global.css'
 import { useEffect } from 'react'
-import { Linking } from 'react-native'
+import { Linking, View } from 'react-native'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -12,6 +12,15 @@ import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { initAutoSync, stopAutoSync } from '@/lib/sync/autoSync'
 import { registerTaskHandlers } from '@/lib/sync/taskSyncHandlers'
 import { initClientIdentity } from '@/platform/clientIdentity'
+import { desktopRole, isDesktop } from '@/platform/desktopBridge'
+import { FloatingApp } from '@/features/pomodoro/FloatingApp'
+
+// MacOSElectronApp floating window: load only the token from storage, no sync/router/menu-bar.
+function FloatingAuthInit() {
+  const initFromStorage = useAuth((s) => s.initFromStorage)
+  useEffect(() => { initFromStorage() }, [initFromStorage])
+  return null
+}
 
 function AppInitializer() {
   const initFromStorage = useAuth((s) => s.initFromStorage)
@@ -59,6 +68,27 @@ function WidgetDeepLinkHandler() {
 }
 
 function RootLayout() {
+  // In the Electron floating window, render the compact timer/Pomodoro UI instead of the
+  // full app + router. Providers still wrap it so auth/createTask work.
+  if (desktopRole() === 'floating') {
+    return (
+      <GestureHandlerRootView className="flex-1">
+        <QueryClientProvider client={queryClient}>
+          <ToastProvider>
+            <FloatingAuthInit />
+            <StatusBar style="dark" />
+            <FloatingApp />
+          </ToastProvider>
+        </QueryClientProvider>
+      </GestureHandlerRootView>
+    )
+  }
+
+  // In the Electron main window, frameless content has no draggable region. Add a thin top
+  // strip (data-cv-drag) clearing the traffic-light buttons so the window can be dragged.
+  // Electron-only — web/iOS/Android never set the desktop role, so this renders nowhere else.
+  const mainDragStrip = isDesktop() && desktopRole() === 'main'
+
   return (
     <GestureHandlerRootView className="flex-1">
       <QueryClientProvider client={queryClient}>
@@ -66,6 +96,9 @@ function RootLayout() {
           <AppInitializer />
           <WidgetDeepLinkHandler />
           <StatusBar style="light" />
+          {mainDragStrip && (
+            <View {...{ dataSet: { cvDrag: 'true' } }} style={{ height: 28, paddingLeft: 72 }} />
+          )}
           <Stack screenOptions={{ headerShown: false }} />
         </ToastProvider>
       </QueryClientProvider>
