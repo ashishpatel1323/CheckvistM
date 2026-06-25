@@ -31,11 +31,13 @@ interface PomodoroState {
 }
 
 export const usePomodoro = create<PomodoroState>((set, get) => ({
-  phase: 'off',
+  // Always-running: the Pomodoro auto-starts the moment the floating window loads and loops
+  // work → break → work forever (see advancePhase). There is no explicit start / off state.
+  phase: 'work',
   workMin: 25,
   breakMin: 5,
   accumSec: 0,
-  runStartedAt: null,
+  runStartedAt: Date.now(),
 
   start: () => set({ phase: 'work', accumSec: 0, runStartedAt: Date.now() }),
   stop: () => set({ phase: 'off', accumSec: 0, runStartedAt: null }),

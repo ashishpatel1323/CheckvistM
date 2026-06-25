@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { View, Text, Pressable, TextInput } from 'react-native'
-import { Play, Pause, SkipForward, Plus, Minus, Check, Coffee, Square, X, RotateCcw } from 'lucide-react-native'
+import { Play, Pause, SkipForward, Plus, Minus, Check, Coffee, X, RotateCcw } from 'lucide-react-native'
 import {
   onDesktopSnapshot,
   getDesktopSnapshot,
@@ -77,7 +77,7 @@ export function FloatingApp() {
   }, [pomo.phase])
 
   if (pomo.phase === 'onBreak') {
-    return <BreakOverlay remaining={pomoRemaining} onSkip={() => pomo.advancePhase()} onEnd={() => pomo.stop()} />
+    return <BreakOverlay remaining={pomoRemaining} onSkip={() => pomo.advancePhase()} />
   }
 
   // ── Compact view ───────────────────────────────────────────────────────────────
@@ -186,38 +186,29 @@ function PomodoroBar({ elapsed, length, remaining }: { elapsed: number; length: 
   const runStartedAt = usePomodoro((s) => s.runStartedAt)
   const workMin = usePomodoro((s) => s.workMin)
   const breakMin = usePomodoro((s) => s.breakMin)
-  const start = usePomodoro((s) => s.start)
-  const stop = usePomodoro((s) => s.stop)
   const reset = usePomodoro((s) => s.reset)
   const pause = usePomodoro((s) => s.pause)
   const resume = usePomodoro((s) => s.resume)
   const setWorkMin = usePomodoro((s) => s.setWorkMin)
   const setBreakMin = usePomodoro((s) => s.setBreakMin)
 
-  const paused = phase !== 'off' && runStartedAt == null
+  // Always running, no start/stop. W/B durations are editable live (changing the running phase's
+  // length recomputes its remaining time on the fly).
+  const paused = runStartedAt == null
+  const color = phase === 'onBreak' ? ROUTINE : POMO
   const pct = length > 0 ? elapsed / length : 0
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 5 }}>
-      <Coffee size={13} color={phase === 'off' ? '#9CA3AF' : POMO} />
-      {phase === 'off' ? (
-        <>
-          <Stepper label="W" value={workMin} onDec={() => setWorkMin(workMin - 5)} onInc={() => setWorkMin(workMin + 5)} />
-          <Stepper label="B" value={breakMin} onDec={() => setBreakMin(breakMin - 1)} onInc={() => setBreakMin(breakMin + 1)} />
-          <View style={{ flex: 1 }} />
-          <Round color={POMO} onPress={start}><Play size={13} color="#fff" fill="#fff" /></Round>
-        </>
-      ) : (
-        <>
-          <Text style={{ fontSize: 13, fontWeight: '800', color: POMO, fontVariant: ['tabular-nums'] }}>{fmt(remaining)}</Text>
-          <View style={{ flex: 1 }}><ProgressBar pct={pct} color={POMO} /></View>
-          <Round color="#F3F4F6" onPress={() => (paused ? resume() : pause())}>
-            {paused ? <Play size={12} color="#374151" fill="#374151" /> : <Pause size={12} color="#374151" />}
-          </Round>
-          <Round color="#F3F4F6" onPress={reset}><RotateCcw size={12} color="#374151" /></Round>
-          <Round color="#F3F4F6" onPress={stop}><Square size={11} color="#374151" fill="#374151" /></Round>
-        </>
-      )}
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 5 }}>
+      <Coffee size={13} color={color} />
+      <Text style={{ fontSize: 13, fontWeight: '800', color, fontVariant: ['tabular-nums'], minWidth: 42 }}>{fmt(remaining)}</Text>
+      <View style={{ flex: 1 }}><ProgressBar pct={pct} color={color} /></View>
+      <Stepper label="W" value={workMin} onDec={() => setWorkMin(workMin - 5)} onInc={() => setWorkMin(workMin + 5)} />
+      <Stepper label="B" value={breakMin} onDec={() => setBreakMin(breakMin - 1)} onInc={() => setBreakMin(breakMin + 1)} />
+      <Round color="#F3F4F6" onPress={() => (paused ? resume() : pause())}>
+        {paused ? <Play size={12} color="#374151" fill="#374151" /> : <Pause size={12} color="#374151" />}
+      </Round>
+      <Round color="#F3F4F6" onPress={reset}><RotateCcw size={12} color="#374151" /></Round>
     </View>
   )
 }
@@ -233,21 +224,15 @@ function Stepper({ label, value, onDec, onInc }: { label: string; value: number;
   )
 }
 
-function BreakOverlay({ remaining, onSkip, onEnd }: { remaining: number; onSkip: () => void; onEnd: () => void }) {
+function BreakOverlay({ remaining, onSkip }: { remaining: number; onSkip: () => void }) {
   return (
     <View {...{ dataSet: DRAG }} style={{ flex: 1, backgroundColor: ROUTINE, alignItems: 'center', justifyContent: 'center', gap: 24 }}>
       <Text style={{ fontSize: 28, fontWeight: '800', color: '#fff', letterSpacing: 1 }}>BREAK</Text>
       <Text style={{ fontSize: 88, fontWeight: '900', color: '#fff', fontVariant: ['tabular-nums'] }}>{fmt(remaining)}</Text>
-      <View style={{ flexDirection: 'row', gap: 16 }}>
-        <Pressable {...{ dataSet: NODRAG }} onPress={onSkip} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 18 }}>
-          <SkipForward size={18} color="#fff" />
-          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Skip break</Text>
-        </Pressable>
-        <Pressable {...{ dataSet: NODRAG }} onPress={onEnd} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 18 }}>
-          <Square size={16} color="#fff" fill="#fff" />
-          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>End</Text>
-        </Pressable>
-      </View>
+      <Pressable {...{ dataSet: NODRAG }} onPress={onSkip} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 18 }}>
+        <SkipForward size={18} color="#fff" />
+        <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Skip break</Text>
+      </Pressable>
     </View>
   )
 }
