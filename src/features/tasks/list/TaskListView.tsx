@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
-import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback, PanResponder, RefreshControl } from 'react-native'
+import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback, PanResponder, RefreshControl, type StyleProp, type ViewStyle } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, ChevronUp, ChevronDown, GripVertical, TrendingUp, Play, Pause, type LucideIcon } from 'lucide-react-native'
+import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, Menu, ChevronUp, ChevronDown, ChevronRight, GripVertical, TrendingUp, Play, Pause, type LucideIcon } from 'lucide-react-native'
 import { ProgressTab } from '@/features/progress/ProgressTab'
 import { useTasksQuery } from './useTasksQuery'
 import { buildTaskTree } from '@/lib/taskTree'
@@ -551,164 +551,19 @@ function TimeZoomOverlay({ timeStr, pct, onClose }: { timeStr: string; pct: numb
   )
 }
 
-// Day spans full 24 hours: 00:00 AM to 11:59 PM
-const DAY_START_HOUR = 0
-const DAY_END_HOUR = 24
-
-function DailyProgressBar() {
-  const [now, setNow] = useState(() => new Date())
-  const [showZoom, setShowZoom] = useState(false)
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000)
-    return () => clearInterval(id)
-  }, [])
-
-  // Auto-show every 10 minutes
-  useEffect(() => {
-    const id = setInterval(() => setShowZoom(true), 10 * 60 * 1000)
-    return () => clearInterval(id)
-  }, [])
-
-  const totalSeconds = (DAY_END_HOUR - DAY_START_HOUR) * 3600
-  const elapsedSeconds =
-    now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds() -
-    DAY_START_HOUR * 3600
-  const pct = Math.min(100, Math.max(0, (elapsedSeconds / totalSeconds) * 100))
-
-  const hours = now.getHours()
-  const minutes = now.getMinutes()
-  const ampm = hours >= 12 ? 'PM' : 'AM'
-  const displayHour = hours % 12 || 12
-  const timeLabel = `${displayHour}:${String(minutes).padStart(2, '0')} ${ampm}`
-  const pctLabel = `(${pct.toFixed(2)}%)`
-  const timeStr = `${timeLabel} ${pctLabel}`
-
-  const beforeDay = elapsedSeconds < 0
-  const afterDay = elapsedSeconds >= totalSeconds
-
-  const totalHours = DAY_END_HOUR - DAY_START_HOUR
-  const barColor = beforeDay || afterDay ? '#D1D5DB' : pct > 80 ? '#EF4444' : pct > 60 ? '#F59E0B' : '#4772FA'
-
-  // Only label every 3 hours (6AM, 9AM, 12PM, 3PM, 6PM, 9PM) to avoid crowding on mobile
-  const labelHours = [3, 6, 9, 12, 15, 18, 21]
-  const labels = labelHours.map((h) => {
-    const ampm = h >= 12 ? 'PM' : 'AM'
-    const disp = h % 12 || 12
-    return { pct: (h / totalHours) * 100, label: `${disp}${ampm}` }
-  })
-
-  // Quarter-hour ticks for visual rhythm
-  const ticks: number[] = []
-  for (let h = 0; h < totalHours; h++) {
-    ticks.push(((h + 0.25) / totalHours) * 100)
-    ticks.push(((h + 0.5) / totalHours) * 100)
-    ticks.push(((h + 0.75) / totalHours) * 100)
-  }
-
-  // Clamp label position so it doesn't bleed off edges
-  const labelLeft = Math.min(Math.max(pct, 4), 88)
-
-  return (
-    <Pressable
-      onPress={() => setShowZoom(true)}
-      style={{
-        backgroundColor: 'white',
-        paddingHorizontal: 16,
-        paddingTop: 6,
-        paddingBottom: 6,
-        borderBottomWidth: 1,
-        borderBottomColor: '#EFEFEF',
-      }}
-    >
-      {showZoom && <TimeZoomOverlay timeStr={timeStr} pct={pct} onClose={() => setShowZoom(false)} />}
-
-      {/* Time label + track in a single compact row */}
-      <View style={{ position: 'relative' }}>
-
-        {/* Floating time label pinned above current position */}
-        {!beforeDay && !afterDay && (
-          <View style={{
-            position: 'absolute',
-            left: `${labelLeft}%` as unknown as number,
-            top: 0,
-            width: 110,
-            transform: [{ translateX: -55 }],
-            zIndex: 10,
-            alignItems: 'center',
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: barColor, letterSpacing: 0.1 }} numberOfLines={1}>
-                {timeLabel}
-              </Text>
-              <Text style={{ fontSize: 9, fontWeight: '600', color: barColor }} numberOfLines={1}>
-                {pctLabel}
-              </Text>
-            </View>
-          </View>
-        )}
-
-        <View style={{ height: 18 }} />
-
-        {/* Track */}
-        <View style={{ height: 4, backgroundColor: '#F3F4F6', borderRadius: 2, overflow: 'hidden' }}>
-          <View style={{ height: '100%', width: `${pct}%`, borderRadius: 3, backgroundColor: barColor }} />
-        </View>
-
-        {/* Quarter-hour tick marks */}
-        {ticks.map((p) => (
-          <View
-            key={p}
-            style={{
-              position: 'absolute',
-              left: `${p}%` as unknown as number,
-              top: 18,
-              width: 1,
-              height: 3,
-              backgroundColor: 'rgba(0,0,0,0.1)',
-            }}
-          />
-        ))}
-
-        {/* Hour ticks (slightly taller) */}
-        {labels.map(({ pct: p }) => (
-          <View
-            key={p}
-            style={{
-              position: 'absolute',
-              left: `${p}%` as unknown as number,
-              top: 18,
-              width: 1,
-              height: 5,
-              backgroundColor: 'rgba(0,0,0,0.2)',
-            }}
-          />
-        ))}
-
-        {/* Sparse hour labels */}
-        <View style={{ position: 'relative', height: 12, marginTop: 4 }}>
-          {labels.map(({ pct: p, label }) => (
-            <Text
-              key={p}
-              style={{
-                position: 'absolute',
-                left: `${p}%` as unknown as number,
-                fontSize: 9,
-                color: '#C4C4C4',
-                transform: [{ translateX: -10 }],
-              }}
-            >
-              {label}
-            </Text>
-          ))}
-        </View>
-      </View>
-    </Pressable>
-  )
-}
 
 const BLUE = '#4772FA'
 const INACTIVE = '#9ca3af'
+
+/** Small dark keycap showing a tab's keyboard shortcut (shown while Ctrl is held). */
+function Keycap({ shortcut, style }: { shortcut?: string; style?: StyleProp<ViewStyle> }) {
+  if (!shortcut) return null
+  return (
+    <View style={[{ backgroundColor: '#1C1C1E', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1, minWidth: 16, alignItems: 'center' }, style]}>
+      <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.5 }}>{shortcut}</Text>
+    </View>
+  )
+}
 
 const ITEM_HEIGHT = 64
 
@@ -904,6 +759,9 @@ export function TaskListView({ checklistId }: TaskListViewProps) {
   const [showShortcuts, setShowShortcuts] = useState(false)
 const { view, setView, focusedTaskId } = useTaskView()
   const { order: tabOrder, moveTab, reorderTab } = useTabBarConfig()
+  const tabsCollapsed = useTabBarConfig((s) => s.tabsCollapsed)
+  const toggleTabsCollapsed = useTabBarConfig((s) => s.toggleTabsCollapsed)
+  const currentViewLabel = TABS.find((t) => t.key === view)?.label ?? ''
   const [logInitialMode, setLogInitialMode] = useState<'calendar' | 'agenda'>('agenda')
 
   // Publish the live global-timer snapshot for the macOS menu-bar mirror (web-only).
@@ -1021,100 +879,105 @@ const { view, setView, focusedTaskId } = useTaskView()
     }
   }, [isMobile, setView])
 
-  return (
-    <View className="flex-1" style={{ backgroundColor: '#F5F5F5' }}>
-
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <View
-        className="flex-row items-center bg-white px-4"
-        style={{
-          paddingTop: insets.top + 8,
-          paddingBottom: 10,
-          gap: showTabLabels ? 12 : 4,
-          borderBottomWidth: 1,
-          borderBottomColor: '#EFEFEF',
-          elevation: 2,
-          shadowColor: '#000',
-          shadowOpacity: 0.04,
-          shadowRadius: 4,
-        }}
-      >
-        <View className="flex-1" style={{ minWidth: 0 }}>
-          <ChecklistSwitcher />
-        </View>
-
-        {/* Web: show tabs inline in header */}
-        {!isMobile && TABS.map(({ key, icon: Icon, label, shortcut }) => {
+  // Desktop: vertical nav rail on the left (TickTick-style). Holds the views as icons (with
+  // labels when expanded) plus the global actions at the bottom. Collapsible via the hamburger;
+  // state persisted in useTabBarConfig.tabsCollapsed. Mobile keeps its bottom tab bar instead.
+  const leftRail = (
+    <View style={{ width: tabsCollapsed ? 60 : 200, backgroundColor: '#fff', borderRightWidth: 1, borderRightColor: '#EFEFEF', paddingTop: insets.top + 8, paddingBottom: 10 }}>
+      {/* Top: hamburger toggle + (expanded) list-name switcher + new-task button */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: tabsCollapsed ? 0 : 10, marginBottom: 6, justifyContent: tabsCollapsed ? 'center' : 'flex-start' }}>
+        <Pressable hitSlop={8} onPress={toggleTabsCollapsed} style={{ width: 32, height: 32, borderRadius: 8, justifyContent: 'center', alignItems: 'center' }}>
+          <Menu size={20} color="#374151" />
+        </Pressable>
+        {!tabsCollapsed && (
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <ChecklistSwitcher compact />
+          </View>
+        )}
+        {!tabsCollapsed && (
+          <Pressable hitSlop={8} onPress={() => setShowFabInput((v) => !v)}>
+            <Plus size={20} color={showFabInput ? BLUE : '#666'} />
+          </Pressable>
+        )}
+      </View>
+      {tabsCollapsed && (
+        <Pressable hitSlop={8} onPress={() => setShowFabInput((v) => !v)} style={{ height: 32, marginBottom: 4, alignItems: 'center', justifyContent: 'center' }}>
+          <Plus size={20} color={showFabInput ? BLUE : '#666'} />
+        </Pressable>
+      )}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: 4 }} showsVerticalScrollIndicator={false}>
+        {TABS.map(({ key, icon: Icon, label, shortcut }) => {
           const active = view === key
           const badgeCount = tabBadges[key as keyof typeof tabBadges] ?? 0
           return (
             <Pressable
               key={key}
-              onPress={async () => {
-                await hapticSelection()
-                guardedSetView(key)
-              }}
-              hitSlop={6}
-              style={{
-                flexDirection: 'row', alignItems: 'center', gap: 4,
-                paddingHorizontal: showTabLabels ? 8 : 6, paddingVertical: 4, borderRadius: 8,
-                backgroundColor: active ? '#EEF2FF' : 'transparent',
-                position: 'relative',
-              }}
+              onPress={async () => { await hapticSelection(); guardedSetView(key) }}
+              hitSlop={4}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 8, marginVertical: 1, paddingVertical: 9, paddingHorizontal: tabsCollapsed ? 0 : 10, borderRadius: 8, backgroundColor: active ? '#EEF2FF' : 'transparent', justifyContent: tabsCollapsed ? 'center' : 'flex-start' }}
             >
-              <Icon size={16} color={active ? BLUE : '#666'} style={{ opacity: active ? 1 : 0.7 }} />
-              {showTabLabels && (
-                <Text className="text-xs font-medium" style={{ color: active ? BLUE : '#666', opacity: active ? 1 : 0.8 }}>
-                  {label}
-                </Text>
-              )}
-              {/* Anchor badge to the tab's top-right corner so it doesn't sit on the icon/label */}
-              <TabBadge
-                count={badgeCount}
-                color={key === 'date' ? '#EF4444' : key === 'routines' ? '#F59E0B' : '#6366F1'}
-                compact
-                style={{ top: -6, right: -6 }}
-              />
-              {showShortcuts && (
-                <View style={{
-                  position: 'absolute', top: -8, right: -4,
-                  backgroundColor: '#1C1C1E',
-                  borderRadius: 4,
-                  paddingHorizontal: 4, paddingVertical: 1,
-                  minWidth: 16, alignItems: 'center',
-                }}>
-                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.5 }}>
-                    {shortcut}
-                  </Text>
-                </View>
-              )}
+              <View style={{ position: 'relative' }}>
+                <Icon size={20} color={active ? BLUE : '#666'} style={{ opacity: active ? 1 : 0.75 }} />
+                <TabBadge count={badgeCount} color={key === 'date' ? '#EF4444' : key === 'routines' ? '#F59E0B' : '#6366F1'} compact style={{ top: -6, right: -6 }} />
+                {/* Shortcut hint while Ctrl is held — collapsed: corner of the icon */}
+                {showShortcuts && tabsCollapsed && <Keycap shortcut={shortcut} style={{ position: 'absolute', bottom: -7, right: -8 }} />}
+              </View>
+              {!tabsCollapsed && <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '600', color: active ? BLUE : '#444' }}>{label}</Text>}
+              {/* Shortcut hint while Ctrl is held — expanded: right edge of the row */}
+              {showShortcuts && !tabsCollapsed && <View style={{ marginLeft: 'auto' }}><Keycap shortcut={shortcut} /></View>}
             </Pressable>
           )
         })}
-
-        {/* Sync button */}
+      </ScrollView>
+      <View style={{ gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F1F5F9', alignItems: tabsCollapsed ? 'center' : 'flex-start', paddingHorizontal: tabsCollapsed ? 0 : 16 }}>
         <SyncButton onRefetch={() => void refetch()} />
-
-        {/* Desktop: new task button */}
-        {!isMobile && (
-          <Pressable hitSlop={8} onPress={() => setShowFabInput((v) => !v)}>
-            <Plus size={20} color={showFabInput ? BLUE : '#666'} />
-          </Pressable>
-        )}
-
-        {/* Focus reminder settings */}
         <FocusReminderButton />
-
-        {/* macOS menu-bar timer setup (web only) */}
         <MenuBarButton />
-
-        {/* Refresh button */}
         <Pressable hitSlop={8} onPress={() => refetch()} disabled={isFetching} style={{ opacity: isFetching ? 0.4 : 1 }}>
           <RefreshCw size={20} color="#666" />
         </Pressable>
-
-
       </View>
+    </View>
+  )
+
+  return (
+    <View className="flex-1" style={{ backgroundColor: '#F5F5F5', flexDirection: 'row' }}>
+      {!isMobile && leftRail}
+      <View style={{ flex: 1, minWidth: 0 }}>
+
+      {/* ── Header — mobile only. On desktop the list name + actions live in the left rail. ── */}
+      {isMobile && (
+        <View
+          className="flex-row items-center bg-white px-4"
+          style={{
+            paddingTop: insets.top + 4,
+            paddingBottom: 6,
+            gap: 6,
+            borderBottomWidth: 1,
+            borderBottomColor: '#EFEFEF',
+            elevation: 2,
+            shadowColor: '#000',
+            shadowOpacity: 0.04,
+            shadowRadius: 4,
+          }}
+        >
+          <View className="flex-row items-center" style={{ flex: 1, minWidth: 0, gap: 6 }}>
+            <ChecklistSwitcher compact />
+            {currentViewLabel ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1 }}>
+                <ChevronRight size={14} color="#9CA3AF" />
+                <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '600', color: BLUE }}>{currentViewLabel}</Text>
+              </View>
+            ) : null}
+          </View>
+          <SyncButton onRefetch={() => void refetch()} />
+          <FocusReminderButton />
+          <MenuBarButton />
+          <Pressable hitSlop={8} onPress={() => refetch()} disabled={isFetching} style={{ opacity: isFetching ? 0.4 : 1 }}>
+            <RefreshCw size={20} color="#666" />
+          </Pressable>
+        </View>
+      )}
 
       {/* Desktop create task bar */}
       {!isMobile && showFabInput && (
@@ -1153,10 +1016,6 @@ const { view, setView, focusedTaskId } = useTaskView()
           </Pressable>
         </View>
       )}
-
-      {/* Daily time progress bar — hidden on Execute since GlobalTimerBar already
-          covers time-tracking state there; showing both was redundant chrome. */}
-      {view !== 'execute' && <DailyProgressBar />}
 
       {/* Global timer — one bar across every tab: execution timer, routine timer, or the
           idle "nothing is being tracked" countdown. */}
@@ -1474,6 +1333,7 @@ const { view, setView, focusedTaskId } = useTaskView()
           </View>
         </View>
       </Modal>
+      </View>
     </View>
   )
 }

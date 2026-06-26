@@ -14,7 +14,7 @@ function fmtBuildDate(iso?: string): string {
   return d.toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-export function ChecklistSwitcher() {
+export function ChecklistSwitcher({ compact = false }: { compact?: boolean } = {}) {
   const { data: checklists, isLoading } = useChecklists()
   const { activeChecklistId, setActiveChecklistId } = useActiveChecklist()
   const [open, setOpen] = useState(false)
@@ -38,14 +38,17 @@ export function ChecklistSwitcher() {
         onPress={() => setOpen(true)}
       >
         <View style={{ flexShrink: 1, minWidth: 0 }}>
-          <Text className="text-lg font-semibold text-foreground" numberOfLines={1}>
+          <Text className={compact ? 'text-base font-semibold text-foreground' : 'text-lg font-semibold text-foreground'} numberOfLines={1}>
             {active?.name ?? (isLoading ? 'Loading…' : 'Select list')}
           </Text>
-          <Text className="text-muted-foreground" style={{ fontSize: 10, lineHeight: 12 }}>
-            {process.env.EXPO_PUBLIC_GIT_COMMIT
-              ? `${process.env.EXPO_PUBLIC_GIT_COMMIT} · ${fmtBuildDate(process.env.EXPO_PUBLIC_GIT_DATE)}`
-              : 'dev'}
-          </Text>
+          {/* Build-info subtitle hidden in compact (mobile) mode to keep the header to one line. */}
+          {!compact && (
+            <Text className="text-muted-foreground" style={{ fontSize: 10, lineHeight: 12 }}>
+              {process.env.EXPO_PUBLIC_GIT_COMMIT
+                ? `${process.env.EXPO_PUBLIC_GIT_COMMIT} · ${fmtBuildDate(process.env.EXPO_PUBLIC_GIT_DATE)}`
+                : 'dev'}
+            </Text>
+          )}
         </View>
         <ChevronDown size={16} color="hsl(220 9% 63%)" />
       </Pressable>

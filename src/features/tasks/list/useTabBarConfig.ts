@@ -12,6 +12,9 @@ export const PINNED_TAB_COUNT = 4
 
 interface TabBarConfigStore {
   order: TaskView[]
+  /** Desktop: hide the inline tab strip, showing a breadcrumb instead. Persisted. */
+  tabsCollapsed: boolean
+  toggleTabsCollapsed: () => void
   moveTab: (key: TaskView, direction: 'up' | 'down') => void
   reorderTab: (from: number, to: number) => void
   resetOrder: () => void
@@ -25,6 +28,8 @@ export const useTabBarConfig = create<TabBarConfigStore>()(
   persist(
     (set) => ({
       order: DEFAULT_TAB_ORDER,
+      tabsCollapsed: false,
+      toggleTabsCollapsed: () => set((state) => ({ tabsCollapsed: !state.tabsCollapsed })),
       moveTab: (key, direction) => set((state) => {
         const order = [...state.order]
         const idx = order.indexOf(key)

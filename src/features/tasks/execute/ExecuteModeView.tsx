@@ -19,14 +19,15 @@ import {
 } from './useExecuteLog'
 import { priorityTextColor, priorityDisplay, priorityRowBg, PriorityPicker } from '@/features/tasks/shared/PriorityPicker'
 import { useSystemLog, type SyncedSession } from './useSystemLog'
-import { hapticMedium } from '@/platform/haptics'
+import { hapticMedium, hapticSuccess } from '@/platform/haptics'
+import { useToast } from '@/components/Toast'
 import {
   setupTimerNotifications,
   teardownTimerNotifications,
   showExecuteTimerNotification,
   dismissExecuteTimerNotification,
 } from '@/platform/timerNotification'
-import { useUpdateTask } from '@/features/tasks/list/useTasksQuery'
+import { useUpdateTask, useCloseTask } from '@/features/tasks/list/useTasksQuery'
 import { CalendarScheduleView } from '@/features/tasks/calendar/CalendarScheduleView'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
@@ -851,6 +852,18 @@ export function ExecuteTaskList() {
     togglePlay, playTask, jumpTo, persistOrder, checklistId, onJumpToRaw, onJumpToMindmap, onCloseSidePanel, updateTask,
   } = useExecCtx()
 
+  // To-do checkbox: complete a task straight from Execute (parity with the List tab). Closes the
+  // Checkvist task (optimistic status=1) so the tick + strike-through show immediately.
+  const { mutate: closeTask } = useCloseTask(checklistId)
+  const toast = useToast()
+  const completeTask = (taskId: number) => {
+    hapticSuccess()
+    closeTask(taskId, {
+      onSuccess: () => toast.success('Task completed'),
+      onError: () => toast.error('Failed to complete task'),
+    })
+  }
+
   // Per-row date/priority picker state — local to this panel
   const [dateEditTaskId, setDateEditTaskId] = useState<number | null>(null)
   const [priorityEditTaskId, setPriorityEditTaskId] = useState<number | null>(null)
@@ -1230,7 +1243,7 @@ export function ExecuteTaskList() {
         const header = renderGroupHeader(key, label, sublabel, color, bg, items.length)
         const rows = collapsed ? null : items.map(({ task: t, index }) => {
           const entry = getEntry(t.id)
-          const isDone = !!entry?.completedAt
+          const isDone = !!entry?.completedAt || t.status === 1
           const hasExecution = !!entry && (entry.actualSeconds > 0 || !!entry.completedAt)
           const isCurrent = index === currentIndex
           const isSelected = selectedIndices.has(index)
@@ -1258,6 +1271,18 @@ export function ExecuteTaskList() {
                 borderWidth: 1, borderColor: '#F1F5F9',
               }}
             >
+              {/* To-do checkbox — complete the task straight from Execute (parity with the List tab) */}
+              <Pressable
+                hitSlop={8}
+                onPress={(e) => { e.stopPropagation?.(); completeTask(t.id) }}
+                style={{
+                  width: 18, height: 18, borderRadius: 4, borderWidth: 2,
+                  borderColor: color, backgroundColor: isDone ? color : 'transparent',
+                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}
+              >
+                {isDone && <View style={{ width: 9, height: 9, borderRadius: 2, backgroundColor: 'white' }} />}
+              </Pressable>
               {/* Drag handle — raised from opacity 0.3 since reordering is a core Execute
                   interaction and the handle was nearly invisible before. */}
               {Platform.OS === 'web' ? (

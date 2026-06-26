@@ -10,6 +10,8 @@ import { toApiDate } from '@/lib/dateUtils'
 import { TIME_QUADRANTS, classifyTime, type TimeBucket } from '@/features/tasks/list/EisenhowerMatrixView'
 import { classifyPriority, type PriorityBucket, BUCKET_META } from '@/features/tasks/shared/PriorityPicker'
 import { useTimeSlotStore } from './useTimeSlotStore'
+import { useCloseTask } from '@/features/tasks/list/useTasksQuery'
+import { useToast } from '@/components/Toast'
 import { colors, radii, typography } from '@/design/tokens'
 
 export interface CalendarScheduleViewProps {
@@ -66,8 +68,10 @@ export function CalendarScheduleView(props: CalendarScheduleViewProps) {
 }
 
 function CalendarWeb({
-  tasks, getEstimateMin, jumpTo, playTask, updateTask, onJumpToRaw, onJumpToMindmap, onExpand, searchQuery,
+  tasks, checklistId, getEstimateMin, jumpTo, playTask, updateTask, onJumpToRaw, onJumpToMindmap, onExpand, searchQuery,
 }: CalendarScheduleViewProps) {
+  const { mutate: closeTask } = useCloseTask(checklistId)
+  const toast = useToast()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const instanceRef = useRef<Calendar | null>(null)
   const [fullScreen, setFullScreen] = useState(false)
@@ -75,6 +79,8 @@ function CalendarWeb({
   const [selectedPriority, setSelectedPriority] = useState<PriorityBucket | null>(null)
   const [timeScale, setTimeScale] = useState(10)
   const [selectedTimeFilter, setSelectedTimeFilter] = useState<TimeBucket | 'all'>('all')
+  const [calibrating, setCalibrating] = useState(false)
+  const [slotsVersion, setSlotsVersion] = useState(0) // Track slot changes for calendar rebuild
 
   const slots = useTimeSlotStore((s) => s.slots)
   const setSlot = useTimeSlotStore((s) => s.setSlot)
@@ -118,6 +124,8 @@ function CalendarWeb({
   const setSlotRef = useRef(setSlot); setSlotRef.current = setSlot
   const onJumpToRawRef = useRef(onJumpToRaw); onJumpToRawRef.current = onJumpToRaw
   const onJumpToMindmapRef = useRef(onJumpToMindmap); onJumpToMindmapRef.current = onJumpToMindmap
+  const closeTaskRef = useRef(closeTask); closeTaskRef.current = closeTask
+  const toastRef = useRef(toast); toastRef.current = toast
 
   const events = useMemo(() => {
     let visible = filteredTasks
@@ -160,10 +168,18 @@ function CalendarWeb({
       return b
     }
 
+    const checkIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
     const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>`
     const networkIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="12" x2="7" y2="17"/><line x1="12" y1="12" x2="17" y2="17"/><circle cx="7" cy="20" r="3"/><circle cx="17" cy="20" r="3"/></svg>`
     const alignLeftIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>`
 
+    // To-do checkbox — complete the task straight from the calendar (parity with the List tab).
+    row.appendChild(mk(checkIcon, 'Complete', () => {
+      closeTaskRef.current(taskId, {
+        onSuccess: () => toastRef.current.success('Task completed'),
+        onError: () => toastRef.current.error('Failed to complete task'),
+      })
+    }))
     row.appendChild(mk(playIcon, 'Start', () => { const i = idxOf(taskId); if (i >= 0) playTaskRef.current(i) }))
     if (onJumpToMindmapRef.current) row.appendChild(mk(networkIcon, 'Mindmap', () => onJumpToMindmapRef.current?.(taskId)))
     if (onJumpToRawRef.current) row.appendChild(mk(alignLeftIcon, 'Raw', () => onJumpToRawRef.current?.(taskId)))
@@ -255,22 +271,21 @@ function CalendarWeb({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => {
-    const inst = instanceRef.current
-    if (!inst) return
-    const currentEvents = inst.getEvents()
-    const currentTaskIds = new Set(currentEvents.map((e: any) => e.extendedProps?.taskId))
-    const newTaskIds = new Set(events.map((e: any) => e.extendedProps?.taskId))
+   // Rebuild calendar events whenever slots change - this ensures visual updates happen
+   useEffect(() => {
+     const inst = instanceRef.current
+     if (!inst) return
 
-    inst.batchRendering(() => {
-      for (const event of currentEvents) {
-        if (!newTaskIds.has(event.extendedProps?.taskId)) event.remove()
-      }
-      for (const event of events) {
-        if (!currentTaskIds.has(event.extendedProps?.taskId)) inst.addEvent(event)
-      }
-    })
-  }, [events])
+     // Always remove all events and re-add them to ensure times are fully synced
+     inst.batchRendering(() => {
+       for (const event of inst.getEvents()) {
+         event.remove()
+       }
+       for (const event of events) {
+         inst.addEvent(event)
+       }
+     })
+   }, [events]) // This runs whenever slots change via events useMemo
 
   useEffect(() => {
     const inst = instanceRef.current
@@ -301,10 +316,25 @@ function CalendarWeb({
   }, [fullScreen])
 
   function calibrate() {
+    // Show immediate visual feedback - disable button and show loading
     const now = new Date()
     const nowMin = now.getHours() * 60 + now.getMinutes()
+    
+    // Calculate slots (this is synchronous, but we still want to show loading)
     const next = calibrateSlots(tasksRef.current, nowMin, getEstimateMin, now)
-    for (const [taskId, slot] of Object.entries(next)) setSlotRef.current(Number(taskId), slot)
+    
+    // Update all slots at once for instant visible change
+    for (const [taskId, slot] of Object.entries(next)) {
+      setSlotRef.current(Number(taskId), slot)
+    }
+    
+    // Increment version counter to force calendar rebuild (slots changed)
+    setSlotsVersion(prev => prev + 1)
+    
+    // Show success toast after a brief delay to ensure UI updates
+    setTimeout(() => {
+      toastRef.current.success(`Tasks calibrated! ${Object.keys(next).length} tasks scheduled.`)
+    }, 50)
   }
 
   const wrapperStyle: React.CSSProperties = fullScreen
@@ -581,15 +611,35 @@ function CalendarWeb({
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
           <Pressable
-            onPress={calibrate}
+            disabled={calibrating}
+            onPress={() => {
+              setCalibrating(true)
+              calibrate()
+              // Reset loading state after brief delay
+              setTimeout(() => setCalibrating(false), 500)
+            }}
             style={{
               flexDirection: 'row', alignItems: 'center', gap: 6,
               paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
-              backgroundColor: '#EEF2FF', borderWidth: 1, borderColor: '#C7D2FE',
+              backgroundColor: calibrating ? '#E0E7FF' : '#EEF2FF',
+              borderWidth: 1, borderColor: calibrating ? '#A5B4FC' : '#C7D2FE',
+              opacity: calibrating ? 0.7 : 1,
             }}
           >
-            <RefreshCw size={14} color="#6366F1" />
-            <Text style={{ fontSize: 13, fontWeight: '600', color: '#6366F1' }}>Calibrate</Text>
+            {/* Refresh icon - shows spinning when calibrating */}
+            {calibrating ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366F1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                <path d="M16 16h5v5" />
+              </svg>
+            ) : (
+              <RefreshCw size={14} color="#6366F1" />
+            )}
+            <Text style={{ fontSize: 13, fontWeight: '600', color: '#6366F1' }}>
+              {calibrating ? 'Calibrating...' : 'Calibrate'}
+            </Text>
           </Pressable>
           <Pressable
             onPress={toggleFullScreen}
