@@ -13,6 +13,7 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, net, protocol, screen, Tray, type Rectangle } from 'electron'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
+import * as fs from 'fs'
 import { IPC } from './ipc'
 import { initStateHub } from './state'
 
@@ -37,17 +38,65 @@ let tray: Tray | null = null
 // When false, closing a window only hides it (re-openable from the tray); set true on real quit.
 let isQuitting = false
 
+// Inline HTML for the loading spinner shown while the 5.1 MB JS bundle parses.
+// A centered pulsing ring in the brand color (#E8632A) on a light grey background.
+// Once React mounts, it replaces #root's innerHTML, so the spinner disappears automatically.
+const SPINNER_HTML = `
+  <style>
+    @keyframes cv-spin { to { transform: rotate(360deg); } }
+    #root {
+      display: flex;
+      height: 100%;
+      align-items: center;
+      justify-content: center;
+      background: #F5F5F5;
+    }
+    #cv-spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid #E5E7EB;
+      border-top-color: #E8632A;
+      border-radius: 50%;
+      animation: cv-spin 0.8s linear infinite;
+      will-change: transform;
+    }
+  </style>
+  <div id="cv-spinner"></div>
+`
+
 /** Load the bundle into a window, tagging the role via a query param the preload reads. */
 function loadRole(win: BrowserWindow, role: 'main' | 'floating'): void {
   const base = DEV_URL || APP_ORIGIN
   win.loadURL(`${base}/?cvwindow=${role}`)
 }
 
-/** Serve dist/ over app://bundle/. "/" maps to index.html; everything else maps 1:1 onto dist/. */
+/**
+ * Serve dist/ over app://bundle/.
+ *  - "/" (index.html): rewritten to inject a loading spinner inside #root so the user sees
+ *    a pulsing ring instead of a blank white screen while the 5.1 MB JS bundle parses.
+ *  - Everything else: streamed straight from disk.
+ */
 function registerBundleProtocol(): void {
   protocol.handle('app', (request) => {
     const { pathname } = new URL(request.url)
     const rel = pathname === '/' || pathname === '' ? '/index.html' : pathname
+
+    // Special-case index.html: rewrite it with a loading spinner.
+    if (rel === '/index.html') {
+      try {
+        const filePath = path.join(DIST_DIR, 'index.html')
+        let html = fs.readFileSync(filePath, 'utf-8')
+        html = html.replace('<div id="root"></div>', `<div id="root">${SPINNER_HTML}</div>`)
+        return new Response(html, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        })
+      } catch (err) {
+        console.error('[macos] failed to read index.html for spinner injection:', err)
+        // Fall through to default streaming fallback
+      }
+    }
+
+    // Default: stream from disk.
     const filePath = path.join(DIST_DIR, decodeURIComponent(rel))
     return net.fetch(pathToFileURL(filePath).toString())
   })
@@ -60,7 +109,12 @@ function createMainWindow(): void {
     minWidth: 480,
     minHeight: 480,
     titleBarStyle: 'hiddenInset',
+    show: false,
+    backgroundColor: '#F5F5F5',
     webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false, sandbox: false },
+  })
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
   })
   loadRole(mainWindow, 'main')
   mainWindow.webContents.on('did-finish-load', () => console.log('[macos] main window loaded'))
@@ -96,7 +150,12 @@ function createFloatingWindow(): void {
     fullscreenable: false,
     minimizable: false,
     maximizable: false,
+    show: false,
+    backgroundColor: '#FFFFFF',
     webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false, sandbox: false },
+  })
+  floatingWindow.once('ready-to-show', () => {
+    if (floatingWindow && !floatingWindow.isDestroyed()) floatingWindow.show()
   })
   // Float above everything, on every Space and monitor — including other apps' full-screen
   // spaces. 'screen-saver' is the highest window level (above a full-screen app's window);
@@ -112,6 +171,32 @@ function createFloatingWindow(): void {
   floatingWindow.on('show', refreshTrayMenu)
   floatingWindow.on('hide', refreshTrayMenu)
   floatingWindow.on('closed', () => { floatingWindow = null; refreshTrayMenu() })
+}
+
+/**
+ * Create the floating window after the main window has finished loading its bundle.
+ * This avoids two webContents parsing the 5.1 MB JS bundle concurrently, giving the main
+ * window the CPU for its first paint. Includes a 1.2 s fallback timer in case loading
+ * is slow or the did-finish-load never fires.
+ */
+function deferredCreateFloatingWindow(): void {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let done = false
+
+  function spawn() {
+    if (done) return
+    done = true
+    if (timer) { clearTimeout(timer); timer = null }
+    createFloatingWindow()
+  }
+
+  // Listen for main window load completion.
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.once('did-finish-load', spawn)
+  }
+
+  // Fallback timer — create floating window after 1.2 s regardless.
+  timer = setTimeout(spawn, 1200)
 }
 
 /** Show/focus the main window, recreating it if it was destroyed. */
@@ -173,7 +258,9 @@ app.whenReady().then(() => {
 
   buildTray()
   createMainWindow()
-  createFloatingWindow()
+  // Create the floating window after main window loads (with fallback), avoiding concurrent
+  // JS bundle parsing that causes white-screen delays.
+  deferredCreateFloatingWindow()
 
   app.on('activate', () => showMainWindow())
 })

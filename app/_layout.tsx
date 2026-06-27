@@ -1,6 +1,6 @@
 import '../src/global.css'
-import { useEffect } from 'react'
-import { Linking, View } from 'react-native'
+import { useEffect, useRef } from 'react'
+import { AppState, Linking, Platform, View, useColorScheme } from 'react-native'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -14,6 +14,19 @@ import { registerTaskHandlers } from '@/lib/sync/taskSyncHandlers'
 import { initClientIdentity } from '@/platform/clientIdentity'
 import { desktopRole, isDesktop } from '@/platform/desktopBridge'
 import { FloatingApp } from '@/features/pomodoro/FloatingApp'
+import { useTheme } from '@/features/settings/useTheme'
+
+// TEXTNODE-DEBUG: temporary interceptor to surface the React component stack for the
+// "Unexpected text node" warning. Remove once the offending file:line is found.
+if (typeof window !== 'undefined') {
+  const orig = console.error
+  console.error = (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].includes('Unexpected text node')) {
+      orig('TEXTNODE-DEBUG', ...args, new Error().stack)
+    }
+    orig(...args)
+  }
+}
 
 // MacOSElectronApp floating window: load only the token from storage, no sync/router/menu-bar.
 function FloatingAuthInit() {
@@ -67,6 +80,46 @@ function WidgetDeepLinkHandler() {
   return null
 }
 
+/** Wraps the app tree, applies the `dark` class on root for web, and keeps the effective
+ *  theme in sync with OS changes when mode is 'system'. */
+function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const resolved = useTheme((s) => s.resolved)
+  const syncSystem = useTheme((s) => s.syncSystem)
+  const systemScheme = useColorScheme()
+  const initialized = useRef(false)
+
+  // Apply dark class on the web document root + the wrapper View gets className="dark"
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      if (resolved === 'dark') {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
+    }
+    initialized.current = true
+  }, [resolved])
+
+  // Listen for OS color scheme changes (system mode) — native AppState
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') syncSystem(systemScheme ?? 'light')
+    })
+    return () => sub.remove()
+  }, [syncSystem, systemScheme])
+
+  // Also sync whenever systemScheme changes (react-native hook)
+  useEffect(() => {
+    if (initialized.current) syncSystem(systemScheme ?? 'light')
+  }, [systemScheme, syncSystem])
+
+  return (
+    <View className={`flex-1 ${resolved === 'dark' ? 'dark' : ''}`} style={{ backgroundColor: 'hsl(var(--background))' }}>
+      {children}
+    </View>
+  )
+}
+
 function RootLayout() {
   // In the Electron floating window, render the compact timer/Pomodoro UI instead of the
   // full app + router. Providers still wrap it so auth/createTask work.
@@ -89,17 +142,22 @@ function RootLayout() {
   // Electron-only — web/iOS/Android never set the desktop role, so this renders nowhere else.
   const mainDragStrip = isDesktop() && desktopRole() === 'main'
 
+  const resolved = useTheme((s) => s.resolved)
+  const sbStyle = resolved === 'dark' ? 'light' : 'dark'
+
   return (
     <GestureHandlerRootView className="flex-1">
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
-          <AppInitializer />
-          <WidgetDeepLinkHandler />
-          <StatusBar style="light" />
-          {mainDragStrip && (
-            <View {...{ dataSet: { cvDrag: 'true' } }} style={{ height: 28, paddingLeft: 72 }} />
-          )}
-          <Stack screenOptions={{ headerShown: false }} />
+          <ThemeProvider>
+            <AppInitializer />
+            <WidgetDeepLinkHandler />
+            <StatusBar style={sbStyle} />
+            {mainDragStrip && (
+              <View {...{ dataSet: { cvDrag: 'true' } }} style={{ height: 28, paddingLeft: 72 }} />
+            )}
+            <Stack screenOptions={{ headerShown: false }} />
+          </ThemeProvider>
         </ToastProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>

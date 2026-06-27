@@ -80,6 +80,16 @@ export async function closeTask(
   return enrichTask(response.data)
 }
 
+export async function markTaskIncomplete(
+  checklistId: number,
+  taskId: number
+): Promise<CheckvistTask> {
+  const response = await apiClient.post<CheckvistTask>(
+    `/checklists/${checklistId}/tasks/${taskId}/reopen`
+  )
+  return enrichTask(response.data)
+}
+
 export async function deleteTask(
   checklistId: number,
   taskId: number

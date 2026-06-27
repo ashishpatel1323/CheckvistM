@@ -4,7 +4,7 @@ import { useExecuteLog, summarizeDaySessions, collectDayBlocks, hasTimeOverlap, 
 import { useSystemLog } from './useSystemLog'
 import { clientColor } from '@/platform/clientIdentity'
 import { format, parseISO, addDays, subDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth, isToday } from 'date-fns'
-import { Cloud, ChevronLeft, ChevronRight, Calendar, CalendarDays, List } from 'lucide-react-native'
+import { Cloud, ChevronLeft, ChevronRight, Calendar, CalendarDays, List, Trash2 } from 'lucide-react-native'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -394,8 +394,53 @@ function CalendarPicker({ selected, onSelect, onClose }: {
 
 const IS_WEB = Platform.OS === 'web'
 
-function AgendaList({ blocks, taskNames, onPressBlock }: {
-  blocks: LogBlock[]; taskNames: Record<number, string>; onPressBlock: (b: LogBlock) => void
+// Inline two-step delete: trash icon → Confirm/✕. Stops propagation so the row's
+// edit-press never fires when interacting with the delete affordance.
+function RowDeleteButton({ onDelete, compact }: { onDelete: () => Promise<void> | void; compact?: boolean }) {
+  const [armed, setArmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const handleDelete = async () => {
+    setBusy(true)
+    try { await onDelete() }
+    catch (e) { console.error('Failed to delete session:', e); setBusy(false); setArmed(false) }
+  }
+
+  if (armed) {
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+        <Pressable
+          onPress={(e) => { e.stopPropagation(); if (!busy) handleDelete() }}
+          disabled={busy}
+          style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: busy ? '#FECACA' : '#EF4444' }}
+        >
+          <Text style={{ fontSize: 11, fontWeight: '700', color: 'white' }}>{busy ? '…' : 'Confirm'}</Text>
+        </Pressable>
+        <Pressable
+          onPress={(e) => { e.stopPropagation(); setArmed(false) }}
+          disabled={busy}
+          style={{ paddingHorizontal: 6, paddingVertical: 4, borderRadius: 6, backgroundColor: '#F3F4F6' }}
+        >
+          <Text style={{ fontSize: 11, fontWeight: '600', color: '#6B7280' }}>✕</Text>
+        </Pressable>
+      </View>
+    )
+  }
+
+  return (
+    <Pressable
+      onPress={(e) => { e.stopPropagation(); setArmed(true) }}
+      hitSlop={6}
+      style={{ padding: compact ? 4 : 6, borderRadius: 6, flexShrink: 0 }}
+    >
+      <Trash2 size={compact ? 14 : 16} color="#9CA3AF" />
+    </Pressable>
+  )
+}
+
+function AgendaList({ blocks, taskNames, onPressBlock, onDeleteBlock }: {
+  blocks: LogBlock[]; taskNames: Record<number, string>
+  onPressBlock: (b: LogBlock) => void; onDeleteBlock: (b: LogBlock) => Promise<void> | void
 }) {
   const sorted = [...blocks].sort((a, b) => bStart(a) - bStart(b))
   const name = (b: LogBlock) => taskNames[b.taskId] ?? b.taskName ?? `Task ${b.taskId}`
@@ -430,6 +475,7 @@ function AgendaList({ blocks, taskNames, onPressBlock }: {
               {name(block)}
             </Text>
             <Text style={{ fontSize: 11, color: '#6B7280', flexShrink: 0 }}>{fmtDur(bDur(block))}</Text>
+            <RowDeleteButton compact onDelete={() => onDeleteBlock(block)} />
           </Pressable>
         ))}
       </ScrollView>
@@ -465,6 +511,7 @@ function AgendaList({ blocks, taskNames, onPressBlock }: {
               </View>
             </View>
           </View>
+          <RowDeleteButton onDelete={() => onDeleteBlock(block)} />
         </Pressable>
       ))}
     </ScrollView>
@@ -473,7 +520,7 @@ function AgendaList({ blocks, taskNames, onPressBlock }: {
 
 export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { checklistId: number; taskNames: Record<number, string>; initialViewMode?: 'calendar' | 'agenda' }) {
   const { sessionLog, currentSessionKey, timerStartedAt, updateSessionTimes } = useExecuteLog()
-  const { remoteSessions, fetchTodaySessions, systemListId, addManualSession } = useSystemLog()
+  const { remoteSessions, fetchTodaySessions, systemListId, addManualSession, deleteSession } = useSystemLog()
   const [now, setNow]           = useState(() => new Date())
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [showCalendar, setShowCalendar] = useState(false)
@@ -751,7 +798,7 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
       )}
 
       {viewMode === 'agenda' ? (
-        <AgendaList blocks={visibleBlocks} taskNames={taskNames} onPressBlock={setEditingBlock} />
+        <AgendaList blocks={visibleBlocks} taskNames={taskNames} onPressBlock={setEditingBlock} onDeleteBlock={(b) => deleteSession(b.key)} />
       ) : (
       <ScrollView ref={scrollRef} style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         <View style={{ flexDirection: 'row', height: 24 * HOUR_H + 32 }}>

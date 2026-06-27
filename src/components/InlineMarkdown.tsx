@@ -10,16 +10,23 @@ interface InlineMarkdownProps {
 
 // Web: sanitized inline HTML. Native: regex-parsed styled Text spans.
 export function InlineMarkdown({ content, className }: InlineMarkdownProps) {
+  const safe = typeof content === 'string' ? content : String(content ?? '')
+
   if (Platform.OS === 'web') {
-    const html = DOMPurify.sanitize(marked.parseInline(content) as string, {
-      ALLOWED_TAGS: ['strong', 'em', 'code', 'del', 'a', 'span'],
-      ALLOWED_ATTR: ['href', 'title'],
-    })
+    let html = ''
+    try {
+      html = DOMPurify.sanitize(marked.parseInline(safe) as string, {
+        ALLOWED_TAGS: ['strong', 'em', 'code', 'del', 'a', 'span'],
+        ALLOWED_ATTR: ['href', 'title'],
+      })
+    } catch {
+      html = DOMPurify.sanitize(safe)
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return <span className={className} {...{ dangerouslySetInnerHTML: { __html: html } } as any} />
   }
 
-  return <Text className={className}>{parseInlineNative(content)}</Text>
+  return <Text className={className}>{parseInlineNative(safe)}</Text>
 }
 
 type Token = { type: 'text' | 'bold' | 'italic' | 'code' | 'del'; text: string }

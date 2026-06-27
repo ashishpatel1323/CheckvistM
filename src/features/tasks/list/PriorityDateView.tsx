@@ -1,8 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { View, Pressable, ScrollView, Platform, Modal } from 'react-native'
 import { Text as UIText } from '@/components/ui/text'
 import { ChevronDown, ChevronRight, ChevronUp, CalendarArrowUp } from 'lucide-react-native'
-import type { TaskNode } from '@/lib/taskTree'
+import type { TaskNode, HierarchyGroup } from '@/lib/taskTree'
+import { computeHierarchyGroup } from '@/lib/taskTree'
+import { useTaskSettings } from '@/features/settings/useTaskSettings'
 import type { GroupedTasks, DateGroup } from '@/lib/dateSort'
 import { PriorityTaskRow } from './PriorityTaskRow'
 import { classifyPriority } from '@/features/tasks/shared/PriorityPicker'
@@ -20,6 +22,7 @@ interface PriorityDateViewProps {
   focusedId: number | null
   setFocusedId: (id: number | null) => void
   checklistName?: string
+  getById: (id: number) => TaskNode | undefined
 }
 
 
@@ -35,6 +38,54 @@ export const PRIORITY_META: Record<PriorityBucket, { label: string; sublabel: st
 }
 
 export { classifyPriority }
+
+/**
+ * Single source of truth for "today's tasks grouped by priority".
+ *
+ * - Flat mode: each task under its own priority bucket.
+ * - Hierarchy mode: every visible root under its own priority, and every child
+ *   attributed to the priority bucket of its visible-root ancestor (so a subtree
+ *   always lives in one bucket). Every task is counted exactly once regardless
+ *   of expand/collapse state.
+ *
+ * Used by both the Tasks tab (DateGroupCard) and the Execute tab so their
+ * by-priority counts stay identical.
+ */
+export function bucketTasksByPriority(
+  tasks: TaskNode[],
+  hierarchy: HierarchyGroup | null,
+  getById: (id: number) => TaskNode | undefined,
+): Record<PriorityBucket, TaskNode[]> {
+  const b: Record<PriorityBucket, TaskNode[]> = { high: [], medium: [], low: [], tbd: [] }
+
+  if (hierarchy) {
+    // Visible roots keep their own priority
+    for (const root of hierarchy.visibleRoots) {
+      b[classifyPriority(root.priority)].push(root)
+    }
+    // Children are bucketed under their visible-root ancestor's priority
+    for (const [, children] of hierarchy.childMap) {
+      for (const child of children) {
+        const parentId = child.parent_id
+        const parent = parentId != null ? getById(parentId) : undefined
+        let ancestor: TaskNode | undefined = parent
+        while (ancestor && ancestor.parent_id != null) {
+          const currentId = ancestor.id
+          if (hierarchy.visibleRoots.some((r) => r.id === currentId)) break
+          const p = ancestor.parent_id != null ? getById(ancestor.parent_id) : undefined
+          if (!p) break
+          ancestor = p
+        }
+        const parentPriority = ancestor?.priority ?? child.priority
+        b[classifyPriority(parentPriority)].push(child)
+      }
+    }
+  } else {
+    for (const t of tasks) b[classifyPriority(t.priority)].push(t)
+  }
+
+  return b
+}
 
 // ─── Date group accent colors ─────────────────────────────────────────────────
 
@@ -67,6 +118,10 @@ function PrioritySubSection({
   focusedId,
   setFocusedId,
   isMobile,
+  hierarchy,
+  expandedRootIds,
+  onToggleExpand,
+  allTasksInGroup,
 }: {
   bucket: PriorityBucket
   tasks: TaskNode[]
@@ -75,6 +130,10 @@ function PrioritySubSection({
   focusedId: number | null
   setFocusedId: (id: number | null) => void
   isMobile: boolean
+  hierarchy: HierarchyGroup | null
+  expandedRootIds: Set<number>
+  onToggleExpand: (id: number) => void
+  allTasksInGroup: TaskNode[]
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const [localOrder, setLocalOrder] = useState<number[] | null>(null)
@@ -92,7 +151,6 @@ function PrioritySubSection({
     if (swap < 0 || swap >= next.length) return
     ;[next[idx], next[swap]] = [next[swap], next[idx]]
     setLocalOrder(next)
-    // Sync positions to API: assign positions based on new order
     next.forEach((id, pos) => {
       updateTask({ taskId: id, payload: { position: pos + 1 } })
     })
@@ -105,9 +163,29 @@ function PrioritySubSection({
     excess.forEach((t) => updateTask({ taskId: t.id, payload: { priority: 4 } }))
   }
 
-  // Keyboard: ArrowUp/ArrowDown moves focused task within this bucket
-  // Handled via focusedId + useEffect to detect keyboard
   const focusedIdx = orderedTasks.findIndex((t) => t.id === focusedId)
+
+  // ── In hierarchy mode, filter roots + children to this bucket ──
+  const { bucketRoots, bucketChildMap } = useMemo(() => {
+    if (!hierarchy) return { bucketRoots: null, bucketChildMap: null }
+
+    const bucketTaskIds = new Set(orderedTasks.map((t) => t.id))
+
+    // Roots visible in this bucket: those visible roots that are in this bucket
+    const roots = hierarchy.visibleRoots.filter((r) => bucketTaskIds.has(r.id))
+
+    // Children visible in this bucket: for each root, children that are in this bucket
+    const childMap = new Map<number, TaskNode[]>()
+    for (const root of roots) {
+      const allChildren = hierarchy.childMap.get(root.id) ?? []
+      const bucketChildren = allChildren.filter((c) => bucketTaskIds.has(c.id))
+      if (bucketChildren.length > 0) {
+        childMap.set(root.id, bucketChildren)
+      }
+    }
+
+    return { bucketRoots: roots, bucketChildMap: childMap }
+  }, [hierarchy, orderedTasks])
 
   return (
     <View>
@@ -135,7 +213,6 @@ function PrioritySubSection({
           </UIText>
           <UIText className="text-[11px]" style={{ color: meta.color, opacity: 0.65 }}>{meta.sublabel}</UIText>
         </View>
-        {/* Calibrate button — only on HIGH bucket when there are excess items */}
         {bucket === 'high' && tasks.length > MAX_HIGH && (
           <Pressable
             onPress={(e) => { e.stopPropagation(); calibrate() }}
@@ -157,33 +234,101 @@ function PrioritySubSection({
           : <ChevronDown size={14} color="#9CA3AF" />}
       </Pressable>
 
-      {!collapsed && orderedTasks.map((task, i) => (
-        <View key={task.id} style={{ flexDirection: 'row', alignItems: 'stretch' }}>
-          {/* Move up/down controls — always visible on web, hidden on mobile */}
-          {Platform.OS === 'web' && (
-            <View style={{ width: 22, flexDirection: 'column', justifyContent: 'center', backgroundColor: meta.bg, borderBottomWidth: i === orderedTasks.length - 1 ? 0 : 1, borderBottomColor: '#F3F4F6' }}>
-              <Pressable onPress={() => moveTask(i, -1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: i === 0 ? 0.2 : 0.6 }}>
-                <ChevronUp size={10} color={meta.color} />
-              </Pressable>
-              <Pressable onPress={() => moveTask(i, 1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: i === orderedTasks.length - 1 ? 0.2 : 0.6 }}>
-                <ChevronDown size={10} color={meta.color} />
-              </Pressable>
+      {!collapsed && (() => {
+        // ── Hierarchy mode rendering ──
+        if (hierarchy && bucketRoots) {
+          const rows: React.ReactNode[] = []
+          bucketRoots.forEach((root, ri) => {
+            const children = bucketChildMap?.get(root.id) ?? []
+            const hasChildren = children.length > 0
+            const isExpanded = expandedRootIds.has(root.id)
+            const isLastRoot = ri === bucketRoots.length - 1
+
+            // Root row
+            rows.push(
+              <View key={`root-${root.id}`} style={{ flexDirection: 'row', alignItems: 'stretch' }}>
+                {Platform.OS === 'web' && (
+                  <View style={{ width: 22, flexDirection: 'column', justifyContent: 'center', backgroundColor: meta.bg, borderBottomWidth: (isExpanded && hasChildren) ? 0 : (isLastRoot ? 0 : 1), borderBottomColor: '#F3F4F6' }}>
+                    <Pressable onPress={() => moveTask(orderedTasks.indexOf(root), -1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: orderedTasks.indexOf(root) === 0 ? 0.2 : 0.6 }}>
+                      <ChevronUp size={10} color={meta.color} />
+                    </Pressable>
+                    <Pressable onPress={() => moveTask(orderedTasks.indexOf(root), 1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: orderedTasks.indexOf(root) === orderedTasks.length - 1 ? 0.2 : 0.6 }}>
+                      <ChevronDown size={10} color={meta.color} />
+                    </Pressable>
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <PriorityTaskRow
+                    task={root}
+                    checklistId={checklistId}
+                    checklistName={checklistName}
+                    checkColor={meta.color}
+                    focusedId={focusedId}
+                    isLast={!isExpanded && !hasChildren && isLastRoot}
+                    onMoveUp={focusedIdx === orderedTasks.indexOf(root) ? () => moveTask(orderedTasks.indexOf(root), -1) : undefined}
+                    onMoveDown={focusedIdx === orderedTasks.indexOf(root) ? () => moveTask(orderedTasks.indexOf(root), 1) : undefined}
+                    indentLevel={0}
+                    expandable={hasChildren}
+                    expanded={isExpanded}
+                    onToggleExpand={hasChildren ? () => onToggleExpand(root.id) : undefined}
+                  />
+                </View>
+              </View>
+            )
+
+            // Children rows (all at indentLevel=1)
+            if (isExpanded && hasChildren) {
+              children.forEach((child, ci) => {
+                const isLastChild = ci === children.length - 1 && isLastRoot
+                rows.push(
+                  <View key={`child-${child.id}`} style={{ flexDirection: 'row', alignItems: 'stretch' }}>
+                    <View style={{ flex: 1 }}>
+                      <PriorityTaskRow
+                        task={child}
+                        checklistId={checklistId}
+                        checklistName={checklistName}
+                        checkColor={meta.color}
+                        focusedId={focusedId}
+                        isLast={isLastChild}
+                        indentLevel={1}
+                      />
+                    </View>
+                  </View>
+                )
+              })
+            }
+          })
+          return rows
+        }
+
+        // ── Flat mode rendering (original) ──
+        return orderedTasks.map((task, i) => (
+          <View key={task.id} style={{ flexDirection: 'row', alignItems: 'stretch' }}>
+            {Platform.OS === 'web' && (
+              <View style={{ width: 22, flexDirection: 'column', justifyContent: 'center', backgroundColor: meta.bg, borderBottomWidth: i === orderedTasks.length - 1 ? 0 : 1, borderBottomColor: '#F3F4F6' }}>
+                <Pressable onPress={() => moveTask(i, -1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: i === 0 ? 0.2 : 0.6 }}>
+                  <ChevronUp size={10} color={meta.color} />
+                </Pressable>
+                <Pressable onPress={() => moveTask(i, 1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: i === orderedTasks.length - 1 ? 0.2 : 0.6 }}>
+                  <ChevronDown size={10} color={meta.color} />
+                </Pressable>
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <PriorityTaskRow
+                task={task}
+                checklistId={checklistId}
+                checklistName={checklistName}
+                checkColor={meta.color}
+                focusedId={focusedId}
+                isLast={i === orderedTasks.length - 1}
+                onMoveUp={focusedIdx === i ? () => moveTask(i, -1) : undefined}
+                onMoveDown={focusedIdx === i ? () => moveTask(i, 1) : undefined}
+              />
             </View>
-          )}
-          <View style={{ flex: 1 }}>
-            <PriorityTaskRow
-              task={task}
-              checklistId={checklistId}
-              checklistName={checklistName}
-              checkColor={meta.color}
-              focusedId={focusedId}
-              isLast={i === orderedTasks.length - 1}
-              onMoveUp={focusedIdx === i ? () => moveTask(i, -1) : undefined}
-              onMoveDown={focusedIdx === i ? () => moveTask(i, 1) : undefined}
-            />
           </View>
-        </View>
-      ))}
+        ))
+      })()}
     </View>
   )
 }
@@ -197,6 +342,10 @@ function DateGroupCard({
   focusedId,
   setFocusedId,
   isMobile,
+  hierarchyMode,
+  getById,
+  expandedRootIds,
+  onToggleExpand,
 }: {
   group: GroupedTasks
   checklistId: number
@@ -204,6 +353,10 @@ function DateGroupCard({
   focusedId: number | null
   setFocusedId: (id: number | null) => void
   isMobile: boolean
+  hierarchyMode: boolean
+  getById: (id: number) => TaskNode | undefined
+  expandedRootIds: Set<number>
+  onToggleExpand: (id: number) => void
 }) {
   const [collapsed, setCollapsed] = useState(!DATE_GROUP_DEFAULT_OPEN[group.group])
   const [showMoveDialog, setShowMoveDialog] = useState(false)
@@ -213,11 +366,17 @@ function DateGroupCard({
   const accent = DATE_GROUP_COLOR[group.group]
   const isOverdue = group.group === 'overdue'
 
-  const buckets = useMemo(() => {
-    const b: Record<PriorityBucket, TaskNode[]> = { high: [], medium: [], low: [], tbd: [] }
-    for (const t of group.tasks) b[classifyPriority(t.priority)].push(t)
-    return b
-  }, [group.tasks])
+  // ── Compute hierarchy at the date group level (across all priorities) ──
+  const hierarchy = useMemo<HierarchyGroup | null>(() => {
+    if (!hierarchyMode) return null
+    return computeHierarchyGroup(group.tasks, getById)
+  }, [group.tasks, hierarchyMode, getById])
+
+  // In hierarchy mode, children are bucketed under their parent's priority.
+  const buckets = useMemo(
+    () => bucketTasksByPriority(group.tasks, hierarchyMode ? hierarchy : null, getById),
+    [group.tasks, hierarchy, hierarchyMode, getById],
+  )
 
   const activeBuckets = PRIORITY_BUCKETS.filter((b) => buckets[b].length > 0)
 
@@ -280,7 +439,6 @@ function DateGroupCard({
         <UIText className="text-base font-bold" style={{ color: accent }}>
           {group.label}
         </UIText>
-        {/* Move-all-to-today CTA — overdue card only */}
         {isOverdue && group.tasks.length > 0 && (
           <Pressable
             onPress={(e) => { e.stopPropagation(); setShowMoveDialog(true) }}
@@ -305,9 +463,24 @@ function DateGroupCard({
         <UIText className="text-xs mr-1" style={{ color: '#9CA3AF' }}>
           {group.tasks.length}
         </UIText>
-        {collapsed
-          ? <ChevronRight size={16} color="#9CA3AF" />
-          : <ChevronDown size={16} color="#9CA3AF" />}
+        <Pressable
+          hitSlop={8}
+          onPress={() => setCollapsed((v) => !v)}
+          style={{
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+            borderRadius: 8,
+            backgroundColor: '#F3F4F6',
+            borderWidth: 1,
+            borderColor: '#E5E7EB',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {collapsed
+            ? <ChevronRight size={18} color="#6B7280" />
+            : <ChevronDown size={18} color="#4772FA" />}
+        </Pressable>
       </Pressable>
 
 
@@ -322,6 +495,10 @@ function DateGroupCard({
           focusedId={focusedId}
           setFocusedId={setFocusedId}
           isMobile={isMobile}
+          hierarchy={hierarchy}
+          expandedRootIds={expandedRootIds}
+          onToggleExpand={onToggleExpand}
+          allTasksInGroup={group.tasks}
         />
       ))}
 
@@ -388,7 +565,21 @@ export function PriorityDateView({
   focusedId,
   setFocusedId,
   checklistName,
+  getById,
 }: PriorityDateViewProps) {
+  const { hierarchyMode } = useTaskSettings()
+  // Expanded state lives at the top level so it's shared across all buckets
+  const [expandedRootIds, setExpandedRootIds] = useState<Set<number>>(new Set())
+
+  const toggleExpand = useCallback((id: number) => {
+    setExpandedRootIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
   if (groups.length === 0) return null
 
   return (
@@ -397,6 +588,7 @@ export function PriorityDateView({
       contentContainerStyle={{ paddingTop: 12, paddingBottom: 32 }}
       showsVerticalScrollIndicator={false}
     >
+
       {groups.map((group) => (
         <DateGroupCard
           key={group.group}
@@ -406,6 +598,10 @@ export function PriorityDateView({
           focusedId={focusedId}
           setFocusedId={setFocusedId}
           isMobile={isMobile}
+          hierarchyMode={hierarchyMode}
+          getById={getById}
+          expandedRootIds={expandedRootIds}
+          onToggleExpand={toggleExpand}
         />
       ))}
     </ScrollView>

@@ -1,11 +1,12 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { View, Text, Pressable, useWindowDimensions, Platform, TextInput, KeyboardAvoidingView, Modal, ScrollView, Animated, Easing, TouchableWithoutFeedback, PanResponder, RefreshControl, type StyleProp, type ViewStyle } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, Menu, ChevronUp, ChevronDown, ChevronRight, GripVertical, TrendingUp, Play, Pause, type LucideIcon } from 'lucide-react-native'
+import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, Menu, ChevronUp, ChevronDown, ChevronRight, GripVertical, TrendingUp, Play, Pause, Settings, type LucideIcon } from 'lucide-react-native'
 import { ProgressTab } from '@/features/progress/ProgressTab'
 import { useTasksQuery } from './useTasksQuery'
 import { buildTaskTree } from '@/lib/taskTree'
-import { groupTasksByDate } from '@/lib/dateSort'
+import { diffTaskLists, formatTaskDiff } from '@/lib/diffTasks'
+import { groupTasksByDate, classifyTask } from '@/lib/dateSort'
 import { TaskSkeleton } from '@/components/TaskSkeleton'
 import { VirtualTaskList } from './VirtualTaskList'
 import { PriorityDateView } from './PriorityDateView'
@@ -37,8 +38,7 @@ import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
 import { TabBadge } from '@/components/TabBadge'
-import { FocusReminderButton } from '@/features/tasks/shared/FocusReminderButton'
-import { MenuBarButton } from '@/features/tasks/shared/MenuBarButton'
+import { SettingsView } from '@/features/settings/SettingsView'
 import { SyncButton } from '@/components/SyncButton'
 import { hapticSelection, hapticSuccess } from '@/lib/haptics'
 import { calculateTabBadges } from '@/lib/tabBadges'
@@ -746,6 +746,7 @@ const TABS: TabEntry[] = [
   { key: 'mindmap',  icon: Network,      label: 'Map',      shortcut: 'M' },
   { key: 'search',   icon: Search,       label: 'Search',   shortcut: 'S' },
   { key: 'raw',      icon: Globe,        label: 'Raw',      shortcut: 'W' },
+  { key: 'settings', icon: Settings,     label: 'Settings',  shortcut: ',' },
 ]
 
 export function TaskListView({ checklistId }: TaskListViewProps) {
@@ -771,14 +772,7 @@ const { view, setView, focusedTaskId } = useTaskView()
 
   const [showMoreSheet, setShowMoreSheet] = useState(false)
   const [customizing, setCustomizing] = useState(false)
-  const [pendingTabSwitch, setPendingTabSwitch] = useState<Parameters<typeof setView>[0] | null>(null)
-
   function guardedSetView(key: Parameters<typeof setView>[0]) {
-    const log = useExecuteLog.getState()
-    if (view === 'execute' && log.timerRunningKey && key !== 'execute') {
-      setPendingTabSwitch(key)
-      return
-    }
     setView(key)
   }
 
@@ -792,15 +786,56 @@ const { view, setView, focusedTaskId } = useTaskView()
 
   const { mutate: createTask, isPending } = useCreateTask(checklistId)
   const toast = useToast()
+
+  // Manual refresh: snapshot the list *before* refetch (the sync engine may mutate the
+  // cache mid-flight), then toast a counts-only summary of what changed.
+  async function handleManualRefresh() {
+    const snapshot = tasks ?? []
+    const res = await refetch()
+    if (snapshot.length === 0) return // cold first load — nothing to compare against
+    const d = diffTaskLists(snapshot, res.data ?? [])
+    toast.info(formatTaskDiff(d))
+  }
+
+  // Spin the refresh icon while any fetch is in flight.
+  const refreshSpin = useRef(new Animated.Value(0)).current
+  useEffect(() => {
+    if (!isFetching) {
+      refreshSpin.stopAnimation()
+      refreshSpin.setValue(0)
+      return
+    }
+    const loop = Animated.loop(
+      Animated.timing(refreshSpin, { toValue: 1, duration: 800, easing: Easing.linear, useNativeDriver: true })
+    )
+    loop.start()
+    return () => loop.stop()
+  }, [isFetching, refreshSpin])
+  const refreshRotate = refreshSpin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] })
+
   const { activeChecklistId } = useActiveChecklist()
   const { activeTimer, timerMinimized } = useRoutineStore()
   const { data: checklists } = useChecklists()
   const checklistName = checklists?.find((c) => c.id === activeChecklistId)?.name
 
-  const { groups, roots: taskRoots } = useMemo(() => {
-    if (!tasks) return { groups: [], roots: [] }
-    const { allNodes, roots } = buildTaskTree(tasks)
-    return { groups: groupTasksByDate(allNodes), roots }
+  const { groups, roots: taskRoots, getById } = useMemo(() => {
+    if (!tasks) return { groups: [], roots: [], getById: () => undefined }
+    const { allNodes, roots, getById } = buildTaskTree(tasks)
+    let finalGroups = groupTasksByDate(allNodes)
+
+    // Include completed today tasks
+    const completedToday = tasks
+      .filter((t) => t.status === 1 && classifyTask(t) === 'today')
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+    if (completedToday.length > 0) {
+      finalGroups = finalGroups.map((g) =>
+        g.group === 'today'
+          ? { ...g, tasks: [...g.tasks, ...completedToday] }
+          : g
+      )
+    }
+
+    return { groups: finalGroups, roots, getById }
   }, [tasks])
 
   // Badge calculations for tabs
@@ -931,10 +966,17 @@ const { view, setView, focusedTaskId } = useTaskView()
       </ScrollView>
       <View style={{ gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F1F5F9', alignItems: tabsCollapsed ? 'center' : 'flex-start', paddingHorizontal: tabsCollapsed ? 0 : 16 }}>
         <SyncButton onRefetch={() => void refetch()} />
-        <FocusReminderButton />
-        <MenuBarButton />
-        <Pressable hitSlop={8} onPress={() => refetch()} disabled={isFetching} style={{ opacity: isFetching ? 0.4 : 1 }}>
-          <RefreshCw size={20} color="#666" />
+        <Pressable
+          hitSlop={8}
+          onPress={() => setView('settings')}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8 }}
+        >
+          <Settings size={20} color="#666" />
+        </Pressable>
+        <Pressable hitSlop={8} onPress={handleManualRefresh}>
+          <Animated.View style={{ transform: [{ rotate: refreshRotate }] }}>
+            <RefreshCw size={20} color="#666" />
+          </Animated.View>
         </Pressable>
       </View>
     </View>
@@ -971,10 +1013,13 @@ const { view, setView, focusedTaskId } = useTaskView()
             ) : null}
           </View>
           <SyncButton onRefetch={() => void refetch()} />
-          <FocusReminderButton />
-          <MenuBarButton />
-          <Pressable hitSlop={8} onPress={() => refetch()} disabled={isFetching} style={{ opacity: isFetching ? 0.4 : 1 }}>
-            <RefreshCw size={20} color="#666" />
+          <Pressable hitSlop={8} onPress={() => setView('settings')} style={{ paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8 }}>
+            <Settings size={20} color="#666" />
+          </Pressable>
+          <Pressable hitSlop={8} onPress={handleManualRefresh}>
+            <Animated.View style={{ transform: [{ rotate: refreshRotate }] }}>
+              <RefreshCw size={20} color="#666" />
+            </Animated.View>
           </Pressable>
         </View>
       )}
@@ -1080,8 +1125,15 @@ const { view, setView, focusedTaskId } = useTaskView()
         <SearchView checklistId={checklistId} />
       )}
 
+      {/* ── Settings view ───────────────────────────────────────── */}
+      {view === 'settings' && (
+        <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
+          <SettingsView />
+        </View>
+      )}
+
       {/* ── Task views ──────────────────────────────────────────── */}
-      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'matrix' && view !== 'progress' && !isSearch && (
+      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'matrix' && view !== 'progress' && view !== 'settings' && !isSearch && (
         <>
           {isLoading && <TaskSkeleton count={8} />}
 
@@ -1117,7 +1169,7 @@ const { view, setView, focusedTaskId } = useTaskView()
               ) : undefined}
             >
               {view === 'date' && (
-                <PriorityDateView groups={groups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} />
+                <PriorityDateView groups={groups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} getById={getById} />
               )}
               {view === 'kanban' && (
                 <KanbanView groups={groups} roots={taskRoots} checklistId={checklistId} />
@@ -1304,35 +1356,6 @@ const { view, setView, focusedTaskId } = useTaskView()
         />
       )}
 
-      {/* ── Execute focus exit warning ───────────────────────────── */}
-      <Modal visible={pendingTabSwitch !== null} transparent animationType="fade">
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-          <View style={{ backgroundColor: 'white', borderRadius: 16, padding: 24, width: '100%', maxWidth: 360, gap: 16 }}>
-            <Text style={{ fontSize: 17, fontWeight: '800', color: '#111827' }}>Stay on track 🧠</Text>
-            <Text style={{ fontSize: 14, color: '#4B5563', lineHeight: 20 }}>
-              You are currently focusing on this task.{'\n'}Moving away will pause this session and log it.
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Pressable
-                onPress={() => setPendingTabSwitch(null)}
-                style={{ flex: 1, borderRadius: 10, paddingVertical: 12, backgroundColor: BLUE, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 14, fontWeight: '700', color: 'white' }}>Stay</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  useExecuteLog.getState().pause()
-                  setView(pendingTabSwitch!)
-                  setPendingTabSwitch(null)
-                }}
-                style={{ flex: 1, borderRadius: 10, paddingVertical: 12, backgroundColor: '#F3F4F6', alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#6B7280' }}>Leave & Pause</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
       </View>
     </View>
   )

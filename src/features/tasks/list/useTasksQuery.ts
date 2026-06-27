@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
-import { fetchTasks, createTask, updateTask, closeTask, deleteTask } from '@/api/endpoints'
+import { fetchTasks, createTask, updateTask, closeTask, markTaskIncomplete, deleteTask } from '@/api/endpoints'
 import type { CheckvistTask, CreateTaskPayload, UpdateTaskPayload } from '@/api/types'
 import { useAuth } from '@/auth/useAuth'
 import { useSyncState } from '@/lib/sync/syncState'
@@ -166,6 +166,43 @@ export function useCloseTask(checklistId: number) {
         recordTaskHistory('update', 'Task close queued for sync', String(taskId), 'synced', context?.taskContent)
       } else {
         recordTaskHistory('update', 'Task complete failed', String(taskId), 'failed', context?.taskContent)
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: key })
+    },
+  })
+}
+
+export function useMarkIncomplete(checklistId: number) {
+  const queryClient = useQueryClient()
+  const key = tasksQueryKey(checklistId)
+
+  return useMutation({
+    networkMode: 'offlineFirst',
+    mutationFn: (taskId: number) => markTaskIncomplete(checklistId, taskId),
+    onMutate: async (taskId) => {
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<CheckvistTask[]>(key)
+      const taskContent = previous?.find((t) => t.id === taskId)?.content
+
+      queryClient.setQueryData<CheckvistTask[]>(key, (old = []) =>
+        old.map((t) => (t.id === taskId ? { ...t, status: 0 } : t))
+      )
+      return { previous, taskContent }
+    },
+    onSuccess: (_data, taskId, context) => {
+      recordTaskHistory('update', 'Task reopened', String(taskId), 'synced', context?.taskContent)
+    },
+    onError: (err, taskId, context) => {
+      if (context?.previous !== undefined) queryClient.setQueryData(key, context.previous)
+      if (isNetworkError(err)) {
+        const localId = `${taskId}:${checklistId}`
+        enqueue('task', 'update', localId, { status: 0 })
+        refreshCounts()
+        recordTaskHistory('update', 'Task reopen queued for sync', String(taskId), 'synced', context?.taskContent)
+      } else {
+        recordTaskHistory('update', 'Task reopen failed', String(taskId), 'failed', context?.taskContent)
       }
     },
     onSettled: () => {

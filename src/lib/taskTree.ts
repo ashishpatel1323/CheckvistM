@@ -83,3 +83,59 @@ export function flattenTree(nodes: TaskNode[]): TaskNode[] {
   traverse(nodes)
   return result
 }
+
+// ─── Hierarchy mode helpers ────────────────────────────────────────────────
+
+export interface HierarchyGroup {
+  /** Tasks that should appear at top-level (no ancestor in this group). */
+  visibleRoots: TaskNode[]
+  /**
+   * For each visible root, the descendant tasks from the same date group
+   * (flattened — all depths appear at the same indent level).
+   */
+  childMap: Map<number, TaskNode[]>
+}
+
+/**
+ * Given a flat list of tasks that all belong to the same date group,
+ * determine which ones are "visible roots" (no ancestor also in this group)
+ * and which are "hidden children" (have an ancestor in this group).
+ *
+ * Returns:
+ * - `visibleRoots`: tasks to show at top level
+ * - `childMap`: for each root, the list of descendant tasks also in this group
+ *   (all depths flattened to the same level)
+ */
+export function computeHierarchyGroup(
+  tasks: TaskNode[],
+  getById: (id: number) => TaskNode | undefined,
+): HierarchyGroup {
+  const taskIdsInGroup = new Set(tasks.map((t) => t.id))
+  const visibleRoots: TaskNode[] = []
+  const childMap = new Map<number, TaskNode[]>()
+
+  for (const task of tasks) {
+    let ancestorInGroup = false
+    let currentParentId: number | null | undefined = task.parent_id
+
+    // Walk up the parent chain to find the closest ancestor in this group
+    while (currentParentId != null) {
+      if (taskIdsInGroup.has(currentParentId)) {
+        ancestorInGroup = true
+        const children = childMap.get(currentParentId) || []
+        children.push(task)
+        childMap.set(currentParentId, children)
+        break
+      }
+      const parentNode = getById(currentParentId)
+      if (!parentNode) break
+      currentParentId = parentNode.parent_id
+    }
+
+    if (!ancestorInGroup) {
+      visibleRoots.push(task)
+    }
+  }
+
+  return { visibleRoots, childMap }
+}

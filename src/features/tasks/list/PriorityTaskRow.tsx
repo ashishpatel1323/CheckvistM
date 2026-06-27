@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react'
 import { View, Pressable, Platform } from 'react-native'
 import { Text as UIText } from '@/components/ui/text'
 import { useRouter } from 'expo-router'
-import { Calendar } from 'lucide-react-native'
+import { Calendar, ChevronDown, ChevronRight } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
-import { useCloseTask, useUpdateTask } from './useTasksQuery'
+import { useCloseTask, useMarkIncomplete, useUpdateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
 import { hapticSuccess, hapticMedium } from '@/platform/haptics'
 import { QuickDatePicker } from '@/features/tasks/shared/QuickDatePicker'
@@ -33,6 +33,14 @@ interface PriorityTaskRowProps {
   isLast: boolean
   onMoveUp?: () => void
   onMoveDown?: () => void
+  /** Indent level for hierarchy mode (0 = top-level, 1+ = child). */
+  indentLevel?: number
+  /** Show expand/collapse chevron in hierarchy mode. */
+  expandable?: boolean
+  /** Whether the row is currently expanded (shows ▼ instead of ▶). */
+  expanded?: boolean
+  /** Called when the expand chevron is pressed. */
+  onToggleExpand?: () => void
 }
 
 export function PriorityTaskRow({
@@ -44,6 +52,10 @@ export function PriorityTaskRow({
   isLast,
   onMoveUp,
   onMoveDown,
+  indentLevel = 0,
+  expandable = false,
+  expanded = false,
+  onToggleExpand,
 }: PriorityTaskRowProps) {
   const router = useRouter()
   const setView = useTaskView((s) => s.setView)
@@ -53,6 +65,7 @@ export function PriorityTaskRow({
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
 
   const { mutate: closeTask } = useCloseTask(checklistId)
+  const { mutate: markIncomplete } = useMarkIncomplete(checklistId)
   const { mutate: updateTask } = useUpdateTask(checklistId)
   const toast = useToast()
 
@@ -71,10 +84,17 @@ export function PriorityTaskRow({
 
   const handleCheck = () => {
     hapticSuccess()
-    closeTask(task.id, {
-      onSuccess: () => toast.success('Task completed'),
-      onError: () => toast.error('Failed to complete task'),
-    })
+    if (task.status === 1) {
+      markIncomplete(task.id, {
+        onSuccess: () => toast.success('Task reopened'),
+        onError: () => toast.error('Failed to reopen task'),
+      })
+    } else {
+      closeTask(task.id, {
+        onSuccess: () => toast.success('Task completed'),
+        onError: () => toast.error('Failed to complete task'),
+      })
+    }
   }
 
   const dueDate = task.due ? parseApiDate(task.due) : null
@@ -87,9 +107,10 @@ export function PriorityTaskRow({
         onPress={() => router.push(`/${checklistId}/tasks/${task.id}`)}
         onLongPress={() => { hapticMedium(); setContextMenuOpen(true) }}
         delayLongPress={500}
-        className={`flex-row items-start px-3.5 py-2.5 gap-2.5 ${
+        className={`flex-row items-start py-2.5 gap-2.5 ${
           isLast ? '' : 'border-b border-border'
         } ${isFocused ? 'bg-secondary/10' : 'bg-background'}`}
+        style={{ paddingLeft: 14 + indentLevel * 24, flexDirection: 'row', alignItems: 'center' }}
       >
         {/* Square checkbox */}
         <Pressable
@@ -112,6 +133,28 @@ export function PriorityTaskRow({
             <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: 'white' }} />
           )}
         </Pressable>
+
+        {/* Expand chevron — shown for hierarchy parents */}
+        {expandable && (
+          <Pressable
+            onPress={(e) => { e.stopPropagation(); onToggleExpand?.() }}
+            hitSlop={10}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 12,
+              backgroundColor: '#F3F4F6',
+              borderWidth: 1,
+              borderColor: '#E5E7EB',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {expanded
+              ? <ChevronDown size={18} color="#4772FA" />
+              : <ChevronRight size={18} color="#6B7280" />}
+          </Pressable>
+        )}
 
         {/* Title + meta chips */}
         <View className="flex-1 min-w-0 gap-1">
