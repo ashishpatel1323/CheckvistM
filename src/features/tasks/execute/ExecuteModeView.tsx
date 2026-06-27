@@ -273,12 +273,13 @@ interface ProviderProps {
 export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpToMindmap, onCloseSidePanel, children }: ProviderProps) {
   const todayTasks = useMemo(() => {
     const { allNodes } = buildTaskTree(tasks)
-    const openTasks = allNodes.filter((t) => t.status === 0)
-    const completed = tasks
-      .filter((t) => t.status === 1)
+    const groups = groupTasksByDate(allNodes)
+    const todayGroup = groups.find((g) => g.group === 'today')?.tasks ?? []
+    const completedToday = tasks
+      .filter((t) => t.status === 1 && classifyTask(t) === 'today')
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
       .map((t) => ({ ...t, children: [], level: 1 }))
-    return [...openTasks, ...completed]
+    return [...todayGroup, ...completedToday]
   }, [tasks])
 
   const todayByPriority = useMemo(
@@ -332,8 +333,8 @@ export function ExecuteStateProvider({ tasks, checklistId, onJumpToRaw, onJumpTo
   const hierarchyData = useMemo(() => {
     if (!hierarchyMode) return null
     const { allNodes, getById } = buildTaskTree(tasks)
-    const openNodes = allNodes.filter((t) => t.status === 0)
-    return { group: computeHierarchyGroup(openNodes, getById), getById, todayNodes: openNodes }
+    const todayNodes = allNodes.filter((t) => classifyTask(t) === 'today')
+    return { group: computeHierarchyGroup(todayNodes, getById), getById, todayNodes }
   }, [tasks, hierarchyMode])
   const hierarchy = hierarchyData?.group ?? null
 

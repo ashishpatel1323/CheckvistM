@@ -174,13 +174,14 @@ function PrioritySubSection({
     // Roots visible in this bucket: those visible roots that are in this bucket
     const roots = hierarchy.visibleRoots.filter((r) => bucketTaskIds.has(r.id))
 
-    // Children visible in this bucket: for each root, children that are in this bucket
+    // Full parent→direct-children adjacency restricted to this bucket. hierarchy.childMap
+    // keys every in-group parent (not just roots), so keeping all of them lets the renderer
+    // recurse through children, grandchildren, etc. instead of stopping at one level.
     const childMap = new Map<number, TaskNode[]>()
-    for (const root of roots) {
-      const allChildren = hierarchy.childMap.get(root.id) ?? []
-      const bucketChildren = allChildren.filter((c) => bucketTaskIds.has(c.id))
+    for (const [parentId, children] of hierarchy.childMap) {
+      const bucketChildren = children.filter((c) => bucketTaskIds.has(c.id))
       if (bucketChildren.length > 0) {
-        childMap.set(root.id, bucketChildren)
+        childMap.set(parentId, bucketChildren)
       }
     }
 
@@ -235,69 +236,55 @@ function PrioritySubSection({
       </Pressable>
 
       {!collapsed && (() => {
-        // ── Hierarchy mode rendering ──
+        // ── Hierarchy mode rendering (recursive: children, grandchildren, …) ──
         if (hierarchy && bucketRoots) {
           const rows: React.ReactNode[] = []
-          bucketRoots.forEach((root, ri) => {
-            const children = bucketChildMap?.get(root.id) ?? []
-            const hasChildren = children.length > 0
-            const isExpanded = expandedRootIds.has(root.id)
-            const isLastRoot = ri === bucketRoots.length - 1
 
-            // Root row
+          const renderNode = (node: TaskNode, depth: number) => {
+            const children = bucketChildMap?.get(node.id) ?? []
+            const hasChildren = children.length > 0
+            const isExpanded = expandedRootIds.has(node.id)
+            const isRoot = depth === 0
+            const rootIdx = isRoot ? orderedTasks.indexOf(node) : -1
+
             rows.push(
-              <View key={`root-${root.id}`} style={{ flexDirection: 'row', alignItems: 'stretch' }}>
-                {Platform.OS === 'web' && (
-                  <View style={{ width: 22, flexDirection: 'column', justifyContent: 'center', backgroundColor: meta.bg, borderBottomWidth: (isExpanded && hasChildren) ? 0 : (isLastRoot ? 0 : 1), borderBottomColor: '#F3F4F6' }}>
-                    <Pressable onPress={() => moveTask(orderedTasks.indexOf(root), -1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: orderedTasks.indexOf(root) === 0 ? 0.2 : 0.6 }}>
+              <View key={`node-${node.id}`} style={{ flexDirection: 'row', alignItems: 'stretch' }}>
+                {/* Reorder column — only top-level roots can be reordered */}
+                {isRoot && Platform.OS === 'web' && (
+                  <View style={{ width: 22, flexDirection: 'column', justifyContent: 'center', backgroundColor: meta.bg }}>
+                    <Pressable onPress={() => moveTask(rootIdx, -1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: rootIdx === 0 ? 0.2 : 0.6 }}>
                       <ChevronUp size={10} color={meta.color} />
                     </Pressable>
-                    <Pressable onPress={() => moveTask(orderedTasks.indexOf(root), 1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: orderedTasks.indexOf(root) === orderedTasks.length - 1 ? 0.2 : 0.6 }}>
+                    <Pressable onPress={() => moveTask(rootIdx, 1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: rootIdx === orderedTasks.length - 1 ? 0.2 : 0.6 }}>
                       <ChevronDown size={10} color={meta.color} />
                     </Pressable>
                   </View>
                 )}
                 <View style={{ flex: 1 }}>
                   <PriorityTaskRow
-                    task={root}
+                    task={node}
                     checklistId={checklistId}
                     checklistName={checklistName}
                     checkColor={meta.color}
                     focusedId={focusedId}
-                    isLast={!isExpanded && !hasChildren && isLastRoot}
-                    onMoveUp={focusedIdx === orderedTasks.indexOf(root) ? () => moveTask(orderedTasks.indexOf(root), -1) : undefined}
-                    onMoveDown={focusedIdx === orderedTasks.indexOf(root) ? () => moveTask(orderedTasks.indexOf(root), 1) : undefined}
-                    indentLevel={0}
+                    isLast={false}
+                    onMoveUp={isRoot && focusedIdx === rootIdx ? () => moveTask(rootIdx, -1) : undefined}
+                    onMoveDown={isRoot && focusedIdx === rootIdx ? () => moveTask(rootIdx, 1) : undefined}
+                    indentLevel={depth}
                     expandable={hasChildren}
                     expanded={isExpanded}
-                    onToggleExpand={hasChildren ? () => onToggleExpand(root.id) : undefined}
+                    onToggleExpand={hasChildren ? () => onToggleExpand(node.id) : undefined}
                   />
                 </View>
               </View>
             )
 
-            // Children rows (all at indentLevel=1)
             if (isExpanded && hasChildren) {
-              children.forEach((child, ci) => {
-                const isLastChild = ci === children.length - 1 && isLastRoot
-                rows.push(
-                  <View key={`child-${child.id}`} style={{ flexDirection: 'row', alignItems: 'stretch' }}>
-                    <View style={{ flex: 1 }}>
-                      <PriorityTaskRow
-                        task={child}
-                        checklistId={checklistId}
-                        checklistName={checklistName}
-                        checkColor={meta.color}
-                        focusedId={focusedId}
-                        isLast={isLastChild}
-                        indentLevel={1}
-                      />
-                    </View>
-                  </View>
-                )
-              })
+              children.forEach((child) => renderNode(child, depth + 1))
             }
-          })
+          }
+
+          bucketRoots.forEach((root) => renderNode(root, 0))
           return rows
         }
 

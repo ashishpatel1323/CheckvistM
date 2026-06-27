@@ -4,12 +4,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LayoutList, AlignLeft, Network, Search, Plus, Calendar, Flag, Tag, ArrowRight, Globe, Timer, RefreshCw, ClipboardList, Repeat, LayoutGrid, X, MoreHorizontal, Menu, ChevronUp, ChevronDown, ChevronRight, GripVertical, TrendingUp, Play, Pause, Settings, type LucideIcon } from 'lucide-react-native'
 import { ProgressTab } from '@/features/progress/ProgressTab'
 import { useTasksQuery } from './useTasksQuery'
-import { buildTaskTree } from '@/lib/taskTree'
+import { buildTaskTree, computeHierarchyGroup, type TaskNode as TaskTreeNode } from '@/lib/taskTree'
 import { diffTaskLists, formatTaskDiff } from '@/lib/diffTasks'
 import { groupTasksByDate, classifyTask } from '@/lib/dateSort'
 import { TaskSkeleton } from '@/components/TaskSkeleton'
 import { VirtualTaskList } from './VirtualTaskList'
 import { PriorityDateView } from './PriorityDateView'
+import { RowInvokeContext } from './PriorityTaskRow'
+import { TIME_QUADRANTS, classifyTime, type TimeBucket } from './EisenhowerMatrixView'
+import { classifyPriority, type PriorityBucket, BUCKET_META } from '@/features/tasks/shared/PriorityPicker'
 import { GlobalTimerBar } from './GlobalTimerBar'
 import { useMenuBarSync } from '@/services/menuBarSync'
 import { useDesktopMainBridge } from './useDesktopMainBridge'
@@ -156,6 +159,239 @@ function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitVie
         </View>
 
         {/* Right panel: timer bar embedded inside raw/mindmap toolbars */}
+        {hasPanel && (
+          <View style={{ flex: 1, minWidth: 0, overflow: 'hidden', flexDirection: 'column' }}>
+            {rightPanel.type === 'raw' && (
+              <RawView
+                checklistId={checklistId}
+                taskId={rightPanel.taskId}
+                onClose={closeRaw}
+                timerBar={<RightPanelTimerBar onClose={closeRaw} />}
+              />
+            )}
+            {rightPanel.type === 'mindmap' && (
+              <MindMapView
+                tasks={tasks}
+                checklistId={checklistId}
+                focusedId={focusedId}
+                setFocusedId={setFocusedId}
+                initialFocusId={rightPanel.taskId}
+                rootTaskId={rightPanel.taskId}
+                timerBar={<RightPanelTimerBar onClose={() => setRightPanel(null)} />}
+              />
+            )}
+          </View>
+        )}
+      </View>
+    </ExecuteStateProvider>
+  )
+}
+
+interface Execute2SplitViewProps {
+  tasks: import('@/api/types').CheckvistTask[]
+  checklistId: number
+  onClose: () => void
+  groups: import('@/lib/dateSort').GroupedTasks[]
+  getById: (id: number) => import('@/lib/taskTree').TaskNode | undefined
+  checklistName?: string
+  taskRoots: import('@/lib/taskTree').TaskNode[]
+  isMobile: boolean
+}
+
+// Tree-aware search match — ported verbatim from the old Execute tab (ExecuteModeView).
+// A node "matches the subtree" if it matches OR any descendant matches.
+function subtreeHasMatch(
+  node: TaskTreeNode,
+  childMap: Map<number, TaskTreeNode[]>,
+  matches: (t: TaskTreeNode) => boolean,
+  memo: Map<number, boolean>,
+): boolean {
+  const cached = memo.get(node.id)
+  if (cached !== undefined) return cached
+  const kids = childMap.get(node.id) ?? []
+  const result = matches(node) || kids.some((k) => subtreeHasMatch(k, childMap, matches, memo))
+  memo.set(node.id, result)
+  return result
+}
+
+// Search + Time + Priority filter bar — ported from the old Execute tab (CalendarScheduleView).
+function Execute2FilterBar({
+  searchQuery, setSearchQuery,
+  timeFilter, setTimeFilter,
+  priorityFilter, setPriorityFilter,
+}: {
+  searchQuery: string
+  setSearchQuery: (v: string) => void
+  timeFilter: TimeBucket | 'all'
+  setTimeFilter: (v: TimeBucket | 'all') => void
+  priorityFilter: PriorityBucket | null
+  setPriorityFilter: (v: PriorityBucket | null) => void
+}) {
+  const INDIGO = '#6366F1'
+  const timeOptions: { key: TimeBucket | 'all'; label: string; color: string }[] = [
+    { key: 'all', label: 'All time filters', color: INDIGO },
+    ...TIME_QUADRANTS.map((q) => ({ key: q.bucket, label: q.label, color: q.color })),
+  ]
+  const priorityOptions: { key: PriorityBucket | null; label: string; color: string }[] = [
+    { key: null, label: 'All priorities', color: INDIGO },
+    ...(Object.entries(BUCKET_META) as [PriorityBucket, typeof BUCKET_META[PriorityBucket]][])
+      .map(([key, meta]) => ({ key, label: meta.label, color: meta.color })),
+  ]
+
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 8, gap: 8, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', backgroundColor: 'white' }}>
+      {/* Search */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>
+        <Search size={14} color={searchQuery !== '' ? INDIGO : '#94A3B8'} />
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search tasks"
+          placeholderTextColor="#94A3B8"
+          style={{ flex: 1, fontSize: 13, color: '#374151', paddingVertical: 0, ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null) }}
+        />
+        {searchQuery !== '' && (
+          <Pressable onPress={() => setSearchQuery('')} hitSlop={8} style={{ padding: 2 }}>
+            <X size={14} color="#94A3B8" />
+          </Pressable>
+        )}
+      </View>
+
+      {/* Time + Priority pill rows */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+        <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600', marginRight: 2 }}>Time</Text>
+        {timeOptions.map((opt) => {
+          const active = timeFilter === opt.key
+          return (
+            <Pressable
+              key={String(opt.key)}
+              onPress={() => setTimeFilter(active ? 'all' : opt.key)}
+              style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: active ? opt.color : '#F3F4F6', borderWidth: active ? 0 : 1, borderColor: active ? 'transparent' : '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 4 }}
+            >
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: active ? '#fff' : opt.color }} />
+              <Text style={{ fontSize: 12, fontWeight: active ? '600' : '500', color: active ? '#fff' : '#374151' }}>{opt.label}</Text>
+            </Pressable>
+          )
+        })}
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+        <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600', marginRight: 2 }}>Priority</Text>
+        {priorityOptions.map((opt) => {
+          const active = priorityFilter === opt.key
+          return (
+            <Pressable
+              key={String(opt.key)}
+              onPress={() => setPriorityFilter(active ? null : opt.key)}
+              style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: active ? opt.color : '#F3F4F6', borderWidth: active ? 0 : 1, borderColor: active ? 'transparent' : '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 4 }}
+            >
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: active ? '#fff' : opt.color }} />
+              <Text style={{ fontSize: 12, fontWeight: active ? '600' : '500', color: active ? '#fff' : '#374151' }}>{opt.label}</Text>
+            </Pressable>
+          )
+        })}
+      </View>
+    </View>
+  )
+}
+
+// Execute2: left = the "List" (date-grouped) view + two CTAs that open the raw/mindmap
+// pane on the right. The right pane is identical to ExecuteRawSplitView's — same RawView /
+// MindMapView / RightPanelTimerBar / timer auto-start — so its behavior matches Execute exactly.
+function Execute2SplitView({ tasks, checklistId, onClose, groups, getById, checklistName, taskRoots, isMobile }: Execute2SplitViewProps) {
+  const setLastRawTaskId = useExecuteLog((s) => s.setLastRawTaskId)
+  const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
+    const savedId = useExecuteLog.getState().lastRawTaskId
+    return savedId != null ? { type: 'raw', taskId: savedId } : null
+  })
+  const [focusedId, setFocusedId] = useState<number | null>(null)
+
+  function openRaw(taskId: number) {
+    setRightPanel({ type: 'raw', taskId })
+    setLastRawTaskId(taskId)
+    const log = useExecuteLog.getState()
+    const key = entryKey(checklistId, taskId)
+    if (!log.entries[key]) log.seed(key, taskId, DEFAULT_ESTIMATE)
+    if (log.timerRunningKey !== key) log.play(key)
+  }
+
+  function closeRaw() {
+    setRightPanel(null)
+    setLastRawTaskId(null)
+    useExecuteLog.getState().pause()
+  }
+
+  function openMindmap(taskId: number) {
+    setFocusedId(taskId)
+    setRightPanel({ type: 'mindmap', taskId })
+  }
+
+  // Auto-resume timer when returning with a raw panel still open
+  useEffect(() => {
+    if (rightPanel?.type === 'raw') {
+      const log = useExecuteLog.getState()
+      const key = entryKey(checklistId, rightPanel.taskId)
+      if (!log.entries[key]) log.seed(key, rightPanel.taskId, DEFAULT_ESTIMATE)
+      if (log.timerRunningKey !== key) log.play(key)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const hasPanel = rightPanel !== null
+  const leftWidth = hasPanel ? (isMobile ? 0 : '40%') : '100%'
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const invokeActions = useMemo(() => ({ onInvokeMindmap: openMindmap, onInvokeRaw: openRaw }), [])
+
+  // Search + Time/Priority filters — ported from the old Execute tab.
+  const [searchQuery, setSearchQuery] = useState('')
+  const [timeFilter, setTimeFilter] = useState<TimeBucket | 'all'>('all')
+  const [priorityFilter, setPriorityFilter] = useState<PriorityBucket | null>(null)
+
+  const filteredGroups = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (q === '' && timeFilter === 'all' && priorityFilter === null) return groups
+
+    const matches = (t: TaskTreeNode) =>
+      (q === '' || t.content.toLowerCase().includes(q)) &&
+      (timeFilter === 'all' || classifyTime(t) === timeFilter) &&
+      (priorityFilter === null || classifyPriority(t.priority) === priorityFilter)
+
+    return groups
+      .map((g) => {
+        // Tree-aware visibility (same rule as the old Execute tab): keep a task when it
+        // (or a descendant) matches — so an ancestor chain stays visible for context —
+        // OR when an ancestor matches, in which case the whole subtree under it is shown.
+        const { visibleRoots, childMap } = computeHierarchyGroup(g.tasks, getById)
+        const memo = new Map<number, boolean>()
+        const keep = new Set<number>()
+        const walk = (node: TaskTreeNode, ancestorMatched: boolean) => {
+          if (ancestorMatched || subtreeHasMatch(node, childMap, matches, memo)) keep.add(node.id)
+          const nowMatched = ancestorMatched || matches(node)
+          for (const c of childMap.get(node.id) ?? []) walk(c, nowMatched)
+        }
+        visibleRoots.forEach((r) => walk(r, false))
+        return { ...g, tasks: g.tasks.filter((t) => keep.has(t.id)) }
+      })
+      .filter((g) => g.tasks.length > 0)
+  }, [groups, getById, searchQuery, timeFilter, priorityFilter])
+
+  return (
+    <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={openRaw} onJumpToMindmap={openMindmap} onCloseSidePanel={() => { setRightPanel(null); setLastRawTaskId(null) }}>
+      <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden' }}>
+        {/* Left pane: filter bar + the List (date-grouped) view; each row gets Detail/Map/Raw. */}
+        <View style={{ width: leftWidth, minWidth: 0, overflow: 'hidden', borderRightWidth: hasPanel && !isMobile ? 1 : 0, borderRightColor: '#E5E7EB' }}>
+          <Execute2FilterBar
+            searchQuery={searchQuery} setSearchQuery={setSearchQuery}
+            timeFilter={timeFilter} setTimeFilter={setTimeFilter}
+            priorityFilter={priorityFilter} setPriorityFilter={setPriorityFilter}
+          />
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            <RowInvokeContext.Provider value={invokeActions}>
+              <PriorityDateView groups={filteredGroups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} getById={getById} />
+            </RowInvokeContext.Provider>
+          </ScrollView>
+        </View>
+
+        {/* Right panel: identical to ExecuteRawSplitView */}
         {hasPanel && (
           <View style={{ flex: 1, minWidth: 0, overflow: 'hidden', flexDirection: 'column' }}>
             {rightPanel.type === 'raw' && (
@@ -739,6 +975,7 @@ const TABS: TabEntry[] = [
   { key: 'kanban',   icon: LayoutGrid,   label: 'Kanban',   shortcut: 'K' },
   { key: 'matrix',   icon: Network,      label: 'Matrix',   shortcut: 'X' },
   { key: 'execute',  icon: Timer,        label: 'Execute',  shortcut: 'E' },
+  { key: 'execute2', icon: Timer,        label: 'Execute2', shortcut: '2' },
   { key: 'progress', icon: TrendingUp,   label: 'Progress', shortcut: 'P' },
   { key: 'log',      icon: ClipboardList,label: 'Log',      shortcut: 'L' },
   { key: 'routines', icon: Repeat,       label: 'Routines', shortcut: 'R' },
@@ -1090,6 +1327,22 @@ const { view, setView, focusedTaskId } = useTaskView()
         )
       )}
 
+      {/* ── Execute2 view (List left + raw/mindmap right) ───────── */}
+      {view === 'execute2' && tasks && (
+        <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
+          <Execute2SplitView
+            tasks={tasks}
+            checklistId={checklistId}
+            onClose={() => setView('date')}
+            groups={groups}
+            getById={getById}
+            checklistName={checklistName}
+            taskRoots={taskRoots}
+            isMobile={isMobile}
+          />
+        </View>
+      )}
+
       {/* ── Execution log view ──────────────────────────────────── */}
       {view === 'log' && (
         <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
@@ -1133,7 +1386,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       )}
 
       {/* ── Task views ──────────────────────────────────────────── */}
-      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'matrix' && view !== 'progress' && view !== 'settings' && !isSearch && (
+      {view !== 'raw' && view !== 'execute' && view !== 'execute2' && view !== 'log' && view !== 'routines' && view !== 'matrix' && view !== 'progress' && view !== 'settings' && !isSearch && (
         <>
           {isLoading && <TaskSkeleton count={8} />}
 
@@ -1191,7 +1444,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       {/* Mobile FAB — shown on all views except raw/search/execute. Suppressed on Execute
           since creating a task isn't that tab's primary action, and the FAB otherwise floats
           on top of the last visible task row in a screen that's already dense. */}
-      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && view !== 'routines' && view !== 'execute' && !showFabInput && (
+      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && view !== 'routines' && view !== 'execute' && view !== 'execute2' && !showFabInput && (
         <Pressable
           onPress={() => setShowFabInput(true)}
           className="absolute right-5 items-center justify-center rounded-full"

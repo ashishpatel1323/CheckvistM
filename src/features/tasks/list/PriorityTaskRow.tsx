@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, createContext, useContext } from 'react'
 import { View, Pressable, Platform } from 'react-native'
 import { Text as UIText } from '@/components/ui/text'
 import { useRouter } from 'expo-router'
-import { Calendar, ChevronDown, ChevronRight } from 'lucide-react-native'
+import { Calendar, ChevronDown, ChevronRight, Network, Globe, FileText, Check } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
 import { useCloseTask, useMarkIncomplete, useUpdateTask } from './useTasksQuery'
@@ -17,6 +17,17 @@ import { updateDurationTag } from '@/lib/durationTagUtils'
 import { useTaskView } from './useTaskView'
 import { isPast, isToday } from 'date-fns'
 import { priorityDisplay, priorityTextColor, priorityRowBg } from '@/features/tasks/shared/PriorityPicker'
+
+/**
+ * Optional per-row "Invoke" actions. When a provider supplies handlers (Execute2 tab),
+ * each task row renders Map / Raw buttons that open that task in the right split pane.
+ * Absent (default, e.g. the List tab) → no buttons, rows render unchanged.
+ */
+export interface RowInvokeActions {
+  onInvokeMindmap: (taskId: number) => void
+  onInvokeRaw: (taskId: number) => void
+}
+export const RowInvokeContext = createContext<RowInvokeActions | null>(null)
 
 export const COL_TAGS = 110
 export const COL_TIME = 52
@@ -59,6 +70,7 @@ export function PriorityTaskRow({
 }: PriorityTaskRowProps) {
   const router = useRouter()
   const setView = useTaskView((s) => s.setView)
+  const invoke = useContext(RowInvokeContext)
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
   const [showDurationPicker, setShowDurationPicker] = useState(false)
@@ -104,13 +116,24 @@ export function PriorityTaskRow({
   return (
     <>
       <Pressable
-        onPress={() => router.push(`/${checklistId}/tasks/${task.id}`)}
+        // In Execute2 (invoke actions present) the whole card is NOT clickable — navigation
+        // happens via the explicit "Detail" CTA instead. Elsewhere the row opens the detail page.
+        onPress={invoke ? undefined : () => router.push(`/${checklistId}/tasks/${task.id}`)}
         onLongPress={() => { hapticMedium(); setContextMenuOpen(true) }}
         delayLongPress={500}
         className={`flex-row items-start py-2.5 gap-2.5 ${
           isLast ? '' : 'border-b border-border'
         } ${isFocused ? 'bg-secondary/10' : 'bg-background'}`}
-        style={{ paddingLeft: 14 + indentLevel * 24, flexDirection: 'row', alignItems: 'center' }}
+        style={{
+          paddingLeft: 14,
+          // Child rows are stepped in with a visible guide line so nesting is obvious.
+          marginLeft: indentLevel * 28,
+          borderLeftWidth: indentLevel > 0 ? 2 : 0,
+          borderLeftColor: '#C7D2FE',
+          backgroundColor: indentLevel > 0 ? '#F8FAFF' : undefined,
+          flexDirection: 'row',
+          alignItems: 'center',
+        }}
       >
         {/* Square checkbox */}
         <Pressable
@@ -120,7 +143,7 @@ export function PriorityTaskRow({
             width: 20,
             height: 20,
             marginTop: 1,
-            borderRadius: 4,
+            borderRadius: 10,
             borderWidth: 2,
             borderColor: checkColor,
             backgroundColor: task.status === 1 ? checkColor : 'transparent',
@@ -130,7 +153,7 @@ export function PriorityTaskRow({
           }}
         >
           {task.status === 1 && (
-            <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: 'white' }} />
+            <Check size={13} color="white" strokeWidth={3} />
           )}
         </Pressable>
 
@@ -215,6 +238,36 @@ export function PriorityTaskRow({
                 {task.tags_as_text.split(/\s+/).filter(Boolean).map((t) => (t.startsWith('#') ? t : `#${t}`)).join(' ')}
               </UIText>
             ) : null}
+
+            {/* Invoke actions — Execute2 only (present when RowInvokeContext provided) */}
+            {invoke && (
+              <>
+                <Pressable
+                  onPress={(e) => { e.stopPropagation?.(); router.push(`/${checklistId}/tasks/${task.id}`) }}
+                  hitSlop={6}
+                  className="flex-row items-center gap-1 rounded px-1.5 py-0.5 border border-border bg-background"
+                >
+                  <FileText size={10} color="#6366F1" />
+                  <UIText className="text-[10px] font-semibold" style={{ color: '#6366F1' }}>Detail</UIText>
+                </Pressable>
+                <Pressable
+                  onPress={(e) => { e.stopPropagation?.(); invoke.onInvokeMindmap(task.id) }}
+                  hitSlop={6}
+                  className="flex-row items-center gap-1 rounded px-1.5 py-0.5 border border-border bg-background"
+                >
+                  <Network size={10} color="#6366F1" />
+                  <UIText className="text-[10px] font-semibold" style={{ color: '#6366F1' }}>Map</UIText>
+                </Pressable>
+                <Pressable
+                  onPress={(e) => { e.stopPropagation?.(); invoke.onInvokeRaw(task.id) }}
+                  hitSlop={6}
+                  className="flex-row items-center gap-1 rounded px-1.5 py-0.5 border border-border bg-background"
+                >
+                  <Globe size={10} color="#6366F1" />
+                  <UIText className="text-[10px] font-semibold" style={{ color: '#6366F1' }}>Raw</UIText>
+                </Pressable>
+              </>
+            )}
           </View>
         </View>
       </Pressable>
