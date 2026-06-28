@@ -30,6 +30,7 @@ import { useToast } from '@/components/Toast'
 import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList, TodaySessionsCard, ExecuteViewContent, useExecCtx } from '@/features/tasks/execute/ExecuteModeView'
 import { useSystemLog } from '@/features/tasks/execute/useSystemLog'
 import { useExecuteLog, summarizeDaySessions, entryKey, DEFAULT_ESTIMATE } from '@/features/tasks/execute/useExecuteLog'
+import { CalendarScheduleView } from '@/features/tasks/calendar/CalendarScheduleView'
 import { format } from 'date-fns'
 import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
@@ -294,6 +295,96 @@ function Execute2FilterBar({
   )
 }
 
+// Left pane of Execute2 — toggles between the date-grouped List and the Calendar schedule
+// (the same CalendarScheduleView used by the old Execute tab). Lives inside ExecuteStateProvider
+// so the calendar can pull live ordered tasks / timers / jump callbacks from the context.
+function Execute2LeftPane({
+  checklistId, isMobile, focusedId, setFocusedId, checklistName, getById,
+  invokeActions, filteredGroups,
+  searchQuery, setSearchQuery, timeFilter, setTimeFilter, priorityFilter, setPriorityFilter,
+}: {
+  checklistId: number
+  isMobile: boolean
+  focusedId: number | null
+  setFocusedId: (id: number | null) => void
+  checklistName?: string
+  getById: (id: number) => TaskTreeNode | undefined
+  invokeActions: { onInvokeMindmap: (id: number) => void; onInvokeRaw: (id: number) => void }
+  filteredGroups: import('@/lib/dateSort').GroupedTasks[]
+  searchQuery: string
+  setSearchQuery: (v: string) => void
+  timeFilter: TimeBucket | 'all'
+  setTimeFilter: (v: TimeBucket | 'all') => void
+  priorityFilter: PriorityBucket | null
+  setPriorityFilter: (v: PriorityBucket | null) => void
+}) {
+  const [leftView, setLeftView] = useState<'list' | 'calendar'>('list')
+  const ctx = useExecCtx()
+  const INDIGO = '#6366F1'
+
+  // Calendar consumes the same shared filters (flat): pre-filter its task set so the common
+  // search + Time/Priority bar drives both views.
+  const calendarTasks = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (q === '' && timeFilter === 'all' && priorityFilter === null) return ctx.orderedTasks
+    return ctx.orderedTasks.filter((t) =>
+      (q === '' || t.content.toLowerCase().includes(q)) &&
+      (timeFilter === 'all' || classifyTime(t) === timeFilter) &&
+      (priorityFilter === null || classifyPriority(t.priority) === priorityFilter)
+    )
+  }, [ctx.orderedTasks, searchQuery, timeFilter, priorityFilter])
+
+  return (
+    <View style={{ flex: 1, minHeight: 0 }}>
+      {/* List / Calendar sub-view toggle */}
+      <View style={{ flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 }}>
+        {(['list', 'calendar'] as const).map((v) => {
+          const active = leftView === v
+          return (
+            <Pressable
+              key={v}
+              onPress={() => setLeftView(v)}
+              style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8, backgroundColor: active ? INDIGO : '#F3F4F6', borderWidth: active ? 0 : 1, borderColor: '#E5E7EB' }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '600', color: active ? '#fff' : '#374151' }}>{v === 'list' ? 'List' : 'Calendar'}</Text>
+            </Pressable>
+          )
+        })}
+      </View>
+
+      {/* Common search + Time/Priority filter bar — drives both List and Calendar */}
+      <Execute2FilterBar
+        searchQuery={searchQuery} setSearchQuery={setSearchQuery}
+        timeFilter={timeFilter} setTimeFilter={setTimeFilter}
+        priorityFilter={priorityFilter} setPriorityFilter={setPriorityFilter}
+      />
+
+      {leftView === 'list' ? (
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+          <RowInvokeContext.Provider value={invokeActions}>
+            <PriorityDateView groups={filteredGroups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} getById={getById} />
+          </RowInvokeContext.Provider>
+        </ScrollView>
+      ) : (
+        <View style={{ flex: 1, minHeight: 0 }}>
+          <CalendarScheduleView
+            tasks={calendarTasks}
+            checklistId={checklistId}
+            getEstimateMin={(t) => ctx.getEntry(t.id)?.estimateMin ?? DEFAULT_ESTIMATE}
+            jumpTo={ctx.jumpTo}
+            playTask={(index) => ctx.playTask(index)}
+            updateTask={ctx.updateTask}
+            onJumpToRaw={ctx.onJumpToRaw}
+            onJumpToMindmap={ctx.onJumpToMindmap}
+            onExpand={ctx.onCloseSidePanel}
+            hideFilters
+          />
+        </View>
+      )}
+    </View>
+  )
+}
+
 // Execute2: left = the "List" (date-grouped) view + two CTAs that open the raw/mindmap
 // pane on the right. The right pane is identical to ExecuteRawSplitView's — same RawView /
 // MindMapView / RightPanelTimerBar / timer auto-start — so its behavior matches Execute exactly.
@@ -377,18 +468,17 @@ function Execute2SplitView({ tasks, checklistId, onClose, groups, getById, check
   return (
     <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={openRaw} onJumpToMindmap={openMindmap} onCloseSidePanel={() => { setRightPanel(null); setLastRawTaskId(null) }}>
       <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden' }}>
-        {/* Left pane: filter bar + the List (date-grouped) view; each row gets Detail/Map/Raw. */}
+        {/* Left pane: List / Calendar toggle; each List row gets Detail/Map/Raw. */}
         <View style={{ width: leftWidth, minWidth: 0, overflow: 'hidden', borderRightWidth: hasPanel && !isMobile ? 1 : 0, borderRightColor: '#E5E7EB' }}>
-          <Execute2FilterBar
+          <Execute2LeftPane
+            checklistId={checklistId} isMobile={isMobile}
+            focusedId={focusedId} setFocusedId={setFocusedId}
+            checklistName={checklistName} getById={getById}
+            invokeActions={invokeActions} filteredGroups={filteredGroups}
             searchQuery={searchQuery} setSearchQuery={setSearchQuery}
             timeFilter={timeFilter} setTimeFilter={setTimeFilter}
             priorityFilter={priorityFilter} setPriorityFilter={setPriorityFilter}
           />
-          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-            <RowInvokeContext.Provider value={invokeActions}>
-              <PriorityDateView groups={filteredGroups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} getById={getById} />
-            </RowInvokeContext.Provider>
-          </ScrollView>
         </View>
 
         {/* Right panel: identical to ExecuteRawSplitView */}

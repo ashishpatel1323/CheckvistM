@@ -25,6 +25,8 @@ export interface CalendarScheduleViewProps {
   onJumpToMindmap?: (taskId: number) => void
   onExpand?: () => void
   searchQuery?: string
+  /** Hide the built-in Time/Priority pill rows (an external shared filter bar drives them). */
+  hideFilters?: boolean
 }
 
 function minutesOf(d: Date): number {
@@ -68,7 +70,7 @@ export function CalendarScheduleView(props: CalendarScheduleViewProps) {
 }
 
 function CalendarWeb({
-  tasks, checklistId, getEstimateMin, jumpTo, playTask, updateTask, onJumpToRaw, onJumpToMindmap, onExpand, searchQuery,
+  tasks, checklistId, getEstimateMin, jumpTo, playTask, updateTask, onJumpToRaw, onJumpToMindmap, onExpand, searchQuery, hideFilters,
 }: CalendarScheduleViewProps) {
   const { mutate: closeTask } = useCloseTask(checklistId)
   const toast = useToast()
@@ -545,6 +547,7 @@ function CalendarWeb({
   return (
     <div style={wrapperStyle}>
       <div style={{ ...toolbarStyle, flexWrap: 'wrap', gap: 6 }}>
+        {!hideFilters && (<>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600', marginRight: 2 }}>Time</Text>
           {([
@@ -609,6 +612,7 @@ function CalendarWeb({
             )
           })}
         </View>
+        </>)}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
           <Pressable
             disabled={calibrating}
