@@ -13,9 +13,11 @@ import { ROUTINE_COLORS } from './routineTypes'
 import type { RoutineDef, RoutineStep, HabitStatus } from './routineTypes'
 import { getPendingRoutineStepIds, getStepStatus } from './routineSchedule'
 import { HabitRowContent } from './HabitRowContent'
+import { colors, radii, space, routineUI } from '../../../design/tokens'
 
 export const BLUE = '#4772FA'
 export const FAILURE_RED = '#DC2626'
+export const TODAY_PURPLE = '#7C3AED'
 
 // Dark red (0%) → amber (50%) → dark green (100%)
 function completionColor(fraction: number): string {
@@ -189,33 +191,27 @@ interface DayColHeaderProps {
 function DayColHeader({ date, completionFraction, doneCount, totalCount, colWidth, selected }: DayColHeaderProps) {
   const today = isToday(date)
   const future = isFuture(date) && !today
-  const R = 15
-  const C = 2 * R
+  // Ring badge sized to fit column.
+  const C = Math.min(40, Math.max(32, colWidth - 4))
+  const R = C / 2
 
-  const ringColor = future ? '#E5E7EB' : completionColor(completionFraction)
-  const activeColor = selected ? BLUE : today ? BLUE : '#374151'
+  const ringColor = future ? colors.border : completionColor(completionFraction)
+  // Date number: purple for today, blue when selected, near-black otherwise.
+  const numColor = today ? TODAY_PURPLE : selected ? BLUE : colors.textPrimary
   return (
-    <View style={{ width: colWidth, alignItems: 'center', gap: 2 }}>
-      <Text style={{ fontSize: 13, fontWeight: '700', color: activeColor }}>
+    <View style={{ width: colWidth, alignItems: 'center', gap: 5 }}>
+      <Text style={{ fontSize: 17, fontWeight: '800', color: numColor }}>
         {format(date, 'd')}
       </Text>
       <View style={{
         width: C, height: C, borderRadius: R,
-        borderWidth: 2.5,
+        borderWidth: 2,
         borderColor: ringColor,
+        backgroundColor: 'transparent',
         opacity: future ? 0.4 : 1,
         alignItems: 'center', justifyContent: 'center',
-        overflow: 'hidden',
       }}>
-        {!future && completionFraction > 0 && completionFraction < 1 && (
-          <View style={{
-            position: 'absolute', bottom: 0, left: 0, right: 0,
-            height: `${Math.round(completionFraction * 100)}%`,
-            backgroundColor: ringColor,
-            opacity: 0.15,
-          }} />
-        )}
-        <Text style={{ fontSize: 8, color: future ? '#9CA3AF' : ringColor, fontWeight: '700' }}>
+        <Text numberOfLines={1} style={{ fontSize: 8, color: ringColor, fontWeight: '700' }}>
           {doneCount}/{totalCount}
         </Text>
       </View>
@@ -224,8 +220,6 @@ function DayColHeader({ date, completionFraction, doneCount, totalCount, colWidt
 }
 
 // ─── HabitCircle ─────────────────────────────────────────────────────────────
-
-import type { HabitStatus } from './routineTypes'
 
 export interface HabitCircleProps {
   status: HabitStatus
@@ -354,9 +348,9 @@ function HabitRow(props: HabitRowProps & { isMobile?: boolean }) {
       <View
         style={{
           flexDirection: 'row', alignItems: 'center',
-          paddingVertical: 8, paddingHorizontal: 12,
-          backgroundColor: isSelected ? BLUE + '08' : '#fff',
-          borderBottomWidth: 1, borderBottomColor: '#F5F5F5',
+          paddingVertical: space.sm + 2, paddingHorizontal: space.md,
+          backgroundColor: isSelected ? accentColor + '10' : colors.bgPrimary,
+          borderBottomWidth: 1, borderBottomColor: colors.border,
           borderLeftWidth: isSelected ? 3 : 0,
           borderLeftColor: isSelected ? accentColor : 'transparent',
         }}
@@ -452,23 +446,31 @@ function RoutineGroup({
   }).length
 
   return (
-    <View style={{ marginBottom: 8 }}>
-      {/* Group header */}
+    <View style={{
+      backgroundColor: colors.bgPrimary,
+      borderRadius: routineUI.cardRadius,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+      marginBottom: routineUI.cardGap,
+      shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
+      elevation: 1,
+    }}>
+      {/* Group header — soft accent tint */}
       <Pressable
         onPress={() => setCollapsed((v) => !v)}
         style={{
           flexDirection: 'row', alignItems: 'center',
-          paddingHorizontal: 16, paddingVertical: 10,
-          backgroundColor: '#F9FAFB',
-          borderTopWidth: 1, borderTopColor: '#EFEFEF',
+          paddingHorizontal: space.md, paddingVertical: space.md,
+          backgroundColor: accentColor + routineUI.headerTintAlpha,
         }}
       >
         {collapsed
           ? <ChevronRightIcon size={14} color={accentColor} />
           : <ChevronDown size={14} color={accentColor} />
         }
-        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: accentColor, marginHorizontal: 8 }} />
-        <Text style={{ flex: 1, fontSize: 14, fontWeight: '700', color: '#111' }}>
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: accentColor, marginHorizontal: space.sm }} />
+        <Text style={{ flex: 1, fontSize: 14, fontWeight: '700', color: colors.textPrimary }} numberOfLines={1}>
           {routine.name}
         </Text>
         <Text style={{
@@ -886,6 +888,24 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
 
   const visibleDates = viewMode === 'week' ? weekDates : [selectedDate]
 
+  // Routines with at least one step matching the active filter for the selected date.
+  // Mirrors RoutineGroup's own filter so empty cards don't leave holes in the grid.
+  const visibleRoutines = useMemo(() => {
+    const ds = format(selectedDate, 'yyyy-MM-dd')
+    const dow = selectedDate.getDay()
+    return routines.filter((r) => {
+      const log = (checkins[r.taskId] ?? []).find((c) => c.date === ds)
+      const done = log?.completedStepIds ?? []
+      const failed = log?.failedStepIds ?? []
+      return r.steps.some((step) => {
+        const status = getStepStatus(step, dow, done.includes(step.id), failed.includes(step.id))
+        if (filterMode === 'all') return true
+        if (filterMode === 'pending') return status === 'pending'
+        return status === 'failed'
+      })
+    })
+  }, [routines, checkins, selectedDate, filterMode])
+
   const handleToggle = useCallback(async (routine: RoutineDef, stepId: string, date: string) => {
     await toggleStep(routine, stepId, date)
   }, [toggleStep])
@@ -920,14 +940,23 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
   const CIRCLE = (isMobile && viewMode === 'day') ? 40 : isMobile ? 22 : 26
   const COL = (isMobile && viewMode === 'day') ? 60 : isMobile ? 32 : 38
 
+  // Responsive card grid: 1 col phone, 2 col tablet, 3 col wide desktop.
+  // Drop a column when the detail panel is open; cap week view at 2 cols so the
+  // 7-day circle grid stays readable inside each card.
+  const detailOpen = !isMobile && !!selectedHabit
+  const baseCols = width >= routineUI.threeColMin ? 3 : width >= routineUI.twoColMin ? 2 : 1
+  let numCols = detailOpen ? Math.max(1, baseCols - 1) : baseCols
+  if (viewMode === 'week') numCols = Math.min(numCols, 2)
+  const cellPad = numCols > 1 ? routineUI.cardGap / 2 : 0
+
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
+    <View style={{ flex: 1, backgroundColor: colors.bgSecondary }}>
 
       {/* ── Week navigation ── */}
       <View style={{
-        backgroundColor: '#fff',
-        borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
+        backgroundColor: colors.bgPrimary,
+        borderBottomWidth: 1, borderBottomColor: colors.border,
       }}>
         {/* Nav row — mirrors log tab date selector */}
         <View style={{
@@ -976,7 +1005,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
           }}>
             <View style={{
               flexDirection: 'row',
-              backgroundColor: '#F3F4F6',
+              backgroundColor: colors.bgTertiary,
               borderRadius: 12,
               padding: 3,
               gap: 4,
@@ -987,10 +1016,10 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
                   paddingHorizontal: 14,
                   paddingVertical: 7,
                   borderRadius: 9,
-                  backgroundColor: viewMode === 'day' ? '#fff' : 'transparent',
+                  backgroundColor: viewMode === 'day' ? colors.bgPrimary : 'transparent',
                 }}
               >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: viewMode === 'day' ? '#111827' : '#6B7280' }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: viewMode === 'day' ? colors.textPrimary : colors.textSecondary }}>
                   Day
                 </Text>
               </Pressable>
@@ -1000,10 +1029,10 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
                   paddingHorizontal: 14,
                   paddingVertical: 7,
                   borderRadius: 9,
-                  backgroundColor: viewMode === 'week' ? '#fff' : 'transparent',
+                  backgroundColor: viewMode === 'week' ? colors.bgPrimary : 'transparent',
                 }}
               >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: viewMode === 'week' ? '#111827' : '#6B7280' }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: viewMode === 'week' ? colors.textPrimary : colors.textSecondary }}>
                   Week
                 </Text>
               </Pressable>
@@ -1011,7 +1040,7 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
 
             <View style={{
               flexDirection: 'row',
-              backgroundColor: '#F3F4F6',
+              backgroundColor: colors.bgTertiary,
               borderRadius: 12,
               padding: 3,
               gap: 4,
@@ -1028,12 +1057,12 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
                     paddingHorizontal: 12,
                     paddingVertical: 7,
                     borderRadius: 9,
-                    backgroundColor: filterMode === mode ? '#fff' : 'transparent',
+                    backgroundColor: filterMode === mode ? colors.bgPrimary : 'transparent',
                   }}
                 >
                   <Text style={{
                     fontSize: 12, fontWeight: '700',
-                    color: filterMode !== mode ? '#6B7280' : mode === 'failed' ? FAILURE_RED : '#111827',
+                    color: filterMode !== mode ? colors.textSecondary : mode === 'failed' ? FAILURE_RED : colors.textPrimary,
                   }}>
                     {label}
                   </Text>
@@ -1045,13 +1074,21 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
 
         {viewMode === 'week' ? (
           /* 7-day strip — tap to select date */
-          <View style={{ flexDirection: 'row', paddingHorizontal: 8, paddingBottom: 8 }}>
+          <View style={{ flexDirection: 'row', paddingHorizontal: space.sm, paddingBottom: space.sm, gap: 4 }}>
             {weekDates.map((date, i) => {
               const ds = format(date, 'yyyy-MM-dd')
               const isSelected = ds === format(selectedDate, 'yyyy-MM-dd')
               return (
-                <Pressable key={ds} onPress={() => setSelectedDate(date)} style={{ flex: 1, alignItems: 'center', gap: 2 }}>
-                  <Text style={{ fontSize: 9, color: isSelected ? BLUE : '#9CA3AF', fontWeight: '600', textTransform: 'uppercase' }}>
+                <Pressable
+                  key={ds}
+                  onPress={() => setSelectedDate(date)}
+                  style={{
+                    flex: 1, alignItems: 'center', gap: 5,
+                    paddingVertical: 8, borderRadius: radii.lg,
+                    backgroundColor: (isToday(date) || isSelected) ? colors.bgTertiary : 'transparent',
+                  }}
+                >
+                  <Text style={{ fontSize: 10, color: isToday(date) ? TODAY_PURPLE : colors.textTertiary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                     {isToday(date) ? 'Today' : format(date, 'EEE')}
                   </Text>
                   <DayColHeader
@@ -1069,22 +1106,22 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
         ) : (
           /* Day summary strip */
           <View style={{
-            paddingHorizontal: 12,
-            paddingBottom: 10,
+            paddingHorizontal: space.md,
+            paddingBottom: space.md,
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}>
-            <Text style={{ fontSize: 12, color: '#6B7280', fontWeight: '600' }}>
+            <Text style={{ fontSize: 12, color: colors.textSecondary, fontWeight: '600' }}>
               Items for {isToday(selectedDate) ? 'Today' : format(selectedDate, 'EEE, MMM d')}
             </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
               {selectedDayStat.failed > 0 && (
                 <Text style={{ fontSize: 12, color: FAILURE_RED, fontWeight: '700' }}>
                   ✕ {selectedDayStat.failed}
                 </Text>
               )}
-              <Text style={{ fontSize: 12, color: '#111827', fontWeight: '700' }}>
+              <Text style={{ fontSize: 12, color: colors.textPrimary, fontWeight: '700' }}>
                 {selectedDayStat.done}/{selectedDayStat.total}
               </Text>
             </View>
@@ -1109,36 +1146,47 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
         </View>
       ) : (
         <View style={{ flex: 1, flexDirection: 'row' }}>
-          {/* Left: habit list */}
+          {/* Left: habit card grid */}
           <ScrollView
             style={!isMobile && selectedHabit ? { width: '55%' } : { flex: 1 }}
-            contentContainerStyle={{ paddingBottom: 100 }}
+            contentContainerStyle={{
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              alignItems: 'flex-start',
+              paddingHorizontal: numCols > 1 ? routineUI.cardGap / 2 : routineUI.cardGap,
+              paddingTop: routineUI.cardGap,
+              paddingBottom: 100,
+            }}
           >
-            {routines.map((routine) => (
-              <RoutineGroup
+            {visibleRoutines.map((routine) => (
+              <View
                 key={routine.taskId}
-                routine={routine}
-                visibleDates={visibleDates}
-                selectedDate={selectedDate}
-                filterMode={filterMode}
-                colWidth={COL}
-                circleSize={CIRCLE}
-                checkins={checkins[routine.taskId] ?? []}
-                onToggle={(stepId, date) => handleToggle(routine, stepId, date)}
-                onEdit={() => setEditingRoutine(routine)}
-                onDelete={() => setConfirmDelete(routine.taskId)}
-                selectedStepId={selectedHabit?.routineTaskId === routine.taskId ? selectedHabit.stepId : undefined}
-                onSelectStep={(stepId) => setSelectedHabit({ routineTaskId: routine.taskId, stepId })}
-                onStartRoutine={!activeTimer && (todayPending[routine.taskId] ?? 0) > 0 ? () => startQueue([routine]) : undefined}
-                onStartStep={!activeTimer ? (stepId) => {
-                  const step = routine.steps.find((s) => s.id === stepId)
-                  if (step) startTimer({ ...routine, steps: [step] })
-                } : undefined}
-                onMarkFailed={(stepId) => handleMarkFailed(routine, stepId, format(selectedDate, 'yyyy-MM-dd'))}
-                onMarkAllFailed={() => setConfirmFailRoutine({ taskId: routine.taskId, date: format(selectedDate, 'yyyy-MM-dd') })}
-                onReset={(stepId) => handleReset(routine, stepId, format(selectedDate, 'yyyy-MM-dd'))}
-                isMobile={isMobile}
-              />
+                style={{ width: `${100 / numCols}%`, paddingHorizontal: cellPad }}
+              >
+                <RoutineGroup
+                  routine={routine}
+                  visibleDates={visibleDates}
+                  selectedDate={selectedDate}
+                  filterMode={filterMode}
+                  colWidth={COL}
+                  circleSize={CIRCLE}
+                  checkins={checkins[routine.taskId] ?? []}
+                  onToggle={(stepId, date) => handleToggle(routine, stepId, date)}
+                  onEdit={() => setEditingRoutine(routine)}
+                  onDelete={() => setConfirmDelete(routine.taskId)}
+                  selectedStepId={selectedHabit?.routineTaskId === routine.taskId ? selectedHabit.stepId : undefined}
+                  onSelectStep={(stepId) => setSelectedHabit({ routineTaskId: routine.taskId, stepId })}
+                  onStartRoutine={!activeTimer && (todayPending[routine.taskId] ?? 0) > 0 ? () => startQueue([routine]) : undefined}
+                  onStartStep={!activeTimer ? (stepId) => {
+                    const step = routine.steps.find((s) => s.id === stepId)
+                    if (step) startTimer({ ...routine, steps: [step] })
+                  } : undefined}
+                  onMarkFailed={(stepId) => handleMarkFailed(routine, stepId, format(selectedDate, 'yyyy-MM-dd'))}
+                  onMarkAllFailed={() => setConfirmFailRoutine({ taskId: routine.taskId, date: format(selectedDate, 'yyyy-MM-dd') })}
+                  onReset={(stepId) => handleReset(routine, stepId, format(selectedDate, 'yyyy-MM-dd'))}
+                  isMobile={isMobile}
+                />
+              </View>
             ))}
           </ScrollView>
 
@@ -1180,11 +1228,11 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
             }
 
             return (
-              <View style={{ width: '45%', borderLeftWidth: 1, borderLeftColor: '#EFEFEF', backgroundColor: '#FAFAFA' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#EFEFEF', backgroundColor: '#fff' }}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#374151' }}>Habit Detail</Text>
+              <View style={{ width: '45%', borderLeftWidth: 1, borderLeftColor: colors.border, backgroundColor: colors.bgSecondary }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.lg, paddingVertical: space.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.bgPrimary }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }}>Habit Detail</Text>
                   <Pressable onPress={() => setSelectedHabit(null)} hitSlop={8}>
-                    <Text style={{ fontSize: 18, color: '#9CA3AF' }}>×</Text>
+                    <Text style={{ fontSize: 18, color: colors.textTertiary }}>×</Text>
                   </Pressable>
                 </View>
                 {panelContent}

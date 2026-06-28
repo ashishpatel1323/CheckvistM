@@ -5,8 +5,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { TaskView } from './useTaskView'
 
 export const DEFAULT_TAB_ORDER: TaskView[] = [
-  'date', 'execute', 'progress', 'routines', 'kanban', 'matrix', 'log', 'list', 'mindmap', 'search', 'raw',
+  'execute', 'progress', 'routines', 'kanban', 'matrix', 'log', 'list', 'mindmap', 'search', 'raw',
 ]
+
+// Tabs removed from the app — stripped from any persisted order on load.
+const REMOVED_TABS: TaskView[] = ['date']
 
 export const PINNED_TAB_COUNT = 4
 
@@ -47,6 +50,21 @@ export const useTabBarConfig = create<TabBarConfigStore>()(
       }),
       resetOrder: () => set({ order: DEFAULT_TAB_ORDER }),
     }),
-    { name: 'tab-bar-config', storage }
+    {
+      name: 'tab-bar-config',
+      storage,
+      version: 2,
+      migrate: (persisted) => {
+        const state = persisted as TabBarConfigStore | undefined
+        if (!state) return state
+        // Old 'execute2' tab was renamed to 'execute'; the old 'date' (List) tab was removed.
+        const mapped = state.order
+          .map((k) => ((k as string) === 'execute2' ? 'execute' : k))
+          .filter((k) => !REMOVED_TABS.includes(k))
+        let order = Array.from(new Set(mapped)) as TaskView[]
+        if (!order.includes('execute')) order = ['execute', ...order]
+        return { ...state, order }
+      },
+    }
   )
 )

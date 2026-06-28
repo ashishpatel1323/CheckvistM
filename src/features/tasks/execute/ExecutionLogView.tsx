@@ -4,7 +4,9 @@ import { useExecuteLog, summarizeDaySessions, collectDayBlocks, hasTimeOverlap, 
 import { useSystemLog } from './useSystemLog'
 import { clientColor } from '@/platform/clientIdentity'
 import { format, parseISO, addDays, subDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth, isToday } from 'date-fns'
-import { Cloud, ChevronLeft, ChevronRight, Calendar, CalendarDays, List, Trash2 } from 'lucide-react-native'
+import { Cloud, ChevronLeft, ChevronRight, Calendar, CalendarDays, List, Trash2, Clock, ListChecks, Layers, Trophy, Zap, ChevronDown } from 'lucide-react-native'
+import { DayProgressRing } from './DayProgressRing'
+import { TaskGroupList, type SortMode } from './TaskGroupList'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -17,7 +19,7 @@ const PAD_R    = 12           // right padding
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface LogBlock {
+export interface LogBlock {
   key: string
   taskId: number
   startMin: number
@@ -390,133 +392,6 @@ function CalendarPicker({ selected, onSelect, onClose }: {
   )
 }
 
-// ─── Agenda list view ─────────────────────────────────────────────────────────
-
-const IS_WEB = Platform.OS === 'web'
-
-// Inline two-step delete: trash icon → Confirm/✕. Stops propagation so the row's
-// edit-press never fires when interacting with the delete affordance.
-function RowDeleteButton({ onDelete, compact }: { onDelete: () => Promise<void> | void; compact?: boolean }) {
-  const [armed, setArmed] = useState(false)
-  const [busy, setBusy] = useState(false)
-
-  const handleDelete = async () => {
-    setBusy(true)
-    try { await onDelete() }
-    catch (e) { console.error('Failed to delete session:', e); setBusy(false); setArmed(false) }
-  }
-
-  if (armed) {
-    return (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-        <Pressable
-          onPress={(e) => { e.stopPropagation(); if (!busy) handleDelete() }}
-          disabled={busy}
-          style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: busy ? '#FECACA' : '#EF4444' }}
-        >
-          <Text style={{ fontSize: 11, fontWeight: '700', color: 'white' }}>{busy ? '…' : 'Confirm'}</Text>
-        </Pressable>
-        <Pressable
-          onPress={(e) => { e.stopPropagation(); setArmed(false) }}
-          disabled={busy}
-          style={{ paddingHorizontal: 6, paddingVertical: 4, borderRadius: 6, backgroundColor: '#F3F4F6' }}
-        >
-          <Text style={{ fontSize: 11, fontWeight: '600', color: '#6B7280' }}>✕</Text>
-        </Pressable>
-      </View>
-    )
-  }
-
-  return (
-    <Pressable
-      onPress={(e) => { e.stopPropagation(); setArmed(true) }}
-      hitSlop={6}
-      style={{ padding: compact ? 4 : 6, borderRadius: 6, flexShrink: 0 }}
-    >
-      <Trash2 size={compact ? 14 : 16} color="#9CA3AF" />
-    </Pressable>
-  )
-}
-
-function AgendaList({ blocks, taskNames, onPressBlock, onDeleteBlock }: {
-  blocks: LogBlock[]; taskNames: Record<number, string>
-  onPressBlock: (b: LogBlock) => void; onDeleteBlock: (b: LogBlock) => Promise<void> | void
-}) {
-  const sorted = [...blocks].sort((a, b) => bStart(a) - bStart(b))
-  const name = (b: LogBlock) => taskNames[b.taskId] ?? b.taskName ?? `Task ${b.taskId}`
-
-  if (sorted.length === 0) {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 64 }}>
-        <Text style={{ fontSize: 13, color: '#9CA3AF' }}>No sessions recorded for this day.</Text>
-      </View>
-    )
-  }
-
-  // Web: compact rows (less height) since the list can get long. No client label here — the
-  // name gets the space and wraps to two lines so it's always readable.
-  if (IS_WEB) {
-    return (
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 6, gap: 4 }} showsVerticalScrollIndicator={false}>
-        {sorted.map(block => (
-          <Pressable
-            key={block.key}
-            onPress={() => onPressBlock(block)}
-            style={{
-              flexDirection: 'row', alignItems: 'center', gap: 10,
-              backgroundColor: 'white', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
-              borderLeftWidth: 3, borderLeftColor: clientColor(block.clientId),
-            }}
-          >
-            <Text style={{ fontSize: 11, fontWeight: '700', color: '#374151', flexShrink: 0 }} numberOfLines={1}>
-              {fmtMinTime(bStart(block))} – {fmtMinTime(bEnd(block))}
-            </Text>
-            <Text numberOfLines={2} style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: '600', color: '#1e3a8a' }}>
-              {name(block)}
-            </Text>
-            <Text style={{ fontSize: 11, color: '#6B7280', flexShrink: 0 }}>{fmtDur(bDur(block))}</Text>
-            <RowDeleteButton compact onDelete={() => onDeleteBlock(block)} />
-          </Pressable>
-        ))}
-      </ScrollView>
-    )
-  }
-
-  return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 8 }} showsVerticalScrollIndicator={false}>
-      {sorted.map(block => (
-        <Pressable
-          key={block.key}
-          onPress={() => onPressBlock(block)}
-          style={{
-            flexDirection: 'row', alignItems: 'center', gap: 12,
-            backgroundColor: 'white', borderRadius: 10, padding: 12,
-            borderLeftWidth: 3, borderLeftColor: '#4772FA',
-            shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },
-          }}
-        >
-          <View style={{ width: 64 }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: '#374151' }}>{fmtMinTime(bStart(block))}</Text>
-            <Text style={{ fontSize: 10, color: '#9CA3AF' }}>{fmtMinTime(bEnd(block))}</Text>
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: '#1e3a8a' }}>
-              {name(block)}
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={{ fontSize: 11, color: '#6B7280' }}>{fmtDur(bDur(block))}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: clientColor(block.clientId) }} />
-                <Text numberOfLines={1} style={{ fontSize: 11, color: '#9CA3AF' }}>{block.clientLabel ?? 'Unknown'}</Text>
-              </View>
-            </View>
-          </View>
-          <RowDeleteButton onDelete={() => onDeleteBlock(block)} />
-        </Pressable>
-      ))}
-    </ScrollView>
-  )
-}
 
 export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { checklistId: number; taskNames: Record<number, string>; initialViewMode?: 'calendar' | 'agenda' }) {
   const { sessionLog, currentSessionKey, timerStartedAt, updateSessionTimes } = useExecuteLog()
@@ -525,6 +400,8 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [showCalendar, setShowCalendar] = useState(false)
   const [viewMode, setViewMode] = useState<'calendar' | 'agenda'>(initialViewMode ?? 'agenda')
+  const [sortMode, setSortMode] = useState<SortMode>('time')
+  const [showSortMenu, setShowSortMenu] = useState(false)
   const scrollRef               = useRef<ScrollView>(null)
   const [editingBlock, setEditingBlock] = useState<LogBlock | null>(null)
   const [addingAt, setAddingAt] = useState<number | null>(null) // minutes from midnight
@@ -619,12 +496,39 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
       const day = addDays(selectedDate, i - 3)
       const ds = format(day, 'yyyy-MM-dd')
       const { sessionCount, sessionTotalSeconds } = summarizeDaySessions(ds, sessionLog, remoteSessions, currentSessionKey, timerStartedAt)
-      return { day, ds, count: sessionCount, totalMin: sessionTotalSeconds / 60, isSelected: i === 3 }
+      const dayBlocks = collectDayBlocks(ds, sessionLog, remoteSessions, currentSessionKey, timerStartedAt)
+      const uniqueTasks = new Set(dayBlocks.map(b => b.taskId)).size
+      return { day, ds, count: sessionCount, totalMin: sessionTotalSeconds / 60, uniqueTasks, isSelected: i === 3, isTodayDate: isToday(day) }
     })
   }, [selectedDate, sessionLog, remoteSessions, currentSessionKey, timerStartedAt])
 
+  // Compute week max for relative ring fill
+  const weekMaxMin = useMemo(() => Math.max(...dayStrip.map(d => d.totalMin), 1), [dayStrip])
+
   const clusters = useMemo(() => layoutBlocks(visibleBlocks), [visibleBlocks])
   const totalDur = visibleBlocks.reduce((s, b) => s + bDur(b), 0)
+
+  // Stat card computations
+  const selectedDayStats = useMemo(() => {
+    const sessions = allBlocks.length
+    const totalSec = allBlocks.reduce((s, b) => s + b.durationMin * 60, 0)
+    const uniqueTasks = new Set(allBlocks.map(b => b.taskId)).size
+    let longestTaskId = 0
+    let longestDur = 0
+    const taskDurs = new Map<number, number>()
+    for (const b of allBlocks) {
+      const dur = b.durationMin
+      const existing = taskDurs.get(b.taskId) || 0
+      taskDurs.set(b.taskId, existing + dur)
+      if (existing + dur > longestDur) {
+        longestDur = existing + dur
+        longestTaskId = b.taskId
+      }
+    }
+    const avgSession = sessions > 0 ? totalSec / sessions / 60 : 0
+    const longestTaskName = taskNames[longestTaskId] ?? `Task ${longestTaskId}`
+    return { sessions, totalSec, uniqueTasks, longestTaskName, longestDur, avgSession }
+  }, [allBlocks, taskNames])
 
 
   // Build gap segments for each past hour (only when viewing today)
@@ -700,64 +604,91 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
         </View>
       </View>
 
-      {/* 5-day strip */}
-      <View style={{ backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#EFEFEF', flexDirection: 'row', paddingVertical: 6, paddingHorizontal: 8 }}>
-        {dayStrip.map(({ day, ds, count, totalMin, isSelected }) => (
-          <Pressable
-            key={ds}
-            onPress={() => setSelectedDate(day)}
-            style={{ flex: 1, alignItems: 'center', gap: 2 }}
-          >
-            <Text style={{ fontSize: 9, color: isSelected ? '#4772FA' : '#9CA3AF', fontWeight: '600', textTransform: 'uppercase' }}>
-              {isToday(day) ? 'Today' : format(day, 'EEE')}
-            </Text>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: isSelected ? '#4772FA' : '#374151' }}>
-              {format(day, 'd')}
-            </Text>
-            {count > 0 ? (
-              <>
-                <Text style={{ fontSize: 9, fontWeight: '600', color: isSelected ? '#4772FA' : '#6B7280' }}>
-                  {count} session{count !== 1 ? 's' : ''}
-                </Text>
-                <Text style={{ fontSize: 9, color: isSelected ? '#6B9FFF' : '#9CA3AF' }}>
-                  {fmtDur(totalMin)}
-                </Text>
-              </>
-            ) : (
-              <Text style={{ fontSize: 9, color: '#D1D5DB' }}>—</Text>
-            )}
-          </Pressable>
-        ))}
+      {/* Week strip with progress rings — spans full width, each day flex:1 */}
+      <View style={{ backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#EFEFEF', paddingVertical: 12, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'stretch' }}>
+        {dayStrip.map(({ day, ds, count, totalMin, uniqueTasks, isSelected, isTodayDate }) => {
+          const progress = weekMaxMin > 0 ? totalMin / weekMaxMin : 0
+          let ringColor = '#E97316' // orange default
+          if (isTodayDate) ringColor = '#EF4444' // red for today
+          else if (Math.abs(totalMin - weekMaxMin) < 0.01 && weekMaxMin > 0) ringColor = '#10B981' // green for week max
+          return (
+            <Pressable
+              key={ds}
+              onPress={() => setSelectedDate(day)}
+              style={{
+                flex: 1,
+                alignItems: 'center',
+                paddingVertical: 8,
+                borderRadius: 12,
+                backgroundColor: isSelected ? '#F3F4F6' : 'transparent',
+              }}
+            >
+              <DayProgressRing
+                size={56}
+                strokeWidth={3}
+                progress={progress}
+                color={ringColor}
+                day={parseInt(format(day, 'd'))}
+                dayLabel={isTodayDate ? 'TODAY' : format(day, 'EEE').toUpperCase()}
+                sessions={count}
+                sessionTime={fmtDur(totalMin)}
+                uniqueTasks={uniqueTasks}
+                isToday={isSelected}
+              />
+            </Pressable>
+          )
+        })}
       </View>
 
-      {/* Task filter — chips per task worked that day, with session counts */}
-      {taskGroups.length > 1 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#EFEFEF', flexGrow: 0 }}
-          contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}
-        >
-          {taskGroups.map(t => {
-            const active = taskFilter === t.id
-            return (
-              <Pressable
-                key={t.id}
-                onPress={() => setTaskFilter(active ? null : t.id)}
-                style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 5,
-                  paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
-                  backgroundColor: active ? '#EEF2FF' : '#F3F4F6',
-                  borderWidth: 1, borderColor: active ? '#4772FA' : 'transparent',
-                }}
-              >
-                <Text numberOfLines={1} style={{ fontSize: 11, fontWeight: '600', color: active ? '#4772FA' : '#374151', maxWidth: 160 }}>{t.label}</Text>
-                <Text style={{ fontSize: 10, color: active ? '#6B9FFF' : '#9CA3AF' }}>{t.count}</Text>
-              </Pressable>
-            )
-          })}
-        </ScrollView>
-      )}
+      {/* Stat cards — span full width, each card flex:1 */}
+      <View style={{ backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#EFEFEF', flexDirection: 'row', gap: 8, paddingHorizontal: 10, paddingVertical: 10 }}>
+        {/* Focus time */}
+        <View style={{ flex: 1, alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F9FAFB' }}>
+          <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' }}>
+            <Clock size={16} color="#4772FA" />
+          </View>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827' }}>{fmtDur(selectedDayStats.totalSec / 60)}</Text>
+          <Text style={{ fontSize: 10, color: '#9CA3AF' }}>Focus time</Text>
+        </View>
+
+        {/* Sessions */}
+        <View style={{ flex: 1, alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F9FAFB' }}>
+          <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' }}>
+            <ListChecks size={16} color="#4772FA" />
+          </View>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827' }}>{selectedDayStats.sessions}</Text>
+          <Text style={{ fontSize: 10, color: '#9CA3AF' }}>Sessions</Text>
+        </View>
+
+        {/* Unique tasks */}
+        <View style={{ flex: 1, alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F9FAFB' }}>
+          <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' }}>
+            <Layers size={16} color="#4772FA" />
+          </View>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827' }}>{selectedDayStats.uniqueTasks}</Text>
+          <Text style={{ fontSize: 10, color: '#9CA3AF' }}>Unique tasks</Text>
+        </View>
+
+        {/* Longest task */}
+        <View style={{ flex: 1, alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F9FAFB' }}>
+          <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' }}>
+            <Trophy size={16} color="#4772FA" />
+          </View>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', textAlign: 'center' }} numberOfLines={1}>{fmtDur(selectedDayStats.longestDur)}</Text>
+          <Text style={{ fontSize: 9, color: '#9CA3AF', textAlign: 'center' }} numberOfLines={1}>{selectedDayStats.longestTaskName}</Text>
+        </View>
+
+        {/* Avg session */}
+        <View style={{ flex: 1, alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F9FAFB' }}>
+          <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: '#EEF2FF', alignItems: 'center', justifyContent: 'center' }}>
+            <Zap size={16} color="#4772FA" />
+          </View>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827' }}>{fmtDur(selectedDayStats.avgSession)}</Text>
+          <Text style={{ fontSize: 10, color: '#9CA3AF' }}>Avg session</Text>
+        </View>
+      </View>
+
+      {/* Task filter — removed; grouping view now handles task organization */}
 
       {/* Client legend / filter — only when more than one device contributed */}
       {clients.length > 1 && (
@@ -797,8 +728,49 @@ export function ExecutionLogView({ checklistId, taskNames, initialViewMode }: { 
         />
       )}
 
+      {/* Sort menu modal */}
+      {showSortMenu && viewMode === 'agenda' && (
+        <Modal transparent animationType="fade" onRequestClose={() => setShowSortMenu(false)}>
+          <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' }} onPress={() => setShowSortMenu(false)}>
+            <View style={{ position: 'absolute', right: 12, top: 360, backgroundColor: 'white', borderRadius: 10, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, elevation: 6, overflow: 'hidden' }}>
+              {(['time', 'sessions', 'alphabetical'] as const).map(mode => (
+                <Pressable
+                  key={mode}
+                  onPress={() => { setSortMode(mode); setShowSortMenu(false) }}
+                  style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: mode === 'alphabetical' ? 0 : 1, borderBottomColor: '#E5E7EB', backgroundColor: sortMode === mode ? '#EEF2FF' : 'white' }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: sortMode === mode ? '600' : '500', color: sortMode === mode ? '#4772FA' : '#374151' }}>
+                    {mode === 'time' ? 'Most time spent' : mode === 'sessions' ? 'Most sessions' : 'Alphabetical'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </Pressable>
+        </Modal>
+      )}
+
       {viewMode === 'agenda' ? (
-        <AgendaList blocks={visibleBlocks} taskNames={taskNames} onPressBlock={setEditingBlock} onDeleteBlock={(b) => deleteSession(b.key)} />
+        <View style={{ flex: 1, flexDirection: 'column' }}>
+          {/* Sort control (grouped-by-task view) */}
+          <View style={{ backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#EFEFEF', paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151' }}>Grouped by Task</Text>
+            <Pressable onPress={() => setShowSortMenu(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#D1D5DB' }}>
+              <Text style={{ fontSize: 12, color: '#6B7280' }}>Sort: {sortMode === 'time' ? 'Time' : sortMode === 'sessions' ? 'Sessions' : 'Name'}</Text>
+              <ChevronDown size={12} color="#6B7280" />
+            </Pressable>
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <TaskGroupList
+              blocks={visibleBlocks}
+              taskNames={taskNames}
+              totalDayDur={totalDur}
+              sortMode={sortMode}
+              onPressBlock={setEditingBlock}
+              onDeleteBlock={(b) => deleteSession(b.key)}
+            />
+          </View>
+        </View>
       ) : (
       <ScrollView ref={scrollRef} style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         <View style={{ flexDirection: 'row', height: 24 * HOUR_H + 32 }}>

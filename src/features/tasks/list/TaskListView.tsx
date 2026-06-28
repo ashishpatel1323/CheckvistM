@@ -27,7 +27,7 @@ import { BottomSheet } from '@/components/BottomSheet'
 import { ChecklistSwitcher } from '@/features/checklists/ChecklistSwitcher'
 import { useCreateTask } from './useTasksQuery'
 import { useToast } from '@/components/Toast'
-import { ExecuteModeView, ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList, TodaySessionsCard, ExecuteViewContent, useExecCtx } from '@/features/tasks/execute/ExecuteModeView'
+import { ExecuteStateProvider, ExecuteControlBar, ExecuteTaskList, TodaySessionsCard, ExecuteViewContent, useExecCtx } from '@/features/tasks/execute/ExecuteModeView'
 import { useSystemLog } from '@/features/tasks/execute/useSystemLog'
 import { useExecuteLog, summarizeDaySessions, entryKey, DEFAULT_ESTIMATE } from '@/features/tasks/execute/useExecuteLog'
 import { CalendarScheduleView } from '@/features/tasks/calendar/CalendarScheduleView'
@@ -49,12 +49,6 @@ import { calculateTabBadges } from '@/lib/tabBadges'
 
 interface TaskListViewProps {
   checklistId: number
-}
-
-interface ExecuteRawSplitViewProps {
-  tasks: import('@/api/types').CheckvistTask[]
-  checklistId: number
-  onClose: () => void
 }
 
 type RightPanel = { type: 'raw'; taskId: number } | { type: 'mindmap'; taskId: number } | null
@@ -107,88 +101,7 @@ function RightPanelTimerBar({ onClose }: { onClose: () => void }) {
   )
 }
 
-function ExecuteRawSplitView({ tasks, checklistId, onClose }: ExecuteRawSplitViewProps) {
-  const setLastRawTaskId = useExecuteLog((s) => s.setLastRawTaskId)
-  const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
-    // Restore raw panel from persisted state for refresh recovery
-    const savedId = useExecuteLog.getState().lastRawTaskId
-    return savedId != null ? { type: 'raw', taskId: savedId } : null
-  })
-  const [focusedId, setFocusedId] = useState<number | null>(null)
-
-  function openRaw(taskId: number) {
-    setRightPanel({ type: 'raw', taskId })
-    setLastRawTaskId(taskId)
-    // Auto-start timer for this task
-    const log = useExecuteLog.getState()
-    const key = entryKey(checklistId, taskId)
-    if (!log.entries[key]) log.seed(key, taskId, DEFAULT_ESTIMATE)
-    if (log.timerRunningKey !== key) log.play(key)
-  }
-
-  function closeRaw() {
-    setRightPanel(null)
-    setLastRawTaskId(null)
-    // Auto-pause timer when raw view closes
-    useExecuteLog.getState().pause()
-  }
-
-  function openMindmap(taskId: number) {
-    setFocusedId(taskId)
-    setRightPanel({ type: 'mindmap', taskId })
-  }
-
-  // Auto-resume timer when returning to Execute tab with raw panel still open
-  useEffect(() => {
-    if (rightPanel?.type === 'raw') {
-      const log = useExecuteLog.getState()
-      const key = entryKey(checklistId, rightPanel.taskId)
-      if (!log.entries[key]) log.seed(key, rightPanel.taskId, DEFAULT_ESTIMATE)
-      if (log.timerRunningKey !== key) log.play(key)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const hasPanel = rightPanel !== null
-
-  return (
-    <ExecuteStateProvider tasks={tasks} checklistId={checklistId} onJumpToRaw={openRaw} onJumpToMindmap={openMindmap} onCloseSidePanel={() => { setRightPanel(null); setLastRawTaskId(null) }}>
-      <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden' }}>
-        {/* Left pane: full ExecuteViewContent with all features */}
-        <View style={{ width: hasPanel ? '40%' : '100%', minWidth: 0, overflow: 'hidden', borderRightWidth: hasPanel ? 1 : 0, borderRightColor: '#E5E7EB' }}>
-          <ExecuteViewContent onClose={onClose} />
-        </View>
-
-        {/* Right panel: timer bar embedded inside raw/mindmap toolbars */}
-        {hasPanel && (
-          <View style={{ flex: 1, minWidth: 0, overflow: 'hidden', flexDirection: 'column' }}>
-            {rightPanel.type === 'raw' && (
-              <RawView
-                checklistId={checklistId}
-                taskId={rightPanel.taskId}
-                onClose={closeRaw}
-                timerBar={<RightPanelTimerBar onClose={closeRaw} />}
-              />
-            )}
-            {rightPanel.type === 'mindmap' && (
-              <MindMapView
-                tasks={tasks}
-                checklistId={checklistId}
-                focusedId={focusedId}
-                setFocusedId={setFocusedId}
-                initialFocusId={rightPanel.taskId}
-                rootTaskId={rightPanel.taskId}
-                timerBar={<RightPanelTimerBar onClose={() => setRightPanel(null)} />}
-              />
-            )}
-          </View>
-        )}
-      </View>
-    </ExecuteStateProvider>
-  )
-}
-
-interface Execute2SplitViewProps {
+interface ExecuteSplitViewProps {
   tasks: import('@/api/types').CheckvistTask[]
   checklistId: number
   onClose: () => void
@@ -216,7 +129,7 @@ function subtreeHasMatch(
 }
 
 // Search + Time + Priority filter bar — ported from the old Execute tab (CalendarScheduleView).
-function Execute2FilterBar({
+function ExecuteFilterBar({
   searchQuery, setSearchQuery,
   timeFilter, setTimeFilter,
   priorityFilter, setPriorityFilter,
@@ -229,6 +142,7 @@ function Execute2FilterBar({
   setPriorityFilter: (v: PriorityBucket | null) => void
 }) {
   const INDIGO = '#6366F1'
+  const VIOLET = '#8B5CF6'
   const timeOptions: { key: TimeBucket | 'all'; label: string; color: string }[] = [
     { key: 'all', label: 'All time filters', color: INDIGO },
     ...TIME_QUADRANTS.map((q) => ({ key: q.bucket, label: q.label, color: q.color })),
@@ -242,8 +156,8 @@ function Execute2FilterBar({
   return (
     <View style={{ paddingHorizontal: 12, paddingVertical: 8, gap: 8, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', backgroundColor: 'white' }}>
       {/* Search */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>
-        <Search size={14} color={searchQuery !== '' ? INDIGO : '#94A3B8'} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 16, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>
+        <Search size={16} color={searchQuery !== '' ? VIOLET : '#94A3B8'} />
         <TextInput
           value={searchQuery}
           onChangeText={setSearchQuery}
@@ -260,33 +174,33 @@ function Execute2FilterBar({
 
       {/* Time + Priority pill rows */}
       <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-        <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600', marginRight: 2 }}>Time</Text>
+        <Text style={{ width: 56, fontSize: 13, color: '#A3A3A3', fontWeight: '400' }}>Time</Text>
         {timeOptions.map((opt) => {
           const active = timeFilter === opt.key
           return (
             <Pressable
               key={String(opt.key)}
               onPress={() => setTimeFilter(active ? 'all' : opt.key)}
-              style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: active ? opt.color : '#F3F4F6', borderWidth: active ? 0 : 1, borderColor: active ? 'transparent' : '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 4 }}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: active ? VIOLET : '#F5F5F5', borderWidth: active ? 0 : 1, borderColor: active ? 'transparent' : '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 6 }}
             >
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: active ? '#fff' : opt.color }} />
-              <Text style={{ fontSize: 12, fontWeight: active ? '600' : '500', color: active ? '#fff' : '#374151' }}>{opt.label}</Text>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: active ? '#fff' : opt.color }} />
+              <Text style={{ fontSize: 13, fontWeight: '500', color: active ? '#fff' : '#404040' }}>{opt.label}</Text>
             </Pressable>
           )
         })}
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-        <Text style={{ fontSize: 11, color: '#6B7280', fontWeight: '600', marginRight: 2 }}>Priority</Text>
+        <Text style={{ width: 56, fontSize: 13, color: '#A3A3A3', fontWeight: '400' }}>Priority</Text>
         {priorityOptions.map((opt) => {
           const active = priorityFilter === opt.key
           return (
             <Pressable
               key={String(opt.key)}
               onPress={() => setPriorityFilter(active ? null : opt.key)}
-              style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: active ? opt.color : '#F3F4F6', borderWidth: active ? 0 : 1, borderColor: active ? 'transparent' : '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 4 }}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: active ? VIOLET : '#F5F5F5', borderWidth: active ? 0 : 1, borderColor: active ? 'transparent' : '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 6 }}
             >
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: active ? '#fff' : opt.color }} />
-              <Text style={{ fontSize: 12, fontWeight: active ? '600' : '500', color: active ? '#fff' : '#374151' }}>{opt.label}</Text>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: active ? '#fff' : opt.color }} />
+              <Text style={{ fontSize: 13, fontWeight: '500', color: active ? '#fff' : '#404040' }}>{opt.label}</Text>
             </Pressable>
           )
         })}
@@ -295,10 +209,10 @@ function Execute2FilterBar({
   )
 }
 
-// Left pane of Execute2 — toggles between the date-grouped List and the Calendar schedule
+// Left pane of Execute — toggles between the date-grouped List and the Calendar schedule
 // (the same CalendarScheduleView used by the old Execute tab). Lives inside ExecuteStateProvider
 // so the calendar can pull live ordered tasks / timers / jump callbacks from the context.
-function Execute2LeftPane({
+function ExecuteLeftPane({
   checklistId, isMobile, focusedId, setFocusedId, checklistName, getById,
   invokeActions, filteredGroups,
   searchQuery, setSearchQuery, timeFilter, setTimeFilter, priorityFilter, setPriorityFilter,
@@ -320,7 +234,6 @@ function Execute2LeftPane({
 }) {
   const [leftView, setLeftView] = useState<'list' | 'calendar'>('list')
   const ctx = useExecCtx()
-  const INDIGO = '#6366F1'
 
   // Calendar consumes the same shared filters (flat): pre-filter its task set so the common
   // search + Time/Priority bar drives both views.
@@ -336,24 +249,30 @@ function Execute2LeftPane({
 
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
-      {/* List / Calendar sub-view toggle */}
-      <View style={{ flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 }}>
-        {(['list', 'calendar'] as const).map((v) => {
-          const active = leftView === v
-          return (
-            <Pressable
-              key={v}
-              onPress={() => setLeftView(v)}
-              style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8, backgroundColor: active ? INDIGO : '#F3F4F6', borderWidth: active ? 0 : 1, borderColor: '#E5E7EB' }}
-            >
-              <Text style={{ fontSize: 13, fontWeight: '600', color: active ? '#fff' : '#374151' }}>{v === 'list' ? 'List' : 'Calendar'}</Text>
-            </Pressable>
-          )
-        })}
+      {/* List / Calendar sub-view toggle — segmented control */}
+      <View style={{ flexDirection: 'row', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 }}>
+        <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderRadius: 10, padding: 2, gap: 2 }}>
+          {(['list', 'calendar'] as const).map((v) => {
+            const active = leftView === v
+            return (
+              <Pressable
+                key={v}
+                onPress={() => setLeftView(v)}
+                style={{
+                  paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8,
+                  backgroundColor: active ? '#FFFFFF' : 'transparent',
+                  ...(active ? { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 } : null),
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '600', color: active ? '#171717' : '#737373' }}>{v === 'list' ? 'List' : 'Calendar'}</Text>
+              </Pressable>
+            )
+          })}
+        </View>
       </View>
 
       {/* Common search + Time/Priority filter bar — drives both List and Calendar */}
-      <Execute2FilterBar
+      <ExecuteFilterBar
         searchQuery={searchQuery} setSearchQuery={setSearchQuery}
         timeFilter={timeFilter} setTimeFilter={setTimeFilter}
         priorityFilter={priorityFilter} setPriorityFilter={setPriorityFilter}
@@ -385,10 +304,10 @@ function Execute2LeftPane({
   )
 }
 
-// Execute2: left = the "List" (date-grouped) view + two CTAs that open the raw/mindmap
+// Execute: left = the "List" (date-grouped) view + two CTAs that open the raw/mindmap
 // pane on the right. The right pane is identical to ExecuteRawSplitView's — same RawView /
 // MindMapView / RightPanelTimerBar / timer auto-start — so its behavior matches Execute exactly.
-function Execute2SplitView({ tasks, checklistId, onClose, groups, getById, checklistName, taskRoots, isMobile }: Execute2SplitViewProps) {
+function ExecuteSplitView({ tasks, checklistId, onClose, groups, getById, checklistName, taskRoots, isMobile }: ExecuteSplitViewProps) {
   const setLastRawTaskId = useExecuteLog((s) => s.setLastRawTaskId)
   const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
     const savedId = useExecuteLog.getState().lastRawTaskId
@@ -470,7 +389,7 @@ function Execute2SplitView({ tasks, checklistId, onClose, groups, getById, check
       <View style={{ flex: 1, flexDirection: 'row', overflow: 'hidden' }}>
         {/* Left pane: List / Calendar toggle; each List row gets Detail/Map/Raw. */}
         <View style={{ width: leftWidth, minWidth: 0, overflow: 'hidden', borderRightWidth: hasPanel && !isMobile ? 1 : 0, borderRightColor: '#E5E7EB' }}>
-          <Execute2LeftPane
+          <ExecuteLeftPane
             checklistId={checklistId} isMobile={isMobile}
             focusedId={focusedId} setFocusedId={setFocusedId}
             checklistName={checklistName} getById={getById}
@@ -1061,11 +980,9 @@ function MoreModal({ open, onClose, orderedTabs, activeView, pinnedCount, onSele
 }
 
 const TABS: TabEntry[] = [
-  { key: 'date',     icon: LayoutList,   label: 'List',     shortcut: 'T' },
+  { key: 'execute',  icon: Timer,        label: 'Execute',  shortcut: 'E' },
   { key: 'kanban',   icon: LayoutGrid,   label: 'Kanban',   shortcut: 'K' },
   { key: 'matrix',   icon: Network,      label: 'Matrix',   shortcut: 'X' },
-  { key: 'execute',  icon: Timer,        label: 'Execute',  shortcut: 'E' },
-  { key: 'execute2', icon: Timer,        label: 'Execute2', shortcut: '2' },
   { key: 'progress', icon: TrendingUp,   label: 'Progress', shortcut: 'P' },
   { key: 'log',      icon: ClipboardList,label: 'Log',      shortcut: 'L' },
   { key: 'routines', icon: Repeat,       label: 'Routines', shortcut: 'R' },
@@ -1245,7 +1162,7 @@ const { view, setView, focusedTaskId } = useTaskView()
   // labels when expanded) plus the global actions at the bottom. Collapsible via the hamburger;
   // state persisted in useTabBarConfig.tabsCollapsed. Mobile keeps its bottom tab bar instead.
   const leftRail = (
-    <View style={{ width: tabsCollapsed ? 60 : 200, backgroundColor: '#fff', borderRightWidth: 1, borderRightColor: '#EFEFEF', paddingTop: insets.top + 8, paddingBottom: 10 }}>
+    <View style={{ width: tabsCollapsed ? 60 : 224, backgroundColor: '#fff', borderRightWidth: 1, borderRightColor: '#EFEFEF', paddingTop: insets.top + 8, paddingBottom: 10 }}>
       {/* Top: hamburger toggle + (expanded) list-name switcher + new-task button */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: tabsCollapsed ? 0 : 10, marginBottom: 6, justifyContent: tabsCollapsed ? 'center' : 'flex-start' }}>
         <Pressable hitSlop={8} onPress={toggleTabsCollapsed} style={{ width: 32, height: 32, borderRadius: 8, justifyContent: 'center', alignItems: 'center' }}>
@@ -1276,15 +1193,25 @@ const { view, setView, focusedTaskId } = useTaskView()
               key={key}
               onPress={async () => { await hapticSelection(); guardedSetView(key) }}
               hitSlop={4}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 8, marginVertical: 1, paddingVertical: 9, paddingHorizontal: tabsCollapsed ? 0 : 10, borderRadius: 8, backgroundColor: active ? '#EEF2FF' : 'transparent', justifyContent: tabsCollapsed ? 'center' : 'flex-start' }}
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 12,
+                marginHorizontal: 8, marginVertical: 1,
+                paddingVertical: 9, paddingHorizontal: tabsCollapsed ? 0 : 10,
+                borderRadius: 10,
+                backgroundColor: active ? '#FFFFFF' : 'transparent',
+                borderWidth: active ? 1 : 0,
+                borderColor: active ? '#E5E7EB' : 'transparent',
+                ...(active ? { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 } : null),
+                justifyContent: tabsCollapsed ? 'center' : 'flex-start',
+              }}
             >
               <View style={{ position: 'relative' }}>
-                <Icon size={20} color={active ? BLUE : '#666'} style={{ opacity: active ? 1 : 0.75 }} />
+                <Icon size={20} color={active ? '#171717' : '#737373'} style={{ opacity: active ? 1 : 0.85 }} />
                 <TabBadge count={badgeCount} color={key === 'date' ? '#EF4444' : key === 'routines' ? '#F59E0B' : '#6366F1'} compact style={{ top: -6, right: -6 }} />
                 {/* Shortcut hint while Ctrl is held — collapsed: corner of the icon */}
                 {showShortcuts && tabsCollapsed && <Keycap shortcut={shortcut} style={{ position: 'absolute', bottom: -7, right: -8 }} />}
               </View>
-              {!tabsCollapsed && <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '600', color: active ? BLUE : '#444' }}>{label}</Text>}
+              {!tabsCollapsed && <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: active ? '600' : '400', color: active ? '#171717' : '#737373' }}>{label}</Text>}
               {/* Shortcut hint while Ctrl is held — expanded: right edge of the row */}
               {showShortcuts && !tabsCollapsed && <View style={{ marginLeft: 'auto' }}><Keycap shortcut={shortcut} /></View>}
             </Pressable>
@@ -1400,27 +1327,10 @@ const { view, setView, focusedTaskId } = useTaskView()
         </View>
       )}
 
-      {/* ── Execute view ────────────────────────────────────────── */}
+      {/* ── Execute view (List left + raw/mindmap right) ───────── */}
       {view === 'execute' && tasks && (
-        isMobile ? (
-          <View style={{ flex: 1, paddingBottom: tabBarH }}>
-            <ExecuteModeView
-              tasks={tasks}
-              checklistId={checklistId}
-              onClose={() => setView('date')}
-              onJumpToMindmap={(id) => { setView('mindmap', id) }}
-              onSwitchToLog={() => { setLogInitialMode('agenda'); setView('log') }}
-            />
-          </View>
-        ) : (
-          <ExecuteRawSplitView tasks={tasks} checklistId={checklistId} onClose={() => setView('date')} />
-        )
-      )}
-
-      {/* ── Execute2 view (List left + raw/mindmap right) ───────── */}
-      {view === 'execute2' && tasks && (
         <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
-          <Execute2SplitView
+          <ExecuteSplitView
             tasks={tasks}
             checklistId={checklistId}
             onClose={() => setView('date')}
@@ -1476,7 +1386,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       )}
 
       {/* ── Task views ──────────────────────────────────────────── */}
-      {view !== 'raw' && view !== 'execute' && view !== 'execute2' && view !== 'log' && view !== 'routines' && view !== 'matrix' && view !== 'progress' && view !== 'settings' && !isSearch && (
+      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'matrix' && view !== 'progress' && view !== 'settings' && !isSearch && (
         <>
           {isLoading && <TaskSkeleton count={8} />}
 
@@ -1534,7 +1444,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       {/* Mobile FAB — shown on all views except raw/search/execute. Suppressed on Execute
           since creating a task isn't that tab's primary action, and the FAB otherwise floats
           on top of the last visible task row in a screen that's already dense. */}
-      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && view !== 'routines' && view !== 'execute' && view !== 'execute2' && !showFabInput && (
+      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && view !== 'routines' && view !== 'execute' && !showFabInput && (
         <Pressable
           onPress={() => setShowFabInput(true)}
           className="absolute right-5 items-center justify-center rounded-full"

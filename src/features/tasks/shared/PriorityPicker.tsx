@@ -11,11 +11,11 @@ interface PriorityPickerProps {
 
 export type PriorityBucket = 'high' | 'medium' | 'low' | 'tbd'
 
-export const BUCKET_META: Record<PriorityBucket, { label: string; sublabel: string; color: string; bg: string; bgLight: string; priorities: number[] }> = {
-  high:   { label: 'High',   sublabel: 'P1–P3 · Urgent & Important',    color: '#b91c1c', bg: '#fee2e2', bgLight: '#FEF2F2', priorities: [1, 2, 3] },
-  medium: { label: 'Medium', sublabel: 'P4–P6 · Important, Not Urgent', color: '#b45309', bg: '#fef3c7', bgLight: '#FFFBEB', priorities: [4, 5, 6] },
-  low:    { label: 'Low',    sublabel: 'P7–P8 · Delegate',              color: '#15803d', bg: '#dcfce7', bgLight: '#F0FDF4', priorities: [7, 8] },
-  tbd:    { label: 'TBD',    sublabel: 'P9–P10 · Meetings & TBD',       color: '#7c3aed', bg: '#ede9fe', bgLight: '#F5F3FF', priorities: [9, 10] },
+export const BUCKET_META: Record<PriorityBucket, { label: string; sublabel: string; color: string; bg: string; bgLight: string; border: string; priorities: number[] }> = {
+  high:   { label: 'High',   sublabel: 'P1–P3 · Urgent & Important',    color: '#DC7070', bg: '#F8E3E3', bgLight: '#FBF0F0', border: '#F3DADA', priorities: [1, 2, 3] },
+  medium: { label: 'Medium', sublabel: 'P4–P6 · Important, Not Urgent', color: '#D8A14A', bg: '#F8EDD6', bgLight: '#FBF6EC', border: '#F1E4CB', priorities: [4, 5, 6] },
+  low:    { label: 'Low',    sublabel: 'P7–P8 · Delegate',              color: '#5FA97E', bg: '#DEEFE4', bgLight: '#EEF7F1', border: '#D4E9DC', priorities: [7, 8] },
+  tbd:    { label: 'TBD',    sublabel: 'P9–P10 · Meetings & TBD',       color: '#9277C4', bg: '#E9E1F5', bgLight: '#F4F1FB', border: '#E3DBF2', priorities: [9, 10] },
 }
 
 const BUCKETS: PriorityBucket[] = ['high', 'medium', 'low', 'tbd']

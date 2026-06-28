@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-export type TaskView = 'date' | 'kanban' | 'list' | 'mindmap' | 'search' | 'raw' | 'execute' | 'execute2' | 'log' | 'routines' | 'matrix' | 'progress' | 'settings'
+export type TaskView = 'date' | 'kanban' | 'list' | 'mindmap' | 'search' | 'raw' | 'execute' | 'log' | 'routines' | 'matrix' | 'progress' | 'settings'
 
 interface TaskViewStore {
   view: TaskView
@@ -18,10 +18,21 @@ const storage = Platform.OS === 'web'
 export const useTaskView = create<TaskViewStore>()(
   persist(
     (set) => ({
-      view: 'date',
+      view: 'execute',
       focusedTaskId: null,
       setView: (view, taskId = null) => set({ view, focusedTaskId: taskId }),
     }),
-    { name: 'task-view', storage }
+    {
+      name: 'task-view',
+      storage,
+      version: 2,
+      migrate: (persisted) => {
+        const state = persisted as { view: string; focusedTaskId: number | null } | undefined
+        if (!state) return state
+        // Old 'execute2' renamed to 'execute'; old 'date' (List) tab removed — land on Execute.
+        if (state.view === 'execute2' || state.view === 'date') return { ...state, view: 'execute' as TaskView }
+        return state
+      },
+    }
   )
 )

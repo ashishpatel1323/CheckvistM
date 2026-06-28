@@ -243,6 +243,13 @@ export const useSystemLog = create<SystemLogStore>()(
       },
 
       deleteSession: async (key) => {
+        // Always drop the locally-recorded play→pause block too. The Log view merges
+        // remoteSessions ∪ sessionLog, so removing only the remote copy leaves the row
+        // rendered from sessionLog — the delete button then never unmounts (stuck busy).
+        const removeLocalBlock = async () => {
+          const { useExecuteLog } = await import('./useExecuteLog')
+          useExecuteLog.getState().removeSession(key)
+        }
         try {
           const systemTaskId = get().sessionTaskIds[key]
           if (!systemTaskId) {
@@ -252,6 +259,7 @@ export const useSystemLog = create<SystemLogStore>()(
               const { [key]: __, ...taskIds } = s.sessionTaskIds
               return { remoteSessions: rest, sessionTaskIds: taskIds }
             })
+            await removeLocalBlock()
             return
           }
 
@@ -265,6 +273,7 @@ export const useSystemLog = create<SystemLogStore>()(
             const { [key]: __, ...taskIds } = s.sessionTaskIds
             return { remoteSessions: rest, sessionTaskIds: taskIds }
           })
+          await removeLocalBlock()
         } catch (e) {
           console.warn('[SystemLog] deleteSession failed:', e)
           throw e

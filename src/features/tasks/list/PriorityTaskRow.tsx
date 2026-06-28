@@ -2,7 +2,7 @@ import { useState, useEffect, createContext, useContext } from 'react'
 import { View, Pressable, Platform } from 'react-native'
 import { Text as UIText } from '@/components/ui/text'
 import { useRouter } from 'expo-router'
-import { Calendar, ChevronDown, ChevronRight, Network, Globe, FileText, Check } from 'lucide-react-native'
+import { Calendar, ChevronDown, ChevronUp, ChevronRight, Network, Globe, FileText, Check, Folder, Tag } from 'lucide-react-native'
 import type { TaskNode } from '@/lib/taskTree'
 import { humanizeDueDate, parseApiDate } from '@/lib/dateUtils'
 import { useCloseTask, useMarkIncomplete, useUpdateTask } from './useTasksQuery'
@@ -19,7 +19,7 @@ import { isPast, isToday } from 'date-fns'
 import { priorityDisplay, priorityTextColor, priorityRowBg } from '@/features/tasks/shared/PriorityPicker'
 
 /**
- * Optional per-row "Invoke" actions. When a provider supplies handlers (Execute2 tab),
+ * Optional per-row "Invoke" actions. When a provider supplies handlers (Execute tab),
  * each task row renders Map / Raw buttons that open that task in the right split pane.
  * Absent (default, e.g. the List tab) → no buttons, rows render unchanged.
  */
@@ -33,6 +33,31 @@ export const COL_TAGS = 110
 export const COL_TIME = 52
 export const COL_DATE = 68
 export const COL_PRI  = 36
+
+// Unified MetadataPill styling (handoff): radius 6, neutral tint, 12px icon, muted label.
+const META_PILL = {
+  flexDirection: 'row' as const,
+  alignItems: 'center' as const,
+  gap: 4,
+  paddingHorizontal: 6,
+  paddingVertical: 2,
+  borderRadius: 6,
+  backgroundColor: '#F5F5F5',
+}
+const META_PILL_TEXT = { fontSize: 11, lineHeight: 16, fontWeight: '400' as const, color: '#737373' }
+// Execute invoke buttons — same pill shape, white surface + indigo accent.
+const INVOKE_PILL = {
+  flexDirection: 'row' as const,
+  alignItems: 'center' as const,
+  gap: 4,
+  paddingHorizontal: 6,
+  paddingVertical: 2,
+  borderRadius: 6,
+  borderWidth: 1,
+  borderColor: '#E5E7EB',
+  backgroundColor: '#FFFFFF',
+}
+const INVOKE_PILL_TEXT = { fontSize: 11, lineHeight: 16, fontWeight: '600' as const, color: '#6366F1' }
 
 
 interface PriorityTaskRowProps {
@@ -75,6 +100,7 @@ export function PriorityTaskRow({
   const [showPriorityPicker, setShowPriorityPicker] = useState(false)
   const [showDurationPicker, setShowDurationPicker] = useState(false)
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
 
   const { mutate: closeTask } = useCloseTask(checklistId)
   const { mutate: markIncomplete } = useMarkIncomplete(checklistId)
@@ -116,23 +142,22 @@ export function PriorityTaskRow({
   return (
     <>
       <Pressable
-        // In Execute2 (invoke actions present) the whole card is NOT clickable — navigation
+        // In Execute (invoke actions present) the whole card is NOT clickable — navigation
         // happens via the explicit "Detail" CTA instead. Elsewhere the row opens the detail page.
         onPress={invoke ? undefined : () => router.push(`/${checklistId}/tasks/${task.id}`)}
         onLongPress={() => { hapticMedium(); setContextMenuOpen(true) }}
         delayLongPress={500}
-        className={`flex-row items-start py-2.5 gap-2.5 ${
-          isLast ? '' : 'border-b border-border'
-        } ${isFocused ? 'bg-secondary/10' : 'bg-background'}`}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        className="flex-row items-center gap-2.5"
         style={{
-          paddingLeft: 14,
-          // Child rows are stepped in with a visible guide line so nesting is obvious.
-          marginLeft: indentLevel * 28,
-          borderLeftWidth: indentLevel > 0 ? 2 : 0,
-          borderLeftColor: '#C7D2FE',
-          backgroundColor: indentLevel > 0 ? '#F8FAFF' : undefined,
-          flexDirection: 'row',
-          alignItems: 'center',
+          // Airy rows: no dividers, generous vertical room, rounded hover/press surface.
+          paddingVertical: 10,
+          paddingLeft: 8 + indentLevel * 22,
+          paddingRight: 8,
+          marginHorizontal: 4,
+          borderRadius: 8,
+          backgroundColor: isFocused ? '#EEF2FF' : hovered ? '#FAFAFA' : 'transparent',
         }}
       >
         {/* Square checkbox */}
@@ -144,9 +169,9 @@ export function PriorityTaskRow({
             height: 20,
             marginTop: 1,
             borderRadius: 10,
-            borderWidth: 2,
-            borderColor: checkColor,
-            backgroundColor: task.status === 1 ? checkColor : 'transparent',
+            borderWidth: 1.5,
+            borderColor: task.status === 1 ? '#D1D5DB' : checkColor,
+            backgroundColor: task.status === 1 ? '#D1D5DB' : 'transparent',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
@@ -189,28 +214,36 @@ export function PriorityTaskRow({
             {task.content}
           </UIText>
 
-          {/* Meta row: date · duration · priority · tags */}
+          {/* Meta row: due · list · duration · priority · tags — unified MetadataPill language */}
           <View className="flex-row items-center gap-1.5 flex-wrap">
             {/* Due date */}
             <Pressable
               onPress={(e) => { e.stopPropagation?.(); setShowDatePicker(true) }}
               hitSlop={6}
-              className="flex-row items-center gap-1 rounded px-1.25 py-0.5 border border-border bg-muted"
+              style={META_PILL}
             >
-              <Calendar size={9} color={task.due ? dateColor : '#9CA3AF'} />
-              <UIText className="text-[10px] font-medium" style={{ color: task.due ? dateColor : '#9CA3AF' }}>
+              <Calendar size={12} color={task.due ? dateColor : '#A3A3A3'} />
+              <UIText style={{ ...META_PILL_TEXT, color: task.due ? dateColor : '#A3A3A3' }}>
                 {task.due ? humanizeDueDate(task.due) : 'Date'}
               </UIText>
             </Pressable>
+
+            {/* List */}
+            {checklistName ? (
+              <View style={META_PILL}>
+                <Folder size={12} color="#A3A3A3" />
+                <UIText numberOfLines={1} style={{ ...META_PILL_TEXT, maxWidth: 120 }}>{checklistName}</UIText>
+              </View>
+            ) : null}
 
             {/* Duration */}
             {task.duration && (
               <Pressable
                 onPress={(e) => { e.stopPropagation?.(); setShowDurationPicker(true) }}
                 hitSlop={6}
-                className="px-1.25 py-0.5 rounded bg-secondary/10"
+                style={META_PILL}
               >
-                <UIText className="text-[10px] font-semibold" style={{ color: '#4772FA' }}>
+                <UIText style={{ ...META_PILL_TEXT, fontWeight: '600', color: '#4772FA' }}>
                   {task.duration.formatted}
                 </UIText>
               </Pressable>
@@ -220,13 +253,14 @@ export function PriorityTaskRow({
             <Pressable
               onPress={(e) => { e.stopPropagation?.(); setShowPriorityPicker(true) }}
               hitSlop={6}
-              className="px-1.25 py-0.5 rounded"
               style={{
-                backgroundColor: task.priority > 0 && task.priority <= 10 ? priorityRowBg(task.priority) : '#F5F3FF',
+                paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+                backgroundColor: task.priority > 0 && task.priority <= 10 ? priorityRowBg(task.priority) : '#F4F1FB',
               }}
             >
-              <UIText className="text-[10px] font-bold" style={{
-                color: task.priority > 0 && task.priority <= 10 ? priorityTextColor(task.priority) : '#7c3aed',
+              <UIText style={{
+                fontSize: 11, lineHeight: 16, fontWeight: '700',
+                color: task.priority > 0 && task.priority <= 10 ? priorityTextColor(task.priority) : '#9277C4',
               }}>
                 {task.priority > 0 && task.priority <= 10 ? priorityDisplay(task.priority) : 'TBD'}
               </UIText>
@@ -234,42 +268,57 @@ export function PriorityTaskRow({
 
             {/* Tags */}
             {task.tags_as_text ? (
-              <UIText numberOfLines={1} className="text-[10px] font-medium flex-shrink" style={{ color: '#4772FA' }}>
-                {task.tags_as_text.split(/\s+/).filter(Boolean).map((t) => (t.startsWith('#') ? t : `#${t}`)).join(' ')}
-              </UIText>
+              <View style={META_PILL}>
+                <Tag size={12} color="#A3A3A3" />
+                <UIText numberOfLines={1} style={{ ...META_PILL_TEXT, maxWidth: 160 }}>
+                  {task.tags_as_text.split(/\s+/).filter(Boolean).map((t) => (t.startsWith('#') ? t : `#${t}`)).join(' ')}
+                </UIText>
+              </View>
             ) : null}
 
-            {/* Invoke actions — Execute2 only (present when RowInvokeContext provided) */}
+            {/* Invoke actions — Execute only (present when RowInvokeContext provided) */}
             {invoke && (
               <>
                 <Pressable
                   onPress={(e) => { e.stopPropagation?.(); router.push(`/${checklistId}/tasks/${task.id}`) }}
                   hitSlop={6}
-                  className="flex-row items-center gap-1 rounded px-1.5 py-0.5 border border-border bg-background"
+                  style={INVOKE_PILL}
                 >
-                  <FileText size={10} color="#6366F1" />
-                  <UIText className="text-[10px] font-semibold" style={{ color: '#6366F1' }}>Detail</UIText>
+                  <FileText size={12} color="#6366F1" />
+                  <UIText style={INVOKE_PILL_TEXT}>Detail</UIText>
                 </Pressable>
                 <Pressable
                   onPress={(e) => { e.stopPropagation?.(); invoke.onInvokeMindmap(task.id) }}
                   hitSlop={6}
-                  className="flex-row items-center gap-1 rounded px-1.5 py-0.5 border border-border bg-background"
+                  style={INVOKE_PILL}
                 >
-                  <Network size={10} color="#6366F1" />
-                  <UIText className="text-[10px] font-semibold" style={{ color: '#6366F1' }}>Map</UIText>
+                  <Network size={12} color="#6366F1" />
+                  <UIText style={INVOKE_PILL_TEXT}>Map</UIText>
                 </Pressable>
                 <Pressable
                   onPress={(e) => { e.stopPropagation?.(); invoke.onInvokeRaw(task.id) }}
                   hitSlop={6}
-                  className="flex-row items-center gap-1 rounded px-1.5 py-0.5 border border-border bg-background"
+                  style={INVOKE_PILL}
                 >
-                  <Globe size={10} color="#6366F1" />
-                  <UIText className="text-[10px] font-semibold" style={{ color: '#6366F1' }}>Raw</UIText>
+                  <Globe size={12} color="#6366F1" />
+                  <UIText style={INVOKE_PILL_TEXT}>Raw</UIText>
                 </Pressable>
               </>
             )}
           </View>
         </View>
+
+        {/* Hover-reveal reorder arrows — web, root rows only. Keyboard Shift+↑/↓ still works. */}
+        {Platform.OS === 'web' && hovered && (onMoveUp || onMoveDown) && (
+          <View style={{ flexDirection: 'column', marginLeft: 4, flexShrink: 0 }}>
+            <Pressable onPress={(e) => { e.stopPropagation?.(); onMoveUp?.() }} hitSlop={4} style={{ paddingHorizontal: 2 }}>
+              <ChevronUp size={14} color="#9CA3AF" />
+            </Pressable>
+            <Pressable onPress={(e) => { e.stopPropagation?.(); onMoveDown?.() }} hitSlop={4} style={{ paddingHorizontal: 2 }}>
+              <ChevronDown size={14} color="#9CA3AF" />
+            </Pressable>
+          </View>
+        )}
       </Pressable>
 
       {/* Context menu */}

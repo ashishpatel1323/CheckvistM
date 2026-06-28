@@ -17,10 +17,10 @@ export const colors = {
   shadowSubtle: 'rgba(0,0,0,0.06)',
   shadowMedium: 'rgba(0,0,0,0.12)',
   // Priority palette (maps to PriorityPicker's BUCKET_META)
-  priorityHigh: { bg: '#FEF2F2', bgStrong: '#FECACA', text: '#b91c1c' },
-  priorityMedium: { bg: '#FFFBEB', bgStrong: '#FDE68A', text: '#b45309' },
-  priorityLow: { bg: '#F0FDF4', bgStrong: '#BBF7D0', text: '#15803d' },
-  priorityTbd: { bg: '#F5F3FF', bgStrong: '#DDD6FE', text: '#7c3aed' },
+  priorityHigh: { bg: '#FBF0F0', bgStrong: '#F8E3E3', text: '#DC7070', border: '#F3DADA' },
+  priorityMedium: { bg: '#FBF6EC', bgStrong: '#F8EDD6', text: '#D8A14A', border: '#F1E4CB' },
+  priorityLow: { bg: '#EEF7F1', bgStrong: '#DEEFE4', text: '#5FA97E', border: '#D4E9DC' },
+  priorityTbd: { bg: '#F4F1FB', bgStrong: '#E9E1F5', text: '#9277C4', border: '#E3DBF2' },
   // Time palette (maps to TIME_QUADRANTS)
   timeTbd: { bg: '#F9FAFB', bgStrong: '#E5E7EB', text: '#6B7280' },
   timeQuick: { bg: '#EFF6FF', bgStrong: '#BFDBFE', text: '#0369a1' },
@@ -32,7 +32,30 @@ export const radii = {
   sm: 6,
   md: 8,
   lg: 10,
+  card: 14,
   pill: 9999,
+}
+
+// 4px-based spacing scale (additive — keeps magic numbers out of components)
+export const space = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+}
+
+// Routines-tab revamp constants. Accent colors still come from ROUTINE_COLORS.
+export const routineUI = {
+  cardRadius: radii.card,
+  cardGap: 12,            // gutter between cards in the responsive grid
+  headerTintAlpha: '14',  // hex alpha appended to accent color for the soft header wash
+  rowDivider: colors.border,
+  cardShadow: colors.shadowSubtle,
+  // Responsive grid breakpoints (logical px width → column count)
+  twoColMin: 768,
+  threeColMin: 1180,
 }
 
 export const typography = {

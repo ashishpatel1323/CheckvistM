@@ -5,6 +5,7 @@ import { format } from 'date-fns'
 import { useRoutineStore } from './useRoutineStore'
 import { ROUTINE_COLORS } from './routineTypes'
 import { getStepStatus } from './routineSchedule'
+import { colors, space } from '../../../design/tokens'
 import {
   HabitCircle,
   TimeEditModal,
@@ -33,8 +34,8 @@ export function HabitRowContent({
 
   return (
     <>
-      {/* Emoji icon + X/21 badge */}
-      <View style={{ alignItems: 'center', marginRight: 10, gap: 3 }}>
+      {/* Emoji icon + X/21 badge (de-emphasized, still always visible) */}
+      <View style={{ alignItems: 'center', marginRight: space.md, gap: 3 }}>
         <Pressable
           onPress={onIconPress}
           disabled={!onIconPress}
@@ -48,29 +49,29 @@ export function HabitRowContent({
           <Text style={{ fontSize: 18 }}>{step.emoji}</Text>
         </Pressable>
         <View style={{
-          borderRadius: 10, borderWidth: 1, borderColor: accentColor + '40',
-          backgroundColor: accentColor + '12',
+          borderRadius: 6,
+          backgroundColor: colors.bgTertiary,
           paddingHorizontal: 5, paddingVertical: 1,
           alignItems: 'center', justifyContent: 'center',
         }}>
-          <Text style={{ fontSize: isMobileDay ? 10 : 9, fontWeight: '700', color: accentColor }}>
+          <Text style={{ fontSize: isMobileDay ? 9 : 8, fontWeight: '600', color: colors.textTertiary }}>
             {last21Successes}/21
           </Text>
         </View>
       </View>
 
       {/* Name + duration pill */}
-      <View style={{ flex: 1, marginRight: 6 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <Text style={{ fontSize: isMobileDay ? 16 : 14, fontWeight: '600', color: '#111' }} numberOfLines={1}>
+      <View style={{ flex: 1, marginRight: space.sm }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' }}>
+          <Text style={{ fontSize: isMobileDay ? 16 : 14, fontWeight: '600', color: colors.textPrimary }} numberOfLines={1}>
             {step.name}
           </Text>
           {step.durationMin > 0 && (
             <View style={{
-              backgroundColor: '#F3F4F6', borderRadius: 6,
+              backgroundColor: colors.bgTertiary, borderRadius: 6,
               paddingHorizontal: 6, paddingVertical: 2,
             }}>
-              <Text style={{ fontSize: isMobileDay ? 11 : 10, fontWeight: '600', color: '#6B7280' }}>
+              <Text style={{ fontSize: isMobileDay ? 11 : 10, fontWeight: '600', color: colors.textSecondary }}>
                 {step.durationMin}m
               </Text>
             </View>
@@ -87,7 +88,7 @@ export function HabitRowContent({
             width: 28, height: 28, borderRadius: 14,
             backgroundColor: accentColor + '18',
             alignItems: 'center', justifyContent: 'center',
-            marginRight: 6,
+            marginRight: space.sm,
           }}
         >
           <Play size={13} color={accentColor} fill={accentColor} />
@@ -142,7 +143,7 @@ export function HabitRowContent({
                 alignItems: 'center',
                 paddingVertical: 2,
                 borderRadius: 10,
-                backgroundColor: (isSelected && visibleDates.length > 1) ? '#F3F4F6' : 'transparent',
+                backgroundColor: (isSelected && visibleDates.length > 1) ? colors.bgTertiary : 'transparent',
               }}
             >
               <HabitCircle
@@ -173,9 +174,9 @@ export function HabitRowContent({
                 </Pressable>
               ) : isDone && circleSize >= 40 ? (
                 <Pressable onPress={() => setEditingDate(ds)} hitSlop={10}
-                  style={{ marginTop: 5, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#F3F4F6', borderRadius: 8 }}
+                  style={{ marginTop: 5, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: colors.bgTertiary, borderRadius: 8 }}
                 >
-                  <Text style={{ fontSize: 11, color: '#9CA3AF', textAlign: 'center' }}>+ time</Text>
+                  <Text style={{ fontSize: 11, color: colors.textTertiary, textAlign: 'center' }}>+ time</Text>
                 </Pressable>
               ) : null}
             </View>

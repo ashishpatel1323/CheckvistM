@@ -1,13 +1,13 @@
 import { useState, useMemo, useCallback } from 'react'
-import { View, Pressable, ScrollView, Platform, Modal } from 'react-native'
+import { View, Pressable, ScrollView, Modal } from 'react-native'
 import { Text as UIText } from '@/components/ui/text'
-import { ChevronDown, ChevronRight, ChevronUp, CalendarArrowUp } from 'lucide-react-native'
+import { ChevronDown, ChevronRight, CalendarArrowUp } from 'lucide-react-native'
 import type { TaskNode, HierarchyGroup } from '@/lib/taskTree'
 import { computeHierarchyGroup } from '@/lib/taskTree'
 import { useTaskSettings } from '@/features/settings/useTaskSettings'
 import type { GroupedTasks, DateGroup } from '@/lib/dateSort'
 import { PriorityTaskRow } from './PriorityTaskRow'
-import { classifyPriority } from '@/features/tasks/shared/PriorityPicker'
+import { classifyPriority, BUCKET_META } from '@/features/tasks/shared/PriorityPicker'
 import type { PriorityBucket } from '@/features/tasks/shared/PriorityPicker'
 import { useUpdateTask } from './useTasksQuery'
 import { toApiDate } from '@/lib/dateUtils'
@@ -30,11 +30,12 @@ interface PriorityDateViewProps {
 
 export const PRIORITY_BUCKETS: PriorityBucket[] = ['high', 'medium', 'low', 'tbd']
 
-export const PRIORITY_META: Record<PriorityBucket, { label: string; sublabel: string; color: string; bg: string }> = {
-  high:   { label: 'High',   sublabel: 'P1–P3 · Urgent & Important',     color: '#b91c1c', bg: '#FEF2F2' },
-  medium: { label: 'Medium', sublabel: 'P4–P6 · Important, Not Urgent', color: '#b45309', bg: '#FFFBEB' },
-  low:    { label: 'Low',    sublabel: 'P7–P8 · Delegate',               color: '#15803d', bg: '#F0FDF4' },
-  tbd:    { label: 'TBD',    sublabel: 'P9–P10 · Meetings & TBD',        color: '#7c3aed', bg: '#F5F3FF' },
+// Derived from the single source of truth (BUCKET_META). bg = soft tint band, border = subtle divider.
+export const PRIORITY_META: Record<PriorityBucket, { label: string; sublabel: string; color: string; bg: string; border: string }> = {
+  high:   { label: 'High',   sublabel: BUCKET_META.high.sublabel,   color: BUCKET_META.high.color,   bg: BUCKET_META.high.bgLight,   border: BUCKET_META.high.border },
+  medium: { label: 'Medium', sublabel: BUCKET_META.medium.sublabel, color: BUCKET_META.medium.color, bg: BUCKET_META.medium.bgLight, border: BUCKET_META.medium.border },
+  low:    { label: 'Low',    sublabel: BUCKET_META.low.sublabel,    color: BUCKET_META.low.color,    bg: BUCKET_META.low.bgLight,    border: BUCKET_META.low.border },
+  tbd:    { label: 'TBD',    sublabel: BUCKET_META.tbd.sublabel,    color: BUCKET_META.tbd.color,    bg: BUCKET_META.tbd.bgLight,    border: BUCKET_META.tbd.border },
 }
 
 export { classifyPriority }
@@ -85,17 +86,6 @@ export function bucketTasksByPriority(
   }
 
   return b
-}
-
-// ─── Date group accent colors ─────────────────────────────────────────────────
-
-const DATE_GROUP_COLOR: Record<DateGroup, string> = {
-  overdue:    '#EF4444',
-  today:      '#4772FA',
-  tomorrow:   '#8B5CF6',
-  thisWeek:   '#059669',
-  later:      '#6B7280',
-  noDueDate:  '#D1D5DB',
 }
 
 // Auto-open for urgent groups; collapse later/noDueDate by default
@@ -163,8 +153,6 @@ function PrioritySubSection({
     excess.forEach((t) => updateTask({ taskId: t.id, payload: { priority: 4 } }))
   }
 
-  const focusedIdx = orderedTasks.findIndex((t) => t.id === focusedId)
-
   // ── In hierarchy mode, filter roots + children to this bucket ──
   const { bucketRoots, bucketChildMap } = useMemo(() => {
     if (!hierarchy) return { bucketRoots: null, bucketChildMap: null }
@@ -189,23 +177,23 @@ function PrioritySubSection({
   }, [hierarchy, orderedTasks])
 
   return (
-    <View>
+    <View style={{ borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor: meta.border, backgroundColor: '#fff' }}>
       {/* Sub-section header */}
       <Pressable
         onPress={() => setCollapsed((v) => !v)}
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          paddingHorizontal: 14,
-          paddingVertical: 11,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
           backgroundColor: meta.bg,
           borderBottomWidth: collapsed ? 0 : 1,
-          borderBottomColor: '#F3F4F6',
+          borderBottomColor: meta.border,
           gap: 8,
         }}
       >
         <View style={{
-          width: 9, height: 9, borderRadius: 5,
+          width: 10, height: 10, borderRadius: 5,
           backgroundColor: meta.color,
         }} />
         <View className="flex-row items-center gap-2">
@@ -235,7 +223,9 @@ function PrioritySubSection({
           : <ChevronDown size={14} color="#9CA3AF" />}
       </Pressable>
 
-      {!collapsed && (() => {
+      {!collapsed && (
+        <View style={{ paddingVertical: 4 }}>
+          {(() => {
         // ── Hierarchy mode rendering (recursive: children, grandchildren, …) ──
         if (hierarchy && bucketRoots) {
           const rows: React.ReactNode[] = []
@@ -248,35 +238,21 @@ function PrioritySubSection({
             const rootIdx = isRoot ? orderedTasks.indexOf(node) : -1
 
             rows.push(
-              <View key={`node-${node.id}`} style={{ flexDirection: 'row', alignItems: 'stretch' }}>
-                {/* Reorder column — only top-level roots can be reordered */}
-                {isRoot && Platform.OS === 'web' && (
-                  <View style={{ width: 22, flexDirection: 'column', justifyContent: 'center', backgroundColor: meta.bg }}>
-                    <Pressable onPress={() => moveTask(rootIdx, -1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: rootIdx === 0 ? 0.2 : 0.6 }}>
-                      <ChevronUp size={10} color={meta.color} />
-                    </Pressable>
-                    <Pressable onPress={() => moveTask(rootIdx, 1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: rootIdx === orderedTasks.length - 1 ? 0.2 : 0.6 }}>
-                      <ChevronDown size={10} color={meta.color} />
-                    </Pressable>
-                  </View>
-                )}
-                <View style={{ flex: 1 }}>
-                  <PriorityTaskRow
-                    task={node}
-                    checklistId={checklistId}
-                    checklistName={checklistName}
-                    checkColor={meta.color}
-                    focusedId={focusedId}
-                    isLast={false}
-                    onMoveUp={isRoot && focusedIdx === rootIdx ? () => moveTask(rootIdx, -1) : undefined}
-                    onMoveDown={isRoot && focusedIdx === rootIdx ? () => moveTask(rootIdx, 1) : undefined}
-                    indentLevel={depth}
-                    expandable={hasChildren}
-                    expanded={isExpanded}
-                    onToggleExpand={hasChildren ? () => onToggleExpand(node.id) : undefined}
-                  />
-                </View>
-              </View>
+              <PriorityTaskRow
+                key={`node-${node.id}`}
+                task={node}
+                checklistId={checklistId}
+                checklistName={checklistName}
+                checkColor={meta.color}
+                focusedId={focusedId}
+                isLast={false}
+                onMoveUp={isRoot ? () => moveTask(rootIdx, -1) : undefined}
+                onMoveDown={isRoot ? () => moveTask(rootIdx, 1) : undefined}
+                indentLevel={depth}
+                expandable={hasChildren}
+                expanded={isExpanded}
+                onToggleExpand={hasChildren ? () => onToggleExpand(node.id) : undefined}
+              />
             )
 
             if (isExpanded && hasChildren) {
@@ -290,32 +266,21 @@ function PrioritySubSection({
 
         // ── Flat mode rendering (original) ──
         return orderedTasks.map((task, i) => (
-          <View key={task.id} style={{ flexDirection: 'row', alignItems: 'stretch' }}>
-            {Platform.OS === 'web' && (
-              <View style={{ width: 22, flexDirection: 'column', justifyContent: 'center', backgroundColor: meta.bg, borderBottomWidth: i === orderedTasks.length - 1 ? 0 : 1, borderBottomColor: '#F3F4F6' }}>
-                <Pressable onPress={() => moveTask(i, -1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: i === 0 ? 0.2 : 0.6 }}>
-                  <ChevronUp size={10} color={meta.color} />
-                </Pressable>
-                <Pressable onPress={() => moveTask(i, 1)} hitSlop={4} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', opacity: i === orderedTasks.length - 1 ? 0.2 : 0.6 }}>
-                  <ChevronDown size={10} color={meta.color} />
-                </Pressable>
-              </View>
-            )}
-            <View style={{ flex: 1 }}>
-              <PriorityTaskRow
-                task={task}
-                checklistId={checklistId}
-                checklistName={checklistName}
-                checkColor={meta.color}
-                focusedId={focusedId}
-                isLast={i === orderedTasks.length - 1}
-                onMoveUp={focusedIdx === i ? () => moveTask(i, -1) : undefined}
-                onMoveDown={focusedIdx === i ? () => moveTask(i, 1) : undefined}
-              />
-            </View>
-          </View>
+          <PriorityTaskRow
+            key={task.id}
+            task={task}
+            checklistId={checklistId}
+            checklistName={checklistName}
+            checkColor={meta.color}
+            focusedId={focusedId}
+            isLast={i === orderedTasks.length - 1}
+            onMoveUp={() => moveTask(i, -1)}
+            onMoveDown={() => moveTask(i, 1)}
+          />
         ))
-      })()}
+          })()}
+        </View>
+      )}
     </View>
   )
 }
@@ -350,7 +315,6 @@ function DateGroupCard({
   const [moving, setMoving] = useState(false)
   const { mutate: updateTask } = useUpdateTask(checklistId)
   const toast = useToast()
-  const accent = DATE_GROUP_COLOR[group.group]
   const isOverdue = group.group === 'overdue'
 
   // ── Compute hierarchy at the date group level (across all priorities) ──
@@ -399,7 +363,7 @@ function DateGroupCard({
     <View style={{
       marginHorizontal: 12,
       marginBottom: 12,
-      borderRadius: 14,
+      borderRadius: 16,
       backgroundColor: '#FFFFFF',
       overflow: 'hidden',
       shadowColor: '#000',
@@ -407,8 +371,8 @@ function DateGroupCard({
       shadowRadius: 6,
       shadowOffset: { width: 0, height: 2 },
       elevation: 2,
-      borderLeftWidth: 3,
-      borderLeftColor: accent,
+      borderWidth: 1,
+      borderColor: 'rgba(0,0,0,0.08)',
     }}>
       {/* L1 header */}
       <Pressable
@@ -418,12 +382,10 @@ function DateGroupCard({
           alignItems: 'center',
           paddingHorizontal: 14,
           paddingVertical: 13,
-          borderBottomWidth: collapsed ? 0 : 1,
-          borderBottomColor: '#F3F4F6',
           gap: 8,
         }}
       >
-        <UIText className="text-base font-bold" style={{ color: accent }}>
+        <UIText className="text-base font-bold" style={{ color: '#2563EB' }}>
           {group.label}
         </UIText>
         {isOverdue && group.tasks.length > 0 && (
@@ -437,7 +399,7 @@ function DateGroupCard({
               paddingHorizontal: 8,
               paddingVertical: 3,
               borderRadius: 6,
-              backgroundColor: accent,
+              backgroundColor: '#EF4444',
             }}
           >
             <CalendarArrowUp size={11} color="#fff" />
@@ -471,23 +433,27 @@ function DateGroupCard({
       </Pressable>
 
 
-      {/* L2 priority sub-sections */}
-      {!collapsed && activeBuckets.map((bucket) => (
-        <PrioritySubSection
-          key={bucket}
-          bucket={bucket}
-          tasks={buckets[bucket]}
-          checklistId={checklistId}
-          checklistName={checklistName}
-          focusedId={focusedId}
-          setFocusedId={setFocusedId}
-          isMobile={isMobile}
-          hierarchy={hierarchy}
-          expandedRootIds={expandedRootIds}
-          onToggleExpand={onToggleExpand}
-          allTasksInGroup={group.tasks}
-        />
-      ))}
+      {/* L2 priority sub-sections — inset rounded blocks, spaced apart */}
+      {!collapsed && (
+        <View style={{ paddingHorizontal: 8, paddingTop: 4, paddingBottom: 8, gap: 6 }}>
+          {activeBuckets.map((bucket) => (
+            <PrioritySubSection
+              key={bucket}
+              bucket={bucket}
+              tasks={buckets[bucket]}
+              checklistId={checklistId}
+              checklistName={checklistName}
+              focusedId={focusedId}
+              setFocusedId={setFocusedId}
+              isMobile={isMobile}
+              hierarchy={hierarchy}
+              expandedRootIds={expandedRootIds}
+              onToggleExpand={onToggleExpand}
+              allTasksInGroup={group.tasks}
+            />
+          ))}
+        </View>
+      )}
 
       {/* Move-to-today confirmation dialog */}
       <Modal
@@ -571,7 +537,7 @@ export function PriorityDateView({
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: '#F5F5F5' }}
+      style={{ flex: 1, backgroundColor: '#FAFAFA' }}
       contentContainerStyle={{ paddingTop: 12, paddingBottom: 32 }}
       showsVerticalScrollIndicator={false}
     >

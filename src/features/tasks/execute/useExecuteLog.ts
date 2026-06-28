@@ -53,6 +53,8 @@ interface ExecuteLogStore {
   hydrateFromRemote: (remote: Record<string, { startedAt: string; actualSeconds: number; completedAt: string | null }>) => void
   /** Overwrite start time and duration for a completed or paused session */
   updateSessionTimes: (key: string, startMin: number, durationMin: number) => void
+  /** Remove a play→pause block from the local session log (used by deleteSession) */
+  removeSession: (key: string) => void
 }
 
 export function todayKey(): string {
@@ -409,6 +411,16 @@ export const useExecuteLog = create<ExecuteLogStore>()(
           return { entries: { ...st.entries, [key]: updated } }
         })
       },
+      removeSession: (key) =>
+        set((s) => {
+          if (!s.sessionLog[key]) return s
+          const { [key]: _, ...rest } = s.sessionLog
+          const clearCurrent = s.currentSessionKey === key
+          return {
+            sessionLog: rest,
+            ...(clearCurrent ? { currentSessionKey: null, timerRunningKey: null, timerStartedAt: null } : {}),
+          }
+        }),
       reset: (key) => {
         const s = get()
         const updates: Partial<ExecuteLogStore> = {}
