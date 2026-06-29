@@ -39,6 +39,9 @@ import { KanbanView } from './KanbanView'
 import { RoutinesView } from '@/features/tasks/routines/RoutinesView'
 import { TimerModeView } from '@/features/tasks/routines/TimerModeView'
 import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
+import { RoutinesView as RoutinesView2 } from '@/features/tasks/routines2/RoutinesView'
+import { TimerModeView as TimerModeView2, MiniTimerBar as MiniTimerBar2 } from '@/features/tasks/routines2/TimerModeView'
+import { useRoutine2Store } from '@/features/tasks/routines2/useRoutine2Store'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
 import { TabBadge } from '@/components/TabBadge'
@@ -986,6 +989,7 @@ const TABS: TabEntry[] = [
   { key: 'progress', icon: TrendingUp,   label: 'Progress', shortcut: 'P' },
   { key: 'log',      icon: ClipboardList,label: 'Log',      shortcut: 'L' },
   { key: 'routines', icon: Repeat,       label: 'Routines', shortcut: 'R' },
+  { key: 'routines2',icon: Repeat,       label: 'Routine 2',shortcut: '2' },
   { key: 'list',     icon: AlignLeft,    label: 'Outline',  shortcut: 'O' },
   { key: 'mindmap',  icon: Network,      label: 'Map',      shortcut: 'M' },
   { key: 'search',   icon: Search,       label: 'Search',   shortcut: 'S' },
@@ -1059,6 +1063,8 @@ const { view, setView, focusedTaskId } = useTaskView()
 
   const { activeChecklistId } = useActiveChecklist()
   const { activeTimer, timerMinimized } = useRoutineStore()
+  const activeTimer2 = useRoutine2Store((s) => s.activeTimer)
+  const timerMinimized2 = useRoutine2Store((s) => s.timerMinimized)
   const { data: checklists } = useChecklists()
   const checklistName = checklists?.find((c) => c.id === activeChecklistId)?.name
 
@@ -1366,6 +1372,13 @@ const { view, setView, focusedTaskId } = useTaskView()
         </View>
       )}
 
+      {/* ── Routine 2 view (per-habit source of truth) ──────────── */}
+      {view === 'routines2' && (
+        <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
+          <RoutinesView2 checklistId={checklistId} />
+        </View>
+      )}
+
       {/* ── Raw view ────────────────────────────────────────────── */}
       {view === 'raw' && (
         <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
@@ -1386,7 +1399,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       )}
 
       {/* ── Task views ──────────────────────────────────────────── */}
-      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'matrix' && view !== 'progress' && view !== 'settings' && !isSearch && (
+      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'routines2' && view !== 'matrix' && view !== 'progress' && view !== 'settings' && !isSearch && (
         <>
           {isLoading && <TaskSkeleton count={8} />}
 
@@ -1444,7 +1457,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       {/* Mobile FAB — shown on all views except raw/search/execute. Suppressed on Execute
           since creating a task isn't that tab's primary action, and the FAB otherwise floats
           on top of the last visible task row in a screen that's already dense. */}
-      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && view !== 'routines' && view !== 'execute' && !showFabInput && (
+      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && view !== 'routines' && view !== 'routines2' && view !== 'execute' && !showFabInput && (
         <Pressable
           onPress={() => setShowFabInput(true)}
           className="absolute right-5 items-center justify-center rounded-full"
@@ -1525,6 +1538,10 @@ const { view, setView, focusedTaskId } = useTaskView()
 
       {/* Full-screen timer — rendered here so it persists across tab switches */}
       {activeTimer && !timerMinimized && <TimerModeView />}
+
+      {/* Routine 2 timer (independent per-habit store) */}
+      {activeTimer2 && !timerMinimized2 && <TimerModeView2 />}
+      {activeTimer2 && timerMinimized2 && <MiniTimerBar2 />}
 
       {isMobile && (
         <View

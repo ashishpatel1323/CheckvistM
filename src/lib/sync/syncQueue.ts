@@ -12,7 +12,7 @@ export type SyncOperation = 'create' | 'update' | 'delete'
 
 export interface SyncQueueItem {
   id: string               // unique queue entry id
-  entityType: string       // 'task' | 'routine' | 'checkin' | 'tracker' | 'entry' | 'session'
+  entityType: string       // 'task' | 'routine' | 'checkin' | 'habitlog' | 'tracker' | 'entry' | 'session'
   operation: SyncOperation
   localId: string          // local entity id
   payload: unknown
