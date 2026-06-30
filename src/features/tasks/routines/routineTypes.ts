@@ -13,7 +13,6 @@ export type RoutineColor = 'blue' | 'green' | 'purple' | 'pink' | 'navy' | 'teal
 export interface RoutineDef {
   taskId: number
   name: string
-  trigger: string
   color: RoutineColor
   steps: RoutineStep[]
 }

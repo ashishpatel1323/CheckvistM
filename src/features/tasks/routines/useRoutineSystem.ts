@@ -35,15 +35,13 @@ const DEF_SEP = ' ||| '
 interface DefPayload {
   v: number
   steps: RoutineStep[]
-  trigger: string
   color: RoutineColor
 }
 
 export function encodeRoutineDef(def: Omit<RoutineDef, 'taskId'>): string {
   const payload: DefPayload = {
-    v: 3,
+    v: 4,
     steps: def.steps,
-    trigger: def.trigger,
     color: def.color,
   }
   return `${ROUTINE_DEF_PREFIX} ${def.name}${DEF_SEP}${JSON.stringify(payload)}`
@@ -64,7 +62,6 @@ export function decodeRoutineDef(content: string, taskId: number): RoutineDef | 
     return {
       taskId,
       name,
-      trigger: json.trigger ?? '',
       color: json.color ?? 'blue',
       steps: rawSteps,
     }

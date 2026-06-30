@@ -37,7 +37,6 @@ const BLANK_STEP = (): RoutineStep => ({
 interface EditRoutine {
   taskId: number | null
   name: string
-  trigger: string
   color: RoutineColor
   steps: RoutineStep[]
 }
@@ -57,7 +56,6 @@ export function RoutineGlobalEditSheet({ isMobile, onClose }: RoutineGlobalEditS
     routines.map((r) => ({
       taskId: r.taskId,
       name: r.name,
-      trigger: r.trigger,
       color: r.color,
       steps: r.steps.map((s) => ({ ...s, scheduledDays: s.scheduledDays ?? [] })),
     }))
@@ -69,6 +67,20 @@ export function RoutineGlobalEditSheet({ isMobile, onClose }: RoutineGlobalEditS
   // Routine-picker overlay state: which habit (routine index + step id) is choosing.
   const [picker, setPicker] = useState<{ routineIdx: number; stepId: string } | null>(null)
   const [newRoutineFor, setNewRoutineFor] = useState<{ routineIdx: number; stepId: string } | 'standalone' | null>(null)
+
+  // Collapse state: set of routine indices that are collapsed (expanded by default for new routines).
+  const [collapsed, setCollapsed] = useState<Set<number | string>>(() => {
+    const s = new Set<number | string>()
+    routines.forEach((r, i) => s.add(i))
+    return s
+  })
+  const toggleCollapsed = (key: number | string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
   // ── Mutators on local state ──────────────────────────────────────────────
   const patchRoutine = (idx: number, patch: Partial<EditRoutine>) =>
@@ -116,7 +128,7 @@ export function RoutineGlobalEditSheet({ isMobile, onClose }: RoutineGlobalEditS
 
   /** Append an empty routine. */
   const addRoutine = (name: string, color: RoutineColor) =>
-    setState((prev) => [...prev, { taskId: null, name: name.trim() || 'New Routine', trigger: '', color, steps: [] }])
+    setState((prev) => [...prev, { taskId: null, name: name.trim() || 'New Routine', color, steps: [] }])
 
   /** Create a new routine and move the given habit into it — one atomic update. */
   const addRoutineWithHabit = (name: string, color: RoutineColor, fromIdx: number, stepId: string) =>
@@ -125,7 +137,7 @@ export function RoutineGlobalEditSheet({ isMobile, onClose }: RoutineGlobalEditS
       const stripped = prev.map((r, i) => (i === fromIdx ? { ...r, steps: r.steps.filter((s) => s.id !== stepId) } : r))
       return [
         ...stripped,
-        { taskId: null, name: name.trim() || 'New Routine', trigger: '', color, steps: step ? [step] : [] },
+        { taskId: null, name: name.trim() || 'New Routine', color, steps: step ? [step] : [] },
       ]
     })
 
@@ -149,7 +161,6 @@ export function RoutineGlobalEditSheet({ isMobile, onClose }: RoutineGlobalEditS
         await saveRoutineDef(
           {
             name: r.name.trim(),
-            trigger: r.trigger.trim(),
             color: r.color,
             steps: r.steps.filter((s) => s.name.trim().length > 0),
           },
@@ -167,150 +178,184 @@ export function RoutineGlobalEditSheet({ isMobile, onClose }: RoutineGlobalEditS
   }
 
   // ── Render ──────────────────────────────────────────────────────────────
+  const routineKey = (rIdx: number) => state[rIdx]?.taskId ?? `new-${rIdx}`
+  const isCollapsed = (rIdx: number) => collapsed.has(routineKey(rIdx))
+
   const body = (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 24, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
-      {state.map((routine, rIdx) => (
-        <View key={routine.taskId ?? `new-${rIdx}`} style={{ gap: 10 }}>
-          {/* Section header — editable routine meta */}
-          <View style={{ gap: 8, borderLeftWidth: 4, borderLeftColor: ROUTINE_COLORS[routine.color], paddingLeft: 10 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <TextInput
-                value={routine.name}
-                onChangeText={(v) => patchRoutine(rIdx, { name: v })}
-                placeholder="Routine name *"
-                placeholderTextColor="#C4C4C4"
-                maxLength={50}
-                style={[input, { flex: 1, fontWeight: '700', backgroundColor: '#fff' }]}
-              />
-              <Pressable onPress={() => deleteRoutine(rIdx)} hitSlop={8}>
-                <Trash2 size={18} color="#EF4444" />
-              </Pressable>
-            </View>
-            <TextInput
-              value={routine.trigger}
-              onChangeText={(v) => patchRoutine(rIdx, { trigger: v })}
-              placeholder="Trigger / anchor (optional)"
-              placeholderTextColor="#C4C4C4"
-              style={[input, { backgroundColor: '#fff', fontStyle: routine.trigger ? 'normal' : 'italic' }]}
-            />
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              {ROUTINE_COLOR_OPTIONS.map((c) => (
-                <Pressable
-                  key={c}
-                  onPress={() => patchRoutine(rIdx, { color: c })}
-                  style={{
-                    width: 26, height: 26, borderRadius: 13, backgroundColor: ROUTINE_COLORS[c],
-                    alignItems: 'center', justifyContent: 'center',
-                    borderWidth: routine.color === c ? 2 : 0, borderColor: '#111',
-                  }}
-                >
-                  {routine.color === c && <Text style={{ color: '#fff', fontSize: 12 }}>✓</Text>}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-
-          {/* Habit rows */}
-          {routine.steps.map((step, sIdx) => (
-            <View key={step.id} style={{ backgroundColor: '#F9FAFB', borderRadius: 12, padding: 12, gap: 8 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <TextInput
-                  value={step.emoji}
-                  onChangeText={(v) => patchStep(rIdx, step.id, { emoji: v || '✨' })}
-                  style={{ fontSize: 24, width: 40, textAlign: 'center' }}
-                  maxLength={2}
-                />
-                <TextInput
-                  value={step.name}
-                  onChangeText={(v) => patchStep(rIdx, step.id, { name: v })}
-                  placeholder="Habit name"
-                  placeholderTextColor="#C4C4C4"
-                  style={[input, { flex: 1, marginBottom: 0, backgroundColor: '#fff' }]}
-                />
-                <TextInput
-                  value={String(step.durationMin)}
-                  onChangeText={(v) => patchStep(rIdx, step.id, { durationMin: Math.max(0, parseInt(v) || 0) })}
-                  keyboardType="number-pad"
-                  style={[input, { width: 50, textAlign: 'center', marginBottom: 0, backgroundColor: '#fff' }]}
-                />
-                <Text style={{ fontSize: 12, color: '#9CA3AF' }}>min</Text>
-              </View>
-
-              {/* Day picker */}
-              <View style={{ flexDirection: 'row', gap: 4 }}>
-                {DAY_LABELS.map((lbl, di) => {
-                  const active = step.scheduledDays.length === 0 || step.scheduledDays.includes(di)
-                  return (
-                    <Pressable
-                      key={di}
-                      onPress={() => {
-                        const cur = step.scheduledDays.length === 0 ? [0, 1, 2, 3, 4, 5, 6] : step.scheduledDays
-                        const next = cur.includes(di) ? cur.filter((d) => d !== di) : [...cur, di].sort()
-                        patchStep(rIdx, step.id, { scheduledDays: next.length === 7 ? [] : next })
-                      }}
-                      style={{
-                        flex: 1, paddingVertical: 4, borderRadius: 6,
-                        backgroundColor: active ? ROUTINE_COLORS[routine.color] : '#F3F4F6',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Text style={{ fontSize: 10, fontWeight: '700', color: active ? '#fff' : '#9CA3AF' }}>{lbl}</Text>
-                    </Pressable>
-                  )
-                })}
-              </View>
-
-              {/* Controls row: routine dropdown + optional + move/delete */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Pressable
-                  onPress={() => setPicker({ routineIdx: rIdx, stepId: step.id })}
-                  style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 4,
-                    paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8,
-                    backgroundColor: '#EEF2FF',
-                  }}
-                >
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#4338CA', maxWidth: 120 }} numberOfLines={1}>
-                    {routine.name || 'Routine'}
-                  </Text>
-                  <Caret size={14} color="#4338CA" />
-                </Pressable>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Switch
-                    value={step.optional}
-                    onValueChange={(v) => patchStep(rIdx, step.id, { optional: v })}
-                    trackColor={{ true: '#D1D5DB' }}
-                    thumbColor="#fff"
-                    style={{ transform: [{ scaleX: 0.7 }, { scaleY: 0.7 }] }}
-                  />
-                  <Text style={{ fontSize: 11, color: '#9CA3AF' }}>Optional</Text>
-                </View>
-                <View style={{ flex: 1 }} />
-                <Pressable onPress={() => moveStep(rIdx, step.id, -1)} hitSlop={8} style={{ opacity: sIdx === 0 ? 0.3 : 1 }}>
-                  <ChevronUp size={16} color="#6B7280" />
-                </Pressable>
-                <Pressable onPress={() => moveStep(rIdx, step.id, 1)} hitSlop={8} style={{ opacity: sIdx === routine.steps.length - 1 ? 0.3 : 1 }}>
-                  <ChevronDown size={16} color="#6B7280" />
-                </Pressable>
-                <Pressable onPress={() => removeStep(rIdx, step.id)} hitSlop={8}>
-                  <Trash2 size={16} color="#EF4444" />
-                </Pressable>
-              </View>
-            </View>
-          ))}
-
-          <Pressable
-            onPress={() => addStep(rIdx)}
+    <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
+      {state.map((routine, rIdx) => {
+        const isExpanded = !isCollapsed(rIdx)
+        const routineId = routineKey(rIdx)
+        return (
+          <View
+            key={routineId}
             style={{
-              flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, justifyContent: 'center',
-              borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 12, borderStyle: 'dashed',
+              borderWidth: 1,
+              borderColor: '#E5E7EB',
+              borderRadius: 12,
+              overflow: 'hidden',
             }}
           >
-            <Plus size={15} color="#9CA3AF" />
-            <Text style={{ fontSize: 13, color: '#9CA3AF' }}>Add habit</Text>
-          </Pressable>
-        </View>
-      ))}
+            {/* Collapsible header */}
+            <Pressable
+              onPress={() => toggleCollapsed(routineId)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 10,
+                backgroundColor: ROUTINE_COLORS[routine.color],
+                paddingHorizontal: 12,
+                paddingVertical: 12,
+              }}
+            >
+              <Text style={{ fontSize: 16, color: '#fff', fontWeight: '700' }}>{isExpanded ? '▼' : '▶'}</Text>
+              <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.7)' }} />
+              <Text style={{ flex: 1, fontSize: 15, fontWeight: '600', color: '#fff' }} numberOfLines={1}>
+                {routine.name || 'Untitled'}
+              </Text>
+              <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>
+                {routine.steps.length} {routine.steps.length === 1 ? 'habit' : 'habits'}
+              </Text>
+              <Pressable onPress={() => deleteRoutine(rIdx)} hitSlop={8}>
+                <Trash2 size={18} color="#fff" />
+              </Pressable>
+            </Pressable>
+
+            {/* Expanded content */}
+            {isExpanded && (
+              <View style={{ backgroundColor: '#fff', padding: 12, gap: 12, borderTopWidth: 1, borderTopColor: '#E5E7EB' }}>
+                {/* Routine name + colors */}
+                <View style={{ gap: 8 }}>
+                  <TextInput
+                    value={routine.name}
+                    onChangeText={(v) => patchRoutine(rIdx, { name: v })}
+                    placeholder="Routine name *"
+                    placeholderTextColor="#C4C4C4"
+                    maxLength={50}
+                    style={[input, { fontWeight: '700', backgroundColor: '#F9FAFB' }]}
+                  />
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {ROUTINE_COLOR_OPTIONS.map((c) => (
+                      <Pressable
+                        key={c}
+                        onPress={() => patchRoutine(rIdx, { color: c })}
+                        style={{
+                          width: 28, height: 28, borderRadius: 14, backgroundColor: ROUTINE_COLORS[c],
+                          alignItems: 'center', justifyContent: 'center',
+                          borderWidth: routine.color === c ? 2.5 : 0, borderColor: '#111',
+                        }}
+                      >
+                        {routine.color === c && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>✓</Text>}
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Habit rows */}
+                {routine.steps.map((step, sIdx) => (
+                  <View key={step.id} style={{ backgroundColor: '#F9FAFB', borderRadius: 10, padding: 10, gap: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <TextInput
+                        value={step.emoji}
+                        onChangeText={(v) => patchStep(rIdx, step.id, { emoji: v || '✨' })}
+                        style={{ fontSize: 24, width: 40, textAlign: 'center' }}
+                        maxLength={2}
+                      />
+                      <TextInput
+                        value={step.name}
+                        onChangeText={(v) => patchStep(rIdx, step.id, { name: v })}
+                        placeholder="Habit name"
+                        placeholderTextColor="#C4C4C4"
+                        style={[input, { flex: 1, marginBottom: 0, backgroundColor: '#fff' }]}
+                      />
+                      <TextInput
+                        value={String(step.durationMin)}
+                        onChangeText={(v) => patchStep(rIdx, step.id, { durationMin: Math.max(0, parseInt(v) || 0) })}
+                        keyboardType="number-pad"
+                        style={[input, { width: 50, textAlign: 'center', marginBottom: 0, backgroundColor: '#fff' }]}
+                      />
+                      <Text style={{ fontSize: 12, color: '#9CA3AF' }}>min</Text>
+                    </View>
+
+                    {/* Day picker */}
+                    <View style={{ flexDirection: 'row', gap: 4 }}>
+                      {DAY_LABELS.map((lbl, di) => {
+                        const active = step.scheduledDays.length === 0 || step.scheduledDays.includes(di)
+                        return (
+                          <Pressable
+                            key={di}
+                            onPress={() => {
+                              const cur = step.scheduledDays.length === 0 ? [0, 1, 2, 3, 4, 5, 6] : step.scheduledDays
+                              const next = cur.includes(di) ? cur.filter((d) => d !== di) : [...cur, di].sort()
+                              patchStep(rIdx, step.id, { scheduledDays: next.length === 7 ? [] : next })
+                            }}
+                            style={{
+                              flex: 1, paddingVertical: 4, borderRadius: 6,
+                              backgroundColor: active ? ROUTINE_COLORS[routine.color] : '#F3F4F6',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: active ? '#fff' : '#9CA3AF' }}>{lbl}</Text>
+                          </Pressable>
+                        )
+                      })}
+                    </View>
+
+                    {/* Controls row */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Pressable
+                        onPress={() => setPicker({ routineIdx: rIdx, stepId: step.id })}
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 4,
+                          paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8,
+                          backgroundColor: '#EEF2FF',
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#4338CA', maxWidth: 100 }} numberOfLines={1}>
+                          {routine.name || 'Routine'}
+                        </Text>
+                        <Caret size={12} color="#4338CA" />
+                      </Pressable>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Switch
+                          value={step.optional}
+                          onValueChange={(v) => patchStep(rIdx, step.id, { optional: v })}
+                          trackColor={{ true: '#D1D5DB' }}
+                          thumbColor="#fff"
+                          style={{ transform: [{ scaleX: 0.65 }, { scaleY: 0.65 }] }}
+                        />
+                        <Text style={{ fontSize: 11, color: '#9CA3AF' }}>Optional</Text>
+                      </View>
+                      <View style={{ flex: 1 }} />
+                      <Pressable onPress={() => moveStep(rIdx, step.id, -1)} hitSlop={8} style={{ opacity: sIdx === 0 ? 0.3 : 1 }}>
+                        <ChevronUp size={16} color="#6B7280" />
+                      </Pressable>
+                      <Pressable onPress={() => moveStep(rIdx, step.id, 1)} hitSlop={8} style={{ opacity: sIdx === routine.steps.length - 1 ? 0.3 : 1 }}>
+                        <ChevronDown size={16} color="#6B7280" />
+                      </Pressable>
+                      <Pressable onPress={() => removeStep(rIdx, step.id)} hitSlop={8}>
+                        <Trash2 size={16} color="#EF4444" />
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+
+                {/* Add habit button */}
+                <Pressable
+                  onPress={() => addStep(rIdx)}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, justifyContent: 'center',
+                    borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10, borderStyle: 'dashed',
+                  }}
+                >
+                  <Plus size={14} color="#9CA3AF" />
+                  <Text style={{ fontSize: 13, color: '#9CA3AF' }}>Add habit</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )
+      })}
 
       {/* Add new routine */}
       <Pressable
@@ -326,54 +371,129 @@ export function RoutineGlobalEditSheet({ isMobile, onClose }: RoutineGlobalEditS
     </ScrollView>
   )
 
-  return (
-    <Modal visible transparent={false} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
-      <View style={{ flex: 1, backgroundColor: '#fff', paddingTop: Platform.OS === 'web' ? 0 : 44 }}>
-        {/* Header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
-          <Text style={{ flex: 1, fontSize: 18, fontWeight: '700', color: '#111' }}>Edit Habits</Text>
-          <Pressable onPress={handleSave} disabled={!canSave} hitSlop={8} style={{ marginRight: 16 }}>
-            <Text style={{ fontSize: 15, fontWeight: '700', color: canSave ? '#4338CA' : '#C4C4C4' }}>
-              {saving ? 'Saving…' : 'Save'}
-            </Text>
-          </Pressable>
-          <Pressable onPress={onClose} hitSlop={8}>
-            <X size={22} color="#6B7280" />
-          </Pressable>
+  if (isMobile) {
+    return (
+      <Modal visible transparent={false} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
+        <View style={{ flex: 1, backgroundColor: '#fff', paddingTop: 44 }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
+            <Text style={{ flex: 1, fontSize: 18, fontWeight: '700', color: '#111' }}>Edit Habits</Text>
+            <Pressable onPress={handleSave} disabled={!canSave} hitSlop={8} style={{ marginRight: 16 }}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: canSave ? '#4338CA' : '#C4C4C4' }}>
+                {saving ? 'Saving…' : 'Save'}
+              </Text>
+            </Pressable>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <X size={22} color="#6B7280" />
+            </Pressable>
+          </View>
+
+          {body}
+
+          {/* Routine picker overlay */}
+          {picker && (
+            <RoutinePickerOverlay
+              routines={state}
+              currentIdx={picker.routineIdx}
+              onPick={(toIdx) => {
+                moveHabitToRoutine(picker.routineIdx, picker.stepId, toIdx)
+                setPicker(null)
+              }}
+              onNew={() => {
+                setNewRoutineFor({ routineIdx: picker.routineIdx, stepId: picker.stepId })
+                setPicker(null)
+              }}
+              onClose={() => setPicker(null)}
+              isMobile={isMobile}
+            />
+          )}
+
+          {/* New routine (quick name + color) */}
+          {newRoutineFor && (
+            <NewRoutineOverlay
+              onCreate={(name, color) => {
+                if (newRoutineFor === 'standalone') addRoutine(name, color)
+                else addRoutineWithHabit(name, color, newRoutineFor.routineIdx, newRoutineFor.stepId)
+                setNewRoutineFor(null)
+              }}
+              onClose={() => setNewRoutineFor(null)}
+            />
+          )}
         </View>
+      </Modal>
+    )
+  }
 
-        {body}
+  // Desktop: centered, constrained modal
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingHorizontal: 20,
+        }}
+      >
+        <Pressable
+          onPress={(e) => e.stopPropagation()}
+          style={{
+            width: '100%',
+            maxWidth: 560,
+            maxHeight: '85%',
+            backgroundColor: '#fff',
+            borderRadius: 16,
+            overflow: 'hidden',
+          }}
+        >
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
+            <Text style={{ flex: 1, fontSize: 18, fontWeight: '700', color: '#111' }}>Edit Habits</Text>
+            <Pressable onPress={handleSave} disabled={!canSave} hitSlop={8} style={{ marginRight: 16 }}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: canSave ? '#4338CA' : '#C4C4C4' }}>
+                {saving ? 'Saving…' : 'Save'}
+              </Text>
+            </Pressable>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <X size={22} color="#6B7280" />
+            </Pressable>
+          </View>
 
-        {/* Routine picker overlay */}
-        {picker && (
-          <RoutinePickerOverlay
-            routines={state}
-            currentIdx={picker.routineIdx}
-            onPick={(toIdx) => {
-              moveHabitToRoutine(picker.routineIdx, picker.stepId, toIdx)
-              setPicker(null)
-            }}
-            onNew={() => {
-              setNewRoutineFor({ routineIdx: picker.routineIdx, stepId: picker.stepId })
-              setPicker(null)
-            }}
-            onClose={() => setPicker(null)}
-            isMobile={isMobile}
-          />
-        )}
+          {body}
 
-        {/* New routine (quick name + color) */}
-        {newRoutineFor && (
-          <NewRoutineOverlay
-            onCreate={(name, color) => {
-              if (newRoutineFor === 'standalone') addRoutine(name, color)
-              else addRoutineWithHabit(name, color, newRoutineFor.routineIdx, newRoutineFor.stepId)
-              setNewRoutineFor(null)
-            }}
-            onClose={() => setNewRoutineFor(null)}
-          />
-        )}
-      </View>
+          {/* Routine picker overlay */}
+          {picker && (
+            <RoutinePickerOverlay
+              routines={state}
+              currentIdx={picker.routineIdx}
+              onPick={(toIdx) => {
+                moveHabitToRoutine(picker.routineIdx, picker.stepId, toIdx)
+                setPicker(null)
+              }}
+              onNew={() => {
+                setNewRoutineFor({ routineIdx: picker.routineIdx, stepId: picker.stepId })
+                setPicker(null)
+              }}
+              onClose={() => setPicker(null)}
+              isMobile={isMobile}
+            />
+          )}
+
+          {/* New routine (quick name + color) */}
+          {newRoutineFor && (
+            <NewRoutineOverlay
+              onCreate={(name, color) => {
+                if (newRoutineFor === 'standalone') addRoutine(name, color)
+                else addRoutineWithHabit(name, color, newRoutineFor.routineIdx, newRoutineFor.stepId)
+                setNewRoutineFor(null)
+              }}
+              onClose={() => setNewRoutineFor(null)}
+            />
+          )}
+        </Pressable>
+      </Pressable>
     </Modal>
   )
 }

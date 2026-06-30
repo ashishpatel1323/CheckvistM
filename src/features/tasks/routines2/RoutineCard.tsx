@@ -60,13 +60,6 @@ export function RoutineCard({ routine, onPress, onEdit, onDelete }: RoutineCardP
           {routine.name}
         </UIText>
 
-        {/* Trigger */}
-        {!!routine.trigger && (
-          <UIText className="text-xs text-muted-foreground mb-1.5">
-            {routine.trigger}
-          </UIText>
-        )}
-
         {/* Step emoji preview */}
         {previewSteps.length > 0 && (
           <UIText className="text-sm text-muted-foreground" numberOfLines={1}>

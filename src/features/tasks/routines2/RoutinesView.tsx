@@ -865,13 +865,6 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
 
   const totalPending = useMemo(() => Object.values(todayPending).reduce((s, n) => s + n, 0), [todayPending])
 
-  const routinesWithPending = useMemo(() => routines.filter((r) => (todayPending[r.taskId] ?? 0) > 0), [routines, todayPending])
-
-  const handleGlobalStart = () => {
-    if (routinesWithPending.length === 0) return
-    startQueue(routinesWithPending)
-  }
-
   useEffect(() => { loadRoutines() }, [loadRoutines])
 
   // 7 days: ±3 days around selectedDate (same style as log tab)
@@ -1025,23 +1018,6 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
             <ChevronRight size={16} color="#374151" />
           </Pressable>
 
-          {/* Global start timer */}
-          {totalPending > 0 && !activeTimer && (
-            <Pressable
-              onPress={handleGlobalStart}
-              style={{
-                flexDirection: 'row', alignItems: 'center', gap: 6,
-                paddingHorizontal: 12, paddingVertical: 7,
-                backgroundColor: BLUE, borderRadius: 20,
-                marginLeft: 8,
-              }}
-            >
-              <Play size={12} color="#fff" fill="#fff" />
-              <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>
-                Start · {totalPending}
-              </Text>
-            </Pressable>
-          )}
         </View>
 
         {/* Single-line toggle strip */}

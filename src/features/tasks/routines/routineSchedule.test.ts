@@ -12,7 +12,7 @@ function makeStep(id: string, scheduledDays: number[] = []): RoutineStep {
 }
 
 function makeRoutine(steps: RoutineStep[]): RoutineDef {
-  return { taskId: 1, name: 'Morning', trigger: '', color: 'blue', steps }
+  return { taskId: 1, name: 'Morning', color: 'blue', steps }
 }
 
 describe('isStepScheduledOnDay', () => {

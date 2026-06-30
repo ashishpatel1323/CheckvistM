@@ -69,13 +69,6 @@ export function RoutineDetailView({ routine, isMobile, onClose, onEdit, onStartT
           </View>
         )}
 
-        {/* Trigger */}
-        {!!routine.trigger && (
-          <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, fontStyle: 'italic' }}>
-            {routine.trigger}
-          </Text>
-        )}
-
         {/* Last 7 days */}
         <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 10 }}>
           Last 7 days
