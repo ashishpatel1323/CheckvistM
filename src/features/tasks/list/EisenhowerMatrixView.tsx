@@ -241,7 +241,7 @@ export function classifyTime(task: CheckvistTask): TimeBucket {
   return 'tbd'
 }
 
-function buildTimeTagsString(task: CheckvistTask, newBucket: TimeBucket): string {
+export function buildTimeTagsString(task: CheckvistTask, newBucket: TimeBucket): string {
   // Split by comma or space, strip any '#' prefix, remove existing time tags
   const existingTags = (task.tags_as_text ?? '')
     .split(/[,\s]+/)
