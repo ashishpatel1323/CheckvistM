@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { onDesktopAction, type DesktopAction } from '@/platform/desktopBridge'
 import { useExecuteLog } from '@/features/tasks/execute/useExecuteLog'
-import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
+import { useRoutine2Store } from '@/features/tasks/routines2/useRoutine2Store'
 import { useIdleTimer } from './useIdleTimer'
 
 // Runs ONLY in the MacOSElectronApp main window (mounted alongside useMenuBarSync). It is the
@@ -17,7 +17,7 @@ export function useDesktopMainBridge(): void {
   useEffect(() => {
     function handle(action: DesktopAction) {
       const ex = useExecuteLog.getState()
-      const rt = useRoutineStore.getState()
+      const rt = useRoutine2Store.getState()
       const routinePaused = rt.activeTimer?.pausedAt != null
 
       switch (action.type) {

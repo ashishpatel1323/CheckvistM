@@ -36,11 +36,8 @@ import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
 import { EisenhowerMatrixView } from './EisenhowerMatrixView'
 import { KanbanView } from './KanbanView'
-import { RoutinesView } from '@/features/tasks/routines/RoutinesView'
-import { TimerModeView } from '@/features/tasks/routines/TimerModeView'
-import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
 import { RoutinesView as RoutinesView2 } from '@/features/tasks/routines2/RoutinesView'
-import { TimerModeView as TimerModeView2, MiniTimerBar as MiniTimerBar2 } from '@/features/tasks/routines2/TimerModeView'
+import { TimerModeView as TimerModeView2 } from '@/features/tasks/routines2/TimerModeView'
 import { useRoutine2Store } from '@/features/tasks/routines2/useRoutine2Store'
 import { useActiveChecklist } from '@/features/checklists/useActiveChecklist'
 import { useChecklists } from '@/features/checklists/useChecklists'
@@ -147,17 +144,17 @@ function ExecuteFilterBar({
   const INDIGO = '#6366F1'
   const VIOLET = '#8B5CF6'
   const timeOptions: { key: TimeBucket | 'all'; label: string; color: string }[] = [
-    { key: 'all', label: 'All time filters', color: INDIGO },
+    { key: 'all', label: 'All', color: INDIGO },
     ...TIME_QUADRANTS.map((q) => ({ key: q.bucket, label: q.label, color: q.color })),
   ]
   const priorityOptions: { key: PriorityBucket | null; label: string; color: string }[] = [
-    { key: null, label: 'All priorities', color: INDIGO },
+    { key: null, label: 'All', color: INDIGO },
     ...(Object.entries(BUCKET_META) as [PriorityBucket, typeof BUCKET_META[PriorityBucket]][])
       .map(([key, meta]) => ({ key, label: meta.label, color: meta.color })),
   ]
 
   return (
-    <View style={{ paddingHorizontal: 12, paddingVertical: 8, gap: 8, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', backgroundColor: 'white' }}>
+    <View style={{ paddingHorizontal: 12, paddingVertical: 8, gap: 4, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', backgroundColor: 'white' }}>
       {/* Search */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 16, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }}>
         <Search size={16} color={searchQuery !== '' ? VIOLET : '#94A3B8'} />
@@ -176,34 +173,34 @@ function ExecuteFilterBar({
       </View>
 
       {/* Time + Priority pill rows */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-        <Text style={{ width: 56, fontSize: 13, color: '#A3A3A3', fontWeight: '400' }}>Time</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+        <Text style={{ marginRight: 2, fontSize: 12, color: '#A3A3A3', fontWeight: '400' }}>Time</Text>
         {timeOptions.map((opt) => {
           const active = timeFilter === opt.key
           return (
             <Pressable
               key={String(opt.key)}
               onPress={() => setTimeFilter(active ? 'all' : opt.key)}
-              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: active ? VIOLET : '#F5F5F5', borderWidth: active ? 0 : 1, borderColor: active ? 'transparent' : '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 6 }}
+              style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: active ? VIOLET : '#F5F5F5', borderWidth: active ? 0 : 1, borderColor: active ? 'transparent' : '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 4 }}
             >
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: active ? '#fff' : opt.color }} />
-              <Text style={{ fontSize: 13, fontWeight: '500', color: active ? '#fff' : '#404040' }}>{opt.label}</Text>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: active ? '#fff' : opt.color }} />
+              <Text style={{ fontSize: 12, fontWeight: '500', color: active ? '#fff' : '#404040' }}>{opt.label}</Text>
             </Pressable>
           )
         })}
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-        <Text style={{ width: 56, fontSize: 13, color: '#A3A3A3', fontWeight: '400' }}>Priority</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+        <Text style={{ marginRight: 2, fontSize: 12, color: '#A3A3A3', fontWeight: '400' }}>Priority</Text>
         {priorityOptions.map((opt) => {
           const active = priorityFilter === opt.key
           return (
             <Pressable
               key={String(opt.key)}
               onPress={() => setPriorityFilter(active ? null : opt.key)}
-              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: active ? VIOLET : '#F5F5F5', borderWidth: active ? 0 : 1, borderColor: active ? 'transparent' : '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 6 }}
+              style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: active ? VIOLET : '#F5F5F5', borderWidth: active ? 0 : 1, borderColor: active ? 'transparent' : '#E5E7EB', flexDirection: 'row', alignItems: 'center', gap: 4 }}
             >
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: active ? '#fff' : opt.color }} />
-              <Text style={{ fontSize: 13, fontWeight: '500', color: active ? '#fff' : '#404040' }}>{opt.label}</Text>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: active ? '#fff' : opt.color }} />
+              <Text style={{ fontSize: 12, fontWeight: '500', color: active ? '#fff' : '#404040' }}>{opt.label}</Text>
             </Pressable>
           )
         })}
@@ -485,10 +482,10 @@ function SessionsStatBadge() {
 }
 
 function RoutinesStatBadge() {
-  const routines = useRoutineStore((s) => s.routines)
-  const checkins = useRoutineStore((s) => s.checkins)
-  const getTodayCheckin = useRoutineStore((s) => s.getTodayCheckin)
-  const loadRoutines = useRoutineStore((s) => s.loadRoutines)
+  const routines = useRoutine2Store((s) => s.routines)
+  const checkins = useRoutine2Store((s) => s.checkins)
+  const getTodayCheckin = useRoutine2Store((s) => s.getTodayCheckin)
+  const loadRoutines = useRoutine2Store((s) => s.loadRoutines)
 
   useEffect(() => { loadRoutines() }, [loadRoutines])
 
@@ -988,8 +985,7 @@ const TABS: TabEntry[] = [
   { key: 'matrix',   icon: Network,      label: 'Matrix',   shortcut: 'X' },
   { key: 'progress', icon: TrendingUp,   label: 'Progress', shortcut: 'P' },
   { key: 'log',      icon: ClipboardList,label: 'Log',      shortcut: 'L' },
-  { key: 'routines', icon: Repeat,       label: 'Routines', shortcut: 'R' },
-  { key: 'routines2',icon: Repeat,       label: 'Routine 2',shortcut: '2' },
+  { key: 'routines2',icon: Repeat,       label: 'Routines', shortcut: 'R' },
   { key: 'list',     icon: AlignLeft,    label: 'Outline',  shortcut: 'O' },
   { key: 'mindmap',  icon: Network,      label: 'Map',      shortcut: 'M' },
   { key: 'search',   icon: Search,       label: 'Search',   shortcut: 'S' },
@@ -1062,7 +1058,6 @@ const { view, setView, focusedTaskId } = useTaskView()
   const refreshRotate = refreshSpin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] })
 
   const { activeChecklistId } = useActiveChecklist()
-  const { activeTimer, timerMinimized } = useRoutineStore()
   const activeTimer2 = useRoutine2Store((s) => s.activeTimer)
   const timerMinimized2 = useRoutine2Store((s) => s.timerMinimized)
   const { data: checklists } = useChecklists()
@@ -1089,9 +1084,9 @@ const { view, setView, focusedTaskId } = useTaskView()
   }, [tasks])
 
   // Badge calculations for tabs
-  const routines = useRoutineStore((s) => s.routines)
-  const checkins = useRoutineStore((s) => s.checkins)
-  const getTodayCheckin = useRoutineStore((s) => s.getTodayCheckin)
+  const routines = useRoutine2Store((s) => s.routines)
+  const checkins = useRoutine2Store((s) => s.checkins)
+  const getTodayCheckin = useRoutine2Store((s) => s.getTodayCheckin)
   const sessionLog = useExecuteLog((s) => s.sessionLog)
   const currentSessionKey = useExecuteLog((s) => s.currentSessionKey)
   const timerStartedAt = useExecuteLog((s) => s.timerStartedAt)
@@ -1213,7 +1208,7 @@ const { view, setView, focusedTaskId } = useTaskView()
             >
               <View style={{ position: 'relative' }}>
                 <Icon size={20} color={active ? '#171717' : '#737373'} style={{ opacity: active ? 1 : 0.85 }} />
-                <TabBadge count={badgeCount} color={key === 'date' ? '#EF4444' : key === 'routines' ? '#F59E0B' : '#6366F1'} compact style={{ top: -6, right: -6 }} />
+                <TabBadge count={badgeCount} color={key === 'date' ? '#EF4444' : key === 'routines2' ? '#F59E0B' : '#6366F1'} compact style={{ top: -6, right: -6 }} />
                 {/* Shortcut hint while Ctrl is held — collapsed: corner of the icon */}
                 {showShortcuts && tabsCollapsed && <Keycap shortcut={shortcut} style={{ position: 'absolute', bottom: -7, right: -8 }} />}
               </View>
@@ -1366,13 +1361,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       )}
 
       {/* ── Routines view ───────────────────────────────────────── */}
-      {view === 'routines' && (
-        <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
-          <RoutinesView checklistId={checklistId} />
-        </View>
-      )}
-
-      {/* ── Routine 2 view (per-habit source of truth) ──────────── */}
+      {/* ── Routines view (per-habit source of truth) ──────────── */}
       {view === 'routines2' && (
         <View style={{ flex: 1, paddingBottom: isMobile ? tabBarH : 0 }}>
           <RoutinesView2 checklistId={checklistId} />
@@ -1399,7 +1388,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       )}
 
       {/* ── Task views ──────────────────────────────────────────── */}
-      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines' && view !== 'routines2' && view !== 'matrix' && view !== 'progress' && view !== 'settings' && !isSearch && (
+      {view !== 'raw' && view !== 'execute' && view !== 'log' && view !== 'routines2' && view !== 'matrix' && view !== 'progress' && view !== 'settings' && !isSearch && (
         <>
           {isLoading && <TaskSkeleton count={8} />}
 
@@ -1457,7 +1446,7 @@ const { view, setView, focusedTaskId } = useTaskView()
       {/* Mobile FAB — shown on all views except raw/search/execute. Suppressed on Execute
           since creating a task isn't that tab's primary action, and the FAB otherwise floats
           on top of the last visible task row in a screen that's already dense. */}
-      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && view !== 'routines' && view !== 'routines2' && view !== 'execute' && !showFabInput && (
+      {isMobile && view !== 'raw' && view !== 'search' && view !== 'log' && view !== 'routines2' && view !== 'execute' && !showFabInput && (
         <Pressable
           onPress={() => setShowFabInput(true)}
           className="absolute right-5 items-center justify-center rounded-full"
@@ -1536,12 +1525,9 @@ const { view, setView, focusedTaskId } = useTaskView()
       {/* A minimized routine now surfaces in the GlobalTimerBar at the top, so there is no
           separate bottom mini bar. */}
 
-      {/* Full-screen timer — rendered here so it persists across tab switches */}
-      {activeTimer && !timerMinimized && <TimerModeView />}
-
-      {/* Routine 2 timer (independent per-habit store) */}
+      {/* Full-screen routine timer — persists across tab switches; minimized
+          state surfaces in GlobalTimerBar */}
       {activeTimer2 && !timerMinimized2 && <TimerModeView2 />}
-      {activeTimer2 && timerMinimized2 && <MiniTimerBar2 />}
 
       {isMobile && (
         <View
@@ -1572,7 +1558,7 @@ const { view, setView, focusedTaskId } = useTaskView()
               >
                 <View style={{ position: 'relative' }}>
                   <Icon size={22} color={active ? BLUE : INACTIVE} />
-                  <TabBadge count={badgeCount} color={key === 'date' ? '#EF4444' : key === 'routines' ? '#F59E0B' : '#6366F1'} />
+                  <TabBadge count={badgeCount} color={key === 'date' ? '#EF4444' : key === 'routines2' ? '#F59E0B' : '#6366F1'} />
                 </View>
                 <Text
                   className="text-xs font-medium"

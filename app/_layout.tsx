@@ -8,7 +8,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@/queryClient'
 import { useAuth } from '@/auth/useAuth'
 import { ToastProvider } from '@/components/Toast'
-import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
+import { useRoutine2Store } from '@/features/tasks/routines2/useRoutine2Store'
 import { initAutoSync, stopAutoSync } from '@/lib/sync/autoSync'
 import { registerTaskHandlers } from '@/lib/sync/taskSyncHandlers'
 import { initClientIdentity } from '@/platform/clientIdentity'
@@ -62,7 +62,7 @@ function WidgetDeepLinkHandler() {
         const routineTaskId = Number(parsed.searchParams.get('routineTaskId'))
         const stepId = parsed.searchParams.get('stepId') ?? ''
         if (!routineTaskId || !stepId) return
-        const { routines, toggleStep } = useRoutineStore.getState()
+        const { routines, toggleStep } = useRoutine2Store.getState()
         const routine = routines.find((r) => r.taskId === routineTaskId)
         if (routine) {
           toggleStep(routine, stepId).catch(console.warn)

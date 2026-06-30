@@ -3,7 +3,7 @@ import {
   View, Text, Pressable, ScrollView, useWindowDimensions,
   ActivityIndicator, Modal, TextInput,
 } from 'react-native'
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon, Play, Flame, Zap, Clock, CalendarDays, X as XIcon, AlertTriangle } from 'lucide-react-native'
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon, Play, Flame, Zap, Clock, CalendarDays, CalendarRange, X as XIcon, AlertTriangle } from 'lucide-react-native'
 import { format, addDays, subDays, isToday, isFuture, startOfMonth, endOfMonth, eachDayOfInterval, getDay, getDaysInMonth, parseISO } from 'date-fns'
 import { useRoutine2Store } from './useRoutine2Store'
 import { useRoutineSystem } from '../routines/useRoutineSystem'
@@ -11,12 +11,14 @@ import { RoutineDetailView } from './RoutineDetailView'
 import { RoutineGlobalEditSheet } from './RoutineGlobalEditSheet'
 import { ROUTINE_COLORS } from '../routines/routineTypes'
 import type { RoutineDef, RoutineStep, HabitStatus } from '../routines/routineTypes'
-import { getPendingRoutineStepIds, getStepStatus } from '../routines/routineSchedule'
+import { getPendingRoutineStepIds, getStepStatus, isStepScheduledOnDay } from '../routines/routineSchedule'
 import { HabitRowContent } from './HabitRowContent'
 import { colors, radii, space, routineUI } from '../../../design/tokens'
 
 export const BLUE = '#4772FA'
 export const FAILURE_RED = '#DC2626'
+export const DONE_GREEN = '#5FA97E'
+export const PENDING_AMBER = '#D8A14A'
 export const TODAY_PURPLE = '#7C3AED'
 
 // Dark red (0%) → amber (50%) → dark green (100%)
@@ -175,6 +177,32 @@ export function getLast21ScheduledSuccesses(
     cursor = addDays(cursor, -1)
   }
   return successes
+}
+
+/**
+ * Routine-level adherence over the last 21 calendar days: for each day, every step scheduled
+ * that day-of-week is one instance; an instance is "done" if its id is in that date's
+ * completedStepIds. Returns a float percentage (done / total * 100).
+ */
+export function getRoutine21DayRate(
+  routine: RoutineDef,
+  logs: { date: string; completedStepIds: string[] }[],
+): number {
+  let total = 0
+  let done = 0
+  let cursor = new Date()
+  for (let i = 0; i < 21; i++) {
+    const dow = cursor.getDay()
+    const ds = format(cursor, 'yyyy-MM-dd')
+    const log = logs.find((l) => l.date === ds)
+    for (const step of routine.steps) {
+      if (!isStepScheduledOnDay(step, dow)) continue
+      total++
+      if (log?.completedStepIds.includes(step.id)) done++
+    }
+    cursor = addDays(cursor, -1)
+  }
+  return total === 0 ? 0 : (done / total) * 100
 }
 
 // ─── DayColumn header ─────────────────────────────────────────────────────────
@@ -379,7 +407,7 @@ function HabitRow(props: HabitRowProps & { isMobile?: boolean }) {
 
 // ─── RoutineGroup ─────────────────────────────────────────────────────────────
 
-type RoutineFilterMode = 'all' | 'pending' | 'failed'
+type RoutineFilterMode = 'all' | 'pending' | 'failed' | 'done'
 
 interface RoutineGroupProps {
   routine: RoutineDef
@@ -408,6 +436,7 @@ function RoutineGroup({
 }: RoutineGroupProps) {
   const [collapsed, setCollapsed] = useState(false)
   const accentColor = ROUTINE_COLORS[routine.color]
+  const rate21 = getRoutine21DayRate(routine, checkins)
 
   // Build date → completedStepIds, date → failedStepIds, and stepId → (date → HH:MM) maps
   const checkinsByDate: Record<string, string[]> = {}
@@ -434,6 +463,7 @@ function RoutineGroup({
     if (filterMode === 'all') return true
     if (filterMode === 'pending') return status === 'pending'
     if (filterMode === 'failed') return status === 'failed'
+    if (filterMode === 'done') return status === 'done'
     return false
   })
 
@@ -472,6 +502,12 @@ function RoutineGroup({
         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: accentColor, marginHorizontal: space.sm }} />
         <Text style={{ flex: 1, fontSize: 14, fontWeight: '700', color: colors.textPrimary }} numberOfLines={1}>
           {routine.name}
+        </Text>
+        <Text
+          style={{ fontSize: 12, fontWeight: '700', color: completionColor(rate21 / 100), marginRight: 8 }}
+          numberOfLines={1}
+        >
+          : {rate21.toFixed(2)} %
         </Text>
         <Text style={{
           fontSize: 12, fontWeight: '600', color: '#fff',
@@ -901,10 +937,30 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
         const status = getStepStatus(step, dow, done.includes(step.id), failed.includes(step.id))
         if (filterMode === 'all') return true
         if (filterMode === 'pending') return status === 'pending'
+        if (filterMode === 'done') return status === 'done'
         return status === 'failed'
       })
     })
   }, [routines, checkins, selectedDate, filterMode])
+
+  // Per-filter habit (step) counts for the selected day. all = applicable habits = done+pending+failed.
+  const filterCounts = useMemo(() => {
+    const ds = format(selectedDate, 'yyyy-MM-dd')
+    const dow = selectedDate.getDay()
+    const counts: Record<RoutineFilterMode, number> = { all: 0, done: 0, pending: 0, failed: 0 }
+    routines.forEach((r) => {
+      const log = (checkins[r.taskId] ?? []).find((c) => c.date === ds)
+      const done = log?.completedStepIds ?? []
+      const failed = log?.failedStepIds ?? []
+      r.steps.forEach((step) => {
+        const status = getStepStatus(step, dow, done.includes(step.id), failed.includes(step.id))
+        if (status === 'done') { counts.done += 1; counts.all += 1 }
+        else if (status === 'pending') { counts.pending += 1; counts.all += 1 }
+        else if (status === 'failed') { counts.failed += 1; counts.all += 1 }
+      })
+    })
+    return counts
+  }, [routines, checkins, selectedDate])
 
   const handleToggle = useCallback(async (routine: RoutineDef, stepId: string, date: string) => {
     await toggleStep(routine, stepId, date)
@@ -1006,28 +1062,24 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
               <Pressable
                 onPress={() => setViewMode('day')}
                 style={{
-                  paddingHorizontal: 14,
+                  paddingHorizontal: 10,
                   paddingVertical: 7,
                   borderRadius: 9,
                   backgroundColor: viewMode === 'day' ? colors.bgPrimary : 'transparent',
                 }}
               >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: viewMode === 'day' ? colors.textPrimary : colors.textSecondary }}>
-                  Day
-                </Text>
+                <CalendarDays size={14} color={viewMode === 'day' ? colors.textPrimary : colors.textSecondary} />
               </Pressable>
               <Pressable
                 onPress={() => setViewMode('week')}
                 style={{
-                  paddingHorizontal: 14,
+                  paddingHorizontal: 10,
                   paddingVertical: 7,
                   borderRadius: 9,
                   backgroundColor: viewMode === 'week' ? colors.bgPrimary : 'transparent',
                 }}
               >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: viewMode === 'week' ? colors.textPrimary : colors.textSecondary }}>
-                  Week
-                </Text>
+                <CalendarRange size={14} color={viewMode === 'week' ? colors.textPrimary : colors.textSecondary} />
               </Pressable>
             </View>
 
@@ -1039,8 +1091,9 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
               gap: 4,
             }}>
               {([
-                { mode: 'all', label: 'Show All' },
-                { mode: 'pending', label: 'Only Pending' },
+                { mode: 'all', label: 'All' },
+                { mode: 'done', label: 'Done' },
+                { mode: 'pending', label: 'Pending' },
                 { mode: 'failed', label: 'Failed' },
               ] as { mode: RoutineFilterMode; label: string }[]).map(({ mode, label }) => (
                 <Pressable
@@ -1055,9 +1108,14 @@ export function RoutinesView({ checklistId: _checklistId }: RoutinesViewProps) {
                 >
                   <Text style={{
                     fontSize: 12, fontWeight: '700',
-                    color: filterMode !== mode ? colors.textSecondary : mode === 'failed' ? FAILURE_RED : colors.textPrimary,
+                    color: filterMode !== mode ? colors.textSecondary : mode === 'failed' ? FAILURE_RED : mode === 'done' ? DONE_GREEN : colors.textPrimary,
                   }}>
                     {label}
+                    {viewMode === 'day' && (
+                      <Text style={{ color: mode === 'done' ? DONE_GREEN : mode === 'pending' ? PENDING_AMBER : mode === 'failed' ? FAILURE_RED : colors.textSecondary }}>
+                        ({filterCounts[mode]})
+                      </Text>
+                    )}
                   </Text>
                 </Pressable>
               ))}

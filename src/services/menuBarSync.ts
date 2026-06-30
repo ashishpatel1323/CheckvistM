@@ -1,8 +1,8 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { Platform } from 'react-native'
 import { useExecuteLog, type ExecuteLogEntry } from '@/features/tasks/execute/useExecuteLog'
-import { useRoutineStore, type ActiveTimer } from '@/features/tasks/routines/useRoutineStore'
-import type { RoutineDef } from '@/features/tasks/routines/routineTypes'
+import { useRoutine2Store } from '@/features/tasks/routines2/useRoutine2Store'
+import type { RoutineDef, ActiveTimer } from '@/features/tasks/routines/routineTypes'
 import { useAuth } from '@/auth/useAuth'
 import { storageGetSync, storageSetSync } from '@/platform/storage'
 import { fetchChecklists, createChecklist, fetchTasks, createTask, updateTask } from '@/api/endpoints'
@@ -241,7 +241,7 @@ export function useMenuBarSync(): void {
     function tick() {
       if (!useAuth.getState().isAuthenticated) return
       const exStore = useExecuteLog.getState()
-      const rtStore = useRoutineStore.getState()
+      const rtStore = useRoutine2Store.getState()
       const ex: ExecuteState = {
         timerRunningKey: exStore.timerRunningKey,
         timerStartedAt: exStore.timerStartedAt,

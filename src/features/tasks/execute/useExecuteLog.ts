@@ -4,7 +4,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { format } from 'date-fns'
 import { useSystemLog } from './useSystemLog'
-import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
+import { useRoutine2Store } from '@/features/tasks/routines2/useRoutine2Store'
 import { clientId, clientLabel } from '@/platform/clientIdentity'
 
 export const MIN_ESTIMATE = 5
@@ -297,8 +297,8 @@ export const useExecuteLog = create<ExecuteLogStore>()(
         const nowIso = new Date(now).toISOString()
 
         // Mutual exclusion: only one global timer runs at a time. Starting a task timer
-        // pauses any running routine. (See useRoutineStore for the reverse direction.)
-        const rt = useRoutineStore.getState()
+        // pauses any running routine. (See useRoutine2Store for the reverse direction.)
+        const rt = useRoutine2Store.getState()
         if (rt.activeTimer && rt.activeTimer.pausedAt === null) rt.pauseTimer()
 
         // Flush any previously running timer first (accumulate into task entry + session entry).

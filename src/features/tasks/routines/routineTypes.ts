@@ -38,6 +38,26 @@ export interface StepStatus {
   date: string
 }
 
+/** Live routine-timer session state (shared by the routine store + the global timer bar). */
+export interface ActiveTimer {
+  routineTaskId: number
+  /** Index into pendingStepIds (the filtered list of steps to run) */
+  stepIndex: number
+  /** Only the steps that are still pending (not yet succeeded today) */
+  pendingStepIds: string[]
+  stepStartedAt: number
+  pausedAt: number | null
+  stepElapsedSec: number
+  completedStepIds: string[]
+  skippedStepIds: string[]
+  routineStartedAt: number
+  totalElapsedSec: number
+  /** Extra time added to the current step via "extend" while it overruns, in seconds */
+  extensionSec: number
+  /** stepId → HH:MM captured the moment each step's Done button was tapped this session */
+  stepCompletionTimes: Record<string, string>
+}
+
 export const ROUTINE_COLORS: Record<RoutineColor, string> = {
   blue:   '#3B82F6',
   green:  '#22C55E',

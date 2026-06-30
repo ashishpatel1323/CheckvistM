@@ -8,18 +8,18 @@
  * mutation persists exactly the one (or, for "mark all", N independent) habit
  * record(s) it touched, so editing one habit can never alter another.
  *
- * Mirrors the public surface of useRoutineStore so the copied components in this
- * folder are byte-for-byte the originals apart from the store import.
+ * Exposes the routine store surface the routines2/ components consume (toggle,
+ * mark failed, timer, derived checkins).
  */
 
 import { create } from 'zustand'
 import { format, parseISO } from 'date-fns'
 import { useRoutine2System } from './useRoutine2System'
 import type { HabitHistory } from './useRoutine2System'
-import type { RoutineDef, CheckinLog } from '../routines/routineTypes'
-import type { ActiveTimer } from '../routines/useRoutineStore'
+import type { RoutineDef, CheckinLog, ActiveTimer } from '../routines/routineTypes'
 import { getPendingRoutineStepIds } from '../routines/routineSchedule'
 import { useExecuteLog } from '@/features/tasks/execute/useExecuteLog'
+import { useSystemLog } from '@/features/tasks/execute/useSystemLog'
 
 /** Mutual exclusion: pause any running Execute task timer before a routine takes over. */
 function pauseExecuteTimer() {
@@ -399,6 +399,25 @@ export const useRoutine2Store = create<Routine2StoreState>()((set, get) => ({
         totalElapsedSec: newTotalElapsed,
       },
     })
+
+    // Log the step's elapsed time to the Log tab under a SINGLE routine identity
+    // (taskId = routine.taskId, name = routine.name) so the grouped-by-task view
+    // collapses every step into one "routine" group instead of one row per habit.
+    // Fire for both done and skip — time was spent either way; syncSession drops <10s blocks.
+    const roundedElapsed = Math.round(stepElapsed)
+    if (roundedElapsed >= 10) {
+      const startMs = Date.now() - roundedElapsed * 1000
+      const nowIso = new Date().toISOString()
+      const listId = useRoutine2System.getState().systemListId ?? 0
+      const key = `${listId}:${todayStr()}:${routine.taskId}:${startMs}`
+      void useSystemLog.getState().syncSession(key, routine.name, {
+        taskId: routine.taskId,
+        estimateMin: 0,
+        startedAt: new Date(startMs).toISOString(),
+        actualSeconds: roundedElapsed,
+        completedAt: nowIso,
+      }).catch(() => {})
+    }
 
     // Persist only the one habit that was completed — independent of siblings.
     if (action === 'done') {

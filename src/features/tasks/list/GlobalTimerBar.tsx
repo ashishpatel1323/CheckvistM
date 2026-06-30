@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { View, Text, Pressable } from 'react-native'
 import { Plus, Minus, Play, Pause, Check, SkipForward, Circle, Timer, Repeat } from 'lucide-react-native'
 import { useExecuteLog, liveSeconds } from '@/features/tasks/execute/useExecuteLog'
-import { useRoutineStore } from '@/features/tasks/routines/useRoutineStore'
+import { useRoutine2Store } from '@/features/tasks/routines2/useRoutine2Store'
 import { useIdleTimer } from './useIdleTimer'
 import { useOvertimeBeep } from '@/services/focusReminder'
 
@@ -45,13 +45,13 @@ export function GlobalTimerBar({ onOpenExecute }: GlobalTimerBarProps) {
   const setEstimate = useExecuteLog((s) => s.setEstimate)
 
   // Routine timer state
-  const activeTimer = useRoutineStore((s) => s.activeTimer)
-  const routines = useRoutineStore((s) => s.routines)
-  const pauseRoutine = useRoutineStore((s) => s.pauseTimer)
-  const resumeRoutine = useRoutineStore((s) => s.resumeTimer)
-  const advanceStep = useRoutineStore((s) => s.advanceStep)
-  const expandTimer = useRoutineStore((s) => s.expandTimer)
-  const extendStep = useRoutineStore((s) => s.extendStep)
+  const activeTimer = useRoutine2Store((s) => s.activeTimer)
+  const routines = useRoutine2Store((s) => s.routines)
+  const pauseRoutine = useRoutine2Store((s) => s.pauseTimer)
+  const resumeRoutine = useRoutine2Store((s) => s.resumeTimer)
+  const advanceStep = useRoutine2Store((s) => s.advanceStep)
+  const expandTimer = useRoutine2Store((s) => s.expandTimer)
+  const extendStep = useRoutine2Store((s) => s.extendStep)
 
   const mode: 'execute' | 'routine' | 'idle' =
     timerRunningKey != null ? 'execute' : activeTimer != null ? 'routine' : 'idle'

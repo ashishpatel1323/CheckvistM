@@ -5,11 +5,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { TaskView } from './useTaskView'
 
 export const DEFAULT_TAB_ORDER: TaskView[] = [
-  'execute', 'progress', 'routines', 'routines2', 'kanban', 'matrix', 'log', 'list', 'mindmap', 'search', 'raw',
+  'execute', 'progress', 'routines2', 'kanban', 'matrix', 'log', 'list', 'mindmap', 'search', 'raw',
 ]
 
 // Tabs removed from the app — stripped from any persisted order on load.
-const REMOVED_TABS: TaskView[] = ['date']
+// 'routines' was the old per-routine tab, superseded by per-habit 'routines2'.
+const REMOVED_TABS: TaskView[] = ['date', 'routines']
 
 export const PINNED_TAB_COUNT = 4
 

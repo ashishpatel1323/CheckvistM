@@ -1,22 +1,22 @@
 /**
- * useRoutineSystem — persists routine definitions and daily check-ins to a
- * hidden Checkvist system list, mirroring the useSystemLog pattern.
+ * useRoutineSystem — persists routine DEFINITIONS to a hidden Checkvist system
+ * list, mirroring the useSystemLog pattern. (Completion logging is per-habit and
+ * lives in useRoutine2System; this store owns only the [ROUTINE_DEF] tasks.)
  *
  * Structure in Checkvist:
  *   "⚙️ Checkvist Routines"  (one checklist, created on first use)
  *   └── "[ROUTINE_DEF] Morning Routine ||| {JSON config}"  (one per routine)
- *       └── "[ROUTINE_LOG] Morning Routine | 2026-06-06 | done=true steps=id1 skipped= dur=1320"
  */
 
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Platform } from 'react-native'
-import { fetchChecklists, createChecklist, fetchTasks, createTask, updateTask, deleteTask } from '@/api/endpoints'
-import type { RoutineDef, CheckinLog, RoutineColor, RoutineStep } from './routineTypes'
+import { fetchChecklists, createChecklist, createTask, updateTask, deleteTask } from '@/api/endpoints'
+import type { RoutineDef, RoutineColor, RoutineStep } from './routineTypes'
 import { useSyncState } from '@/lib/sync/syncState'
 import { refreshCounts } from '@/lib/sync/syncEngine'
-import { enqueueCheckin, enqueueRoutineSave, enqueueRoutineDelete } from '@/lib/repositories/routineRepo'
+import { enqueueRoutineSave, enqueueRoutineDelete } from '@/lib/repositories/routineRepo'
 
 /** Options passed to direct-write store methods. `fromQueue` marks a replay by syncEngine. */
 interface SyncWriteOpts {
@@ -28,7 +28,6 @@ interface SyncWriteOpts {
 
 const SYSTEM_LIST_NAME = '⚙️ Checkvist Routines'
 const ROUTINE_DEF_PREFIX = '[ROUTINE_DEF]'
-const ROUTINE_LOG_PREFIX = '[ROUTINE_LOG]'
 const DEF_SEP = ' ||| '
 
 // ─── Encoding / Decoding ──────────────────────────────────────────────────────
@@ -74,69 +73,14 @@ export function decodeRoutineDef(content: string, taskId: number): RoutineDef | 
   }
 }
 
-export function encodeCheckin(routineName: string, log: Omit<CheckinLog, 'systemTaskId'>): string {
-  const stimes = log.stepCompletionTimes
-  const stimesPart = stimes && Object.keys(stimes).length > 0
-    ? ` stimes=${Object.entries(stimes).map(([id, t]) => `${id}@${t}`).join(',')}`
-    : ''
-  const failedPart = log.failedStepIds && log.failedStepIds.length > 0
-    ? ` failed=${log.failedStepIds.join(',')}`
-    : ''
-  return `${ROUTINE_LOG_PREFIX} ${routineName} | ${log.date} | steps=${log.completedStepIds.join(',')} dur=${log.durationSec}${stimesPart}${failedPart}`
-}
-
-export function decodeCheckin(content: string, systemTaskId: number, parentId: number): CheckinLog | null {
-  if (!content.startsWith(ROUTINE_LOG_PREFIX)) return null
-  try {
-    const dateM = content.match(/\| (\d{4}-\d{2}-\d{2}) \|/)
-    const stepsM = content.match(/steps=([^\s|]*)/)
-    const durM = content.match(/dur=(\d+)/)
-    const stimesM = content.match(/stimes=(\S+)/)
-    const failedM = content.match(/failed=(\S+)/)
-
-    if (!dateM) return null
-
-    const completedStepIds = stepsM?.[1] ? stepsM[1].split(',').filter(Boolean) : []
-    const failedStepIds = failedM?.[1] ? failedM[1].split(',').filter(Boolean) : []
-
-    const stepCompletionTimes: Record<string, string> = {}
-    if (stimesM?.[1]) {
-      for (const pair of stimesM[1].split(',')) {
-        const atIdx = pair.lastIndexOf('@')
-        if (atIdx > 0) {
-          stepCompletionTimes[pair.slice(0, atIdx)] = pair.slice(atIdx + 1)
-        }
-      }
-    }
-    // Migrate old single `time=HH:MM` — if no per-step times but an old time= exists,
-    // we just drop it (it was incorrectly shared across all steps anyway).
-
-    return {
-      routineTaskId: parentId,
-      date: dateM[1],
-      completedStepIds,
-      failedStepIds: failedStepIds.length > 0 ? failedStepIds : undefined,
-      durationSec: Number(durM?.[1] ?? 0),
-      stepCompletionTimes: Object.keys(stepCompletionTimes).length > 0 ? stepCompletionTimes : undefined,
-      systemTaskId,
-    }
-  } catch {
-    return null
-  }
-}
-
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 interface RoutineSystemStore {
   systemListId: number | null
-  /** "routineTaskId:date" → checkin system task ID */
-  checkinTaskIds: Record<string, number>
 
   ensureSystemList: () => Promise<number>
-  fetchAll: () => Promise<{ routines: RoutineDef[]; checkinsByRoutine: Record<number, CheckinLog[]> }>
   saveRoutineDef: (def: Omit<RoutineDef, 'taskId'>, existingTaskId?: number, opts?: SyncWriteOpts) => Promise<number>
   deleteRoutineDef: (taskId: number, opts?: SyncWriteOpts) => Promise<void>
-  logCheckin: (log: CheckinLog, routineName: string, opts?: SyncWriteOpts) => Promise<void>
 }
 
 const storage = Platform.OS === 'web'
@@ -147,7 +91,6 @@ export const useRoutineSystem = create<RoutineSystemStore>()(
   persist(
     (set, get) => ({
       systemListId: null,
-      checkinTaskIds: {},
 
       ensureSystemList: async () => {
         const cached = get().systemListId
@@ -163,32 +106,6 @@ export const useRoutineSystem = create<RoutineSystemStore>()(
         const created = await createChecklist(SYSTEM_LIST_NAME)
         set({ systemListId: created.id })
         return created.id
-      },
-
-      fetchAll: async () => {
-        const systemListId = await get().ensureSystemList()
-        const tasks = await fetchTasks(systemListId)
-
-        const routines: RoutineDef[] = []
-        const checkinsByRoutine: Record<number, CheckinLog[]> = {}
-        const newCheckinTaskIds: Record<string, number> = {}
-
-        for (const task of tasks) {
-          if (task.content.startsWith(ROUTINE_DEF_PREFIX) && !task.parent_id) {
-            const def = decodeRoutineDef(task.content, task.id)
-            if (def) routines.push(def)
-          } else if (task.content.startsWith(ROUTINE_LOG_PREFIX) && task.parent_id) {
-            const log = decodeCheckin(task.content, task.id, task.parent_id)
-            if (log) {
-              if (!checkinsByRoutine[log.routineTaskId]) checkinsByRoutine[log.routineTaskId] = []
-              checkinsByRoutine[log.routineTaskId].push(log)
-              newCheckinTaskIds[`${log.routineTaskId}:${log.date}`] = task.id
-            }
-          }
-        }
-
-        set((s) => ({ checkinTaskIds: { ...s.checkinTaskIds, ...newCheckinTaskIds } }))
-        return { routines, checkinsByRoutine }
       },
 
       saveRoutineDef: async (def, existingTaskId, opts) => {
@@ -259,50 +176,6 @@ export const useRoutineSystem = create<RoutineSystemStore>()(
           })
           if (opts?.fromQueue) throw e
           await enqueueRoutineDelete(taskId)
-          refreshCounts()
-        }
-      },
-
-      logCheckin: async (log, routineName, opts) => {
-        try {
-          const systemListId = await get().ensureSystemList()
-          const content = encodeCheckin(routineName, log)
-          const key = `${log.routineTaskId}:${log.date}`
-          const existingId = get().checkinTaskIds[key]
-
-          if (existingId) {
-            await updateTask(systemListId, existingId, { content })
-          } else {
-            const created = await createTask(systemListId, {
-              content,
-              parent_id: log.routineTaskId,
-              due_date: log.date.replace(/-/g, '/'),
-            })
-            set((s) => ({ checkinTaskIds: { ...s.checkinTaskIds, [key]: created.id } }))
-          }
-          const doneCount = log.completedStepIds.length
-          useSyncState.getState().addHistoryItem({
-            id: `checkin-${key}-${Date.now()}`,
-            entityType: 'checkin',
-            operation: existingId ? 'update' : 'create',
-            localId: key,
-            label: `Check-in synced · ${routineName} (${doneCount} steps done)`,
-            syncedAt: Date.now(),
-            status: 'synced',
-          })
-        } catch (e) {
-          console.warn('[RoutineSystem] log checkin failed:', e)
-          useSyncState.getState().addHistoryItem({
-            id: `checkin-err-${Date.now()}`,
-            entityType: 'checkin',
-            operation: 'create',
-            localId: `${log.routineTaskId}:${log.date}`,
-            label: `Check-in sync failed · ${routineName}`,
-            syncedAt: Date.now(),
-            status: 'failed',
-          })
-          if (opts?.fromQueue) throw e
-          await enqueueCheckin(log, routineName)
           refreshCounts()
         }
       },

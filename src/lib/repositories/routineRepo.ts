@@ -30,17 +30,6 @@ registerSyncHandler('routine', async (item: SyncQueueItem) => {
   }
 })
 
-registerSyncHandler('checkin', async (item: SyncQueueItem) => {
-  const { useRoutineSystem } = await import('@/features/tasks/routines/useRoutineSystem')
-  const system = useRoutineSystem.getState()
-
-  const payload = item.payload as { log: Parameters<typeof system.logCheckin>[0]; routineName: string }
-
-  if (payload) {
-    await system.logCheckin(payload.log, payload.routineName, { fromQueue: true })
-  }
-})
-
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function enqueueRoutineSave(def: unknown): Promise<void> {
@@ -50,10 +39,4 @@ export async function enqueueRoutineSave(def: unknown): Promise<void> {
 
 export async function enqueueRoutineDelete(taskId: number): Promise<void> {
   await enqueue('routine', 'delete', String(taskId), { operation: 'delete', taskId })
-}
-
-export async function enqueueCheckin(log: unknown, routineName: string): Promise<void> {
-  const date = (log as { date: string }).date ?? Date.now().toString()
-  const taskId = (log as { routineTaskId: number }).routineTaskId ?? Date.now()
-  await enqueue('checkin', 'create', `${taskId}:${date}`, { log, routineName })
 }
