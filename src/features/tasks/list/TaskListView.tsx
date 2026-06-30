@@ -9,7 +9,7 @@ import { diffTaskLists, formatTaskDiff } from '@/lib/diffTasks'
 import { groupTasksByDate, classifyTask } from '@/lib/dateSort'
 import { TaskSkeleton } from '@/components/TaskSkeleton'
 import { VirtualTaskList } from './VirtualTaskList'
-import { PriorityDateView } from './PriorityDateView'
+import { PriorityDateView, bucketTasksByPriority, PRIORITY_META } from './PriorityDateView'
 import { RowInvokeContext } from './PriorityTaskRow'
 import { TIME_QUADRANTS, classifyTime, type TimeBucket } from './EisenhowerMatrixView'
 import { classifyPriority, type PriorityBucket, BUCKET_META } from '@/features/tasks/shared/PriorityPicker'
@@ -35,6 +35,9 @@ import { format } from 'date-fns'
 import { ExecutionLogView } from '@/features/tasks/execute/ExecutionLogView'
 import { RawView } from '@/features/tasks/raw/RawView'
 import { EisenhowerMatrixView } from './EisenhowerMatrixView'
+import { QUADRANTS, QuadrantShell, useCardDragRef, _tdFindBucket, computePriorityDrop, type QuadrantConfig } from '@/features/tasks/shared/PriorityMatrixGrid'
+import { useTaskSettings } from '@/features/settings/useTaskSettings'
+import { useUpdateTask } from './useTasksQuery'
 import { KanbanView } from './KanbanView'
 import { RoutinesView as RoutinesView2 } from '@/features/tasks/routines2/RoutinesView'
 import { TimerModeView as TimerModeView2 } from '@/features/tasks/routines2/TimerModeView'
@@ -54,10 +57,6 @@ interface TaskListViewProps {
 type RightPanel = { type: 'raw'; taskId: number } | { type: 'mindmap'; taskId: number } | null
 
 function RightPanelTimerBar({ onClose }: { onClose: () => void }) {
-  const { currentTask, currentSeconds, isRunning, togglePlay } = useExecCtx()
-  const mins = Math.floor(currentSeconds / 60).toString().padStart(2, '0')
-  const secs = (currentSeconds % 60).toString().padStart(2, '0')
-  const INDIGO = '#6366F1'
   return (
     <View style={{
       flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -74,29 +73,7 @@ function RightPanelTimerBar({ onClose }: { onClose: () => void }) {
         <Text style={{ fontSize: 12, fontWeight: '500', color: '#374151' }}>Execute</Text>
       </Pressable>
 
-      <View style={{ flex: 1 }} />
 
-      {currentTask && (
-        <Text style={{ fontSize: 12, color: '#64748B', fontWeight: '500' }} numberOfLines={1}>
-          {currentTask.content.replace(/\*\*/g, '').replace(/\*/g, '')}
-        </Text>
-      )}
-
-      <Pressable
-        onPress={togglePlay}
-        style={{
-          flexDirection: 'row', alignItems: 'center', gap: 5,
-          paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
-          backgroundColor: isRunning ? INDIGO : '#1E293B',
-        }}
-      >
-        {isRunning
-          ? <Pause size={11} color="white" />
-          : <Play size={11} color="white" />}
-        <Text style={{ fontSize: 13, fontWeight: '700', color: 'white', fontVariant: ['tabular-nums'] }}>
-          {mins}:{secs}
-        </Text>
-      </Pressable>
     </View>
   )
 }
@@ -232,7 +209,30 @@ function ExecuteLeftPane({
   priorityFilter: PriorityBucket | null
   setPriorityFilter: (v: PriorityBucket | null) => void
 }) {
-  const [leftView, setLeftView] = useState<'list' | 'calendar'>('list')
+  const [leftView, setLeftView] = useState<'list' | 'calendar' | 'matrix'>('list')
+  const { hierarchyMode } = useTaskSettings()
+  const { mutate: updateTaskMut } = useUpdateTask(checklistId)
+  const [dropTarget, setDropTarget] = useState<PriorityBucket | null>(null)
+  const draggedTask = useRef<TaskNode | null>(null)
+
+  const matrixTasks = useMemo(() => filteredGroups.flatMap((g) => g.tasks), [filteredGroups])
+  const matrixHierarchy = useMemo(() => hierarchyMode ? computeHierarchyGroup(matrixTasks, getById) : null, [hierarchyMode, matrixTasks, getById])
+  const matrixBuckets = useMemo(() => bucketTasksByPriority(matrixTasks, matrixHierarchy, getById), [matrixTasks, matrixHierarchy, getById])
+
+  const handleMatrixDrop = (targetBucket: PriorityBucket) => {
+    const task = draggedTask.current
+    if (!task) return
+    draggedTask.current = null
+    setDropTarget(null)
+    const newPriority = computePriorityDrop(task, targetBucket)
+    if (newPriority !== null) updateTaskMut({ taskId: task.id, payload: { priority: newPriority } })
+  }
+
+  const handleMatrixTouchDropAtPoint = (x: number, y: number) => {
+    const bucket = _tdFindBucket(x, y) as PriorityBucket | null
+    if (bucket) handleMatrixDrop(bucket)
+    else draggedTask.current = null
+  }
   const ctx = useExecCtx()
 
   // Calendar consumes the same shared filters (flat): pre-filter its task set so the common
@@ -247,12 +247,107 @@ function ExecuteLeftPane({
     )
   }, [ctx.orderedTasks, searchQuery, timeFilter, priorityFilter])
 
+  const renderMatrixGrid = () => {
+    const isMobileLocal = isMobile
+    return (
+      <View style={{ flex: 1, padding: isMobileLocal ? 8 : 12 }}>
+        <View style={{ flex: 1, flexDirection: isMobileLocal ? 'column' : 'row', gap: isMobileLocal ? 8 : 12 }}>
+          <View style={{ flex: 1, flexDirection: 'column', gap: isMobileLocal ? 8 : 12 }}>
+            {QUADRANTS.slice(0, 2).map((config) => {
+              const bucketTasks = matrixBuckets[config.bucket]
+              return (
+                <QuadrantShell
+                  key={config.bucket}
+                  config={config}
+                  isDropTarget={dropTarget === config.bucket}
+                  onDragOver={() => setDropTarget(config.bucket)}
+                  onDragLeave={() => setDropTarget(null)}
+                  onDrop={() => handleMatrixDrop(config.bucket)}
+                  count={bucketTasks.length}
+                >
+                  <ScrollView style={{ flex: 1, padding: 8 }} showsVerticalScrollIndicator={false}>
+                    {bucketTasks.length === 0 ? (
+                      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: 80 }}>
+                        <Text style={{ fontSize: 12, color: '#9CA3AF' }}>No tasks</Text>
+                      </View>
+                    ) : (
+                      bucketTasks.map((task) => {
+                        const dragRef = useCardDragRef(task, () => { draggedTask.current = task }, handleMatrixTouchDropAtPoint)
+                        return (
+                          <View key={task.id} ref={dragRef as any} style={{ paddingVertical: 2 }}>
+                            <RowInvokeContext.Provider value={invokeActions}>
+                              <PriorityTaskRow
+                                task={task}
+                                checklistId={checklistId}
+                                checklistName={checklistName}
+                                checkColor={config.color}
+                                focusedId={focusedId}
+                                isLast={false}
+                              />
+                            </RowInvokeContext.Provider>
+                          </View>
+                        )
+                      })
+                    )}
+                  </ScrollView>
+                </QuadrantShell>
+              )
+            })}
+          </View>
+          <View style={{ flex: 1, flexDirection: 'column', gap: isMobileLocal ? 8 : 12 }}>
+            {QUADRANTS.slice(2).map((config) => {
+              const bucketTasks = matrixBuckets[config.bucket]
+              return (
+                <QuadrantShell
+                  key={config.bucket}
+                  config={config}
+                  isDropTarget={dropTarget === config.bucket}
+                  onDragOver={() => setDropTarget(config.bucket)}
+                  onDragLeave={() => setDropTarget(null)}
+                  onDrop={() => handleMatrixDrop(config.bucket)}
+                  count={bucketTasks.length}
+                >
+                  <ScrollView style={{ flex: 1, padding: 8 }} showsVerticalScrollIndicator={false}>
+                    {bucketTasks.length === 0 ? (
+                      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: 80 }}>
+                        <Text style={{ fontSize: 12, color: '#9CA3AF' }}>No tasks</Text>
+                      </View>
+                    ) : (
+                      bucketTasks.map((task) => {
+                        const dragRef = useCardDragRef(task, () => { draggedTask.current = task }, handleMatrixTouchDropAtPoint)
+                        return (
+                          <View key={task.id} ref={dragRef as any} style={{ paddingVertical: 2 }}>
+                            <RowInvokeContext.Provider value={invokeActions}>
+                              <PriorityTaskRow
+                                task={task}
+                                checklistId={checklistId}
+                                checklistName={checklistName}
+                                checkColor={config.color}
+                                focusedId={focusedId}
+                                isLast={false}
+                              />
+                            </RowInvokeContext.Provider>
+                          </View>
+                        )
+                      })
+                    )}
+                  </ScrollView>
+                </QuadrantShell>
+              )
+            })}
+          </View>
+        </View>
+      </View>
+    )
+  }
+
+
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
       {/* List / Calendar sub-view toggle — segmented control */}
       <View style={{ flexDirection: 'row', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 }}>
         <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderRadius: 10, padding: 2, gap: 2 }}>
-          {(['list', 'calendar'] as const).map((v) => {
+          {(['list', 'calendar', 'matrix'] as const).map((v) => {
             const active = leftView === v
             return (
               <Pressable
@@ -264,7 +359,7 @@ function ExecuteLeftPane({
                   ...(active ? { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 } : null),
                 }}
               >
-                <Text style={{ fontSize: 13, fontWeight: '600', color: active ? '#171717' : '#737373' }}>{v === 'list' ? 'List' : 'Calendar'}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: active ? '#171717' : '#737373' }}>{v === 'list' ? 'List' : v === 'calendar' ? 'Calendar' : 'Matrix'}</Text>
               </Pressable>
             )
           })}
@@ -284,7 +379,7 @@ function ExecuteLeftPane({
             <PriorityDateView groups={filteredGroups} checklistId={checklistId} isMobile={isMobile} focusedId={focusedId} setFocusedId={setFocusedId} checklistName={checklistName} getById={getById} />
           </RowInvokeContext.Provider>
         </ScrollView>
-      ) : (
+      ) : leftView === 'matrix' ? renderMatrixGrid() : (
         <View style={{ flex: 1, minHeight: 0 }}>
           <CalendarScheduleView
             tasks={calendarTasks}
